@@ -60,8 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Self-healing: If column property_code is missing, add it and retry
             if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'property_code') !== false) {
                 try {
-                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN `property_code` VARCHAR(50) NULL AFTER `area` ");
-                    // Retry the insert
+                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ");
+                    // Retry
                     $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code]);
                     header("Location: ../properties.php?success=created");
@@ -71,6 +71,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             die("Error creating property: " . $e->getMessage());
+        }
+    }
+
+    else if ($action === 'update') {
+        $id = $_POST['id'] ?? '';
+        $title = $_POST['title'] ?? '';
+        $location = $_POST['location'] ?? '';
+        $property_code = $_POST['property_code'] ?? '';
+        $description = $_POST['description'] ?? '';
+        $property_type = $_POST['property_type'] ?? 'Apartment';
+        $status = $_POST['status'] ?? 'Available';
+        $landlord_id = $_POST['landlord_id'] ?? null;
+        $area = $_POST['area'] ?? 0;
+
+        // Fetch existing images
+        $stmt = $pdo->prepare("SELECT images FROM properties WHERE id = ?");
+        $stmt->execute([$id]);
+        $existing = $stmt->fetch();
+        $imageUrls = json_decode($existing['images'] ?? '[]', true);
+
+        // Handle New Image Uploads
+        if (!empty($_FILES['property_images']['name'][0])) {
+            $uploadDir = __DIR__ . '/../uploads/properties/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+            foreach ($_FILES['property_images']['name'] as $key => $val) {
+                if ($_FILES['property_images']['error'][$key] === UPLOAD_ERR_OK) {
+                    $fileName = time() . '_' . preg_replace("/[^a-zA-Z0-9.\-_]/", "", basename($_FILES['property_images']['name'][$key]));
+                    $targetPath = $uploadDir . $fileName;
+                    if (move_uploaded_file($_FILES['property_images']['tmp_name'][$key], $targetPath)) {
+                        $imageUrls[] = 'php/uploads/properties/' . $fileName;
+                    }
+                }
+            }
+        }
+
+        $images = json_encode($imageUrls);
+
+        try {
+            $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=? WHERE id=?");
+            $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $id]);
+            header("Location: ../properties.php?success=updated");
+            exit();
+        } catch (PDOException $e) {
+            if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'property_code') !== false) {
+                $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ");
+                $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=? WHERE id=?");
+                $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $id]);
+                header("Location: ../properties.php?success=updated");
+                exit();
+            }
+            die("Error updating property: " . $e->getMessage());
         }
     }
 

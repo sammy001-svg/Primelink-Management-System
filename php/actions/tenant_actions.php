@@ -39,31 +39,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
         try {
-            // 0. Check for existing email
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            // 0. Check for existing email & Resolve Orphan status
+            $stmt = $pdo->prepare("SELECT id, role FROM users WHERE email = ?");
             $stmt->execute([$email]);
-            if ($stmt->fetch()) {
-                die("Error: This email address is already registered in the system.");
+            $existingUser = $stmt->fetch();
+            
+            if ($existingUser) {
+                $userId = $existingUser['id'];
+                // Check if already a tenant record exists
+                $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ? OR email = ?");
+                $stmt->execute([$userId, $email]);
+                if ($stmt->fetch()) {
+                    die("Error: This tenant is already registered and active in the system.");
+                }
+                // If we are here, the user exists in 'users' but NOT in 'tenants'. We proceed to link them.
+            } else {
+                $userId = generateUUID();
+                $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+                
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'tenant')");
+                $stmt->execute([$userId, $email, $hashedPassword]);
+                $pdo->commit();
             }
 
             $pdo->beginTransaction();
 
-            // 1. Create User
-            $stmt = $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'tenant')");
-            $stmt->execute([$userId, $email, $hashedPassword]);
-
-            // 2. Create Profile
-            try {
-                $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, 'tenant', ?)");
-                $stmt->execute([$userId, $fullName, $email, $phone, $address]);
-            } catch (PDOException $e) {
-                if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'address') !== false) {
-                    $pdo->exec("ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ");
-                    // Retry
+            // 2. Create/Update Profile
+            $stmt = $pdo->prepare("SELECT id FROM profiles WHERE id = ?");
+            $stmt->execute([$userId]);
+            if (!$stmt->fetch()) {
+                try {
                     $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, 'tenant', ?)");
                     $stmt->execute([$userId, $fullName, $email, $phone, $address]);
-                } else {
-                    throw $e;
+                } catch (PDOException $e) {
+                    if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'address') !== false) {
+                        $pdo->exec("ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ");
+                        $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, 'tenant', ?)");
+                        $stmt->execute([$userId, $fullName, $email, $phone, $address]);
+                    } else { throw $e; }
                 }
             }
 
@@ -77,34 +91,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $idCopyUrl = "php/uploads/ids/" . $fileName;
             }
 
-            // 4. Create Tenant Record
-            $stmt = $pdo->prepare("INSERT INTO tenants (
-                id, user_id, full_name, email, phone, status,
-                id_no, id_copy_url, marital_status, has_kids, current_address,
-                spouse_name, spouse_phone, spouse_id_no, spouse_email,
-                profession, employer_name, occupation_type, 
-                business_name, business_nature,
-                next_of_kin_name, next_of_kin_contact, next_of_kin_relationship,
-                terms_accepted_at
+            // 4. Create Tenant Record with Self-Healing
+            $tenantId = generateUUID();
+            $sql = "INSERT INTO tenants (
+                id, user_id, full_name, email, phone, status, id_no, id_copy_url, 
+                marital_status, has_kids, current_address, spouse_name, spouse_phone, 
+                spouse_id_no, spouse_email, profession, employer_name, occupation_type, 
+                business_name, business_nature, next_of_kin_name, next_of_kin_contact, 
+                next_of_kin_relationship, terms_accepted_at
             ) VALUES (
-                ?, ?, ?, ?, ?, 'Active',
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, 
-                ?, ?, ?,
-                ?, ?,
-                ?, ?, ?,
-                NOW()
-            )");
-            $stmt->execute([
-                $tenantId, $userId, $fullName, $email, $phone,
-                $idNo, $idCopyUrl, $maritalStatus, $hasKids, $address,
-                $spouseName, $spousePhone, $spouseIdNo, $spouseEmail,
-                $profession, $employerName, $occupationType,
-                $businessName, $businessNature,
-                $nokName, $nokContact, $nokRelationship
-            ]);
+                ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
+            )";
+            
+            try {
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([
+                    $tenantId, $userId, $fullName, $email, $phone, $idNo, $idCopyUrl, 
+                    $maritalStatus, $hasKids, $address, $spouseName, $spousePhone, 
+                    $spouseIdNo, $spouseEmail, $profession, $employerName, $occupationType,
+                    $businessName, $businessNature, $nokName, $nokContact, $nokRelationship
+                ]);
+            } catch (PDOException $e) {
+                // Self-healing for missing columns in tenants table
+                if ($e->getCode() == '42S22') {
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_email` VARCHAR(255) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `occupation_type` VARCHAR(100) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_name` VARCHAR(255) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_nature` VARCHAR(255) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL");
+                    $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL");
+                    
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->execute([
+                        $tenantId, $userId, $fullName, $email, $phone, $idNo, $idCopyUrl, 
+                        $maritalStatus, $hasKids, $address, $spouseName, $spousePhone, 
+                        $spouseIdNo, $spouseEmail, $profession, $employerName, $occupationType,
+                        $businessName, $businessNature, $nokName, $nokContact, $nokRelationship
+                    ]);
+                } else { throw $e; }
+            }
 
-            // 5. Auto-generate Documents Link (placeholder)
+            // 5. Auto-generate Documents Link
             $docId = generateUUID();
             $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'Lease', ?, 'Generated')");
             $stmt->execute([$docId, $tenantId, "System Generated Lease - " . $fullName, "view_lease.php?tenant_id=" . $tenantId]);
@@ -113,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: ../tenants.php?success=created");
             exit();
         } catch (Exception $e) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) $pdo->rollBack();
             die("Error creating tenant: " . $e->getMessage());
         }
     }

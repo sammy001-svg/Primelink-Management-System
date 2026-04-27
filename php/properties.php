@@ -44,6 +44,9 @@ if ($role === 'landlord') {
 }
 $properties = $stmt->fetchAll();
 
+// Fetch landlords for modals
+$lands = $pdo->query("SELECT id, full_name FROM landlords ORDER BY full_name")->fetchAll();
+
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
@@ -51,7 +54,7 @@ include __DIR__ . '/includes/sidebar.php';
 <div class="space-y-8 animate-in">
     <?php if (isset($_GET['success'])): ?>
     <div class="p-4 bg-green-500/10 border border-green-500/20 text-green-500 rounded-xl font-bold text-sm animate-in fade-in slide-in-from-top-4">
-        Property <?php echo $_GET['success'] == 'created' ? 'created' : 'deleted'; ?> successfully!
+        Property <?php echo htmlspecialchars($_GET['success']); ?> successfully!
     </div>
     <?php endif; ?>
 
@@ -61,76 +64,15 @@ include __DIR__ . '/includes/sidebar.php';
             <p class="text-slate-500 font-medium"><?php echo $role === 'landlord' ? 'Your assigned properties and unit status.' : 'View and manage your real estate portfolio.'; ?></p>
         </div>
         <?php if ($role !== 'landlord'): ?>
-        <button onclick="openModal('newPropertyModal')" class="btn-primary">
+        <button onclick="openModal('addPropertyModal')" class="btn-primary">
             + New Property
         </button>
         <?php endif; ?>
     </div>
 
-    <!-- New Property Modal -->
-    <div id="newPropertyModal" class="modal-overlay" style="display:none;">
-        <div class="modal-card" style="max-width:680px;">
-            <button onclick="closeModal('newPropertyModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
-            
-            <h2 class="text-2xl font-black mb-8">Add New Property</h2>
-            
-            <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-6">
-                <input type="hidden" name="action" value="create">
-                
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
-                    <input type="text" name="title" required placeholder="E.g. Primelink Heights" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                </div>
-
-                <div class="grid grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Location</label>
-                        <input type="text" name="location" required placeholder="E.g. Nairobi, Kilimani" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Code</label>
-                        <input type="text" name="property_code" placeholder="E.g. PL-001" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
-                    <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
-                </div>
-
-                <div class="grid grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Type</label>
-                        <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                            <option>Apartment</option>
-                            <option>Villa</option>
-                            <option>Office</option>
-                            <option>Commercial</option>
-                            <option>Shop</option>
-                        </select>
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqm)</label>
-                        <input type="number" name="area" placeholder="E.g. 150" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Images</label>
-                    <input type="file" name="property_images[]" multiple class="w-full p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400 font-bold hover:border-accent-green transition-all">
-                </div>
-
-                <button type="submit" class="btn-green w-full justify-center py-4 rounded-2xl shadow-xl shadow-accent-green/10 font-black">Register Property →</button>
-            </form>
-        </div>
-    </div>
-
     <!-- Properties Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
         <?php if (empty($properties)): ?>
-            <!-- Placeholder if no properties found -->
             <div class="col-span-full py-20 text-center glass-card">
                 <p class="text-slate-400 font-medium">No properties found. Start by adding a new one.</p>
             </div>
@@ -169,7 +111,7 @@ include __DIR__ . '/includes/sidebar.php';
                             <p class="text-[10px] font-bold truncate px-1"><?php echo htmlspecialchars((string)($prop['property_code'] ?? 'N/A')); ?></p>
                         </div>
                         <div class="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
-                            <p class="text-[8px] font-black text-slate-400 uppercase">Footprint</p>
+                            <p class="text-[8px] font-black text-slate-400 uppercase">Area</p>
                             <p class="text-[10px] font-bold"><?php echo (int)$prop['area']; ?> Sqm</p>
                         </div>
                     </div>
@@ -181,7 +123,19 @@ include __DIR__ . '/includes/sidebar.php';
                             </div>
                             <p class="text-[10px] font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($prop['landlord_name'] ?? 'Unassigned'); ?></p>
                         </div>
-                        <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="text-[10px] font-black text-accent-green uppercase tracking-widest hover:underline">Details →</a>
+                        <div class="flex items-center gap-1">
+                            <?php if ($role !== 'landlord'): ?>
+                            <button onclick='openEditPropertyModal(<?php echo json_encode($prop); ?>)' class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-blue-500" title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                            </button>
+                            <button onclick="confirmDeleteProperty('<?php echo $prop['id']; ?>', '<?php echo addslashes($prop['title']); ?>')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-red-500" title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                            </button>
+                            <?php endif; ?>
+                            <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-accent-green" title="Details">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -189,5 +143,136 @@ include __DIR__ . '/includes/sidebar.php';
         <?php endif; ?>
     </div>
 </div>
+
+<!-- Add Property Modal -->
+<div class="modal-overlay" id="addPropertyModal" style="display:none;">
+    <div class="modal-card">
+        <button onclick="closeModal('addPropertyModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-6">Add New Property</h2>
+        <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <input type="hidden" name="action" value="create">
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Title</label><input type="text" name="title" required class="form-input" placeholder="e.g. Primelink Plaza"></div>
+                <div><label class="form-label">Property Code</label><input type="text" name="property_code" required class="form-input" placeholder="e.g. PP001"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Location</label><input type="text" name="location" required class="form-input" placeholder="e.g. Nairobi, CBD"></div>
+                <div><label class="form-label">Property Type</label>
+                    <select name="property_type" class="form-input">
+                        <option value="Apartment">Apartment</option>
+                        <option value="Villa">Villa</option>
+                        <option value="Office">Office</option>
+                        <option value="Shop">Shop</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Landlord</label>
+                    <select name="landlord_id" class="form-input">
+                        <option value="">Select Landlord</option>
+                        <?php foreach ($lands as $l): ?>
+                        <option value="<?php echo $l['id']; ?>"><?php echo htmlspecialchars($l['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div><label class="form-label">Total Area (Sqm)</label><input type="number" name="area" class="form-input"></div>
+            </div>
+            <div><label class="form-label">Description</label><textarea name="description" rows="3" class="form-input"></textarea></div>
+            <div><label class="form-label">Images</label><input type="file" name="property_images[]" multiple class="form-input" accept="image/*"></div>
+            <button type="submit" class="w-full py-4 bg-accent-green text-slate-900 font-bold rounded-xl hover:opacity-90 transition-all">Save Property →</button>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Property Modal -->
+<div class="modal-overlay" id="editPropertyModal" style="display:none;">
+    <div class="modal-card">
+        <button onclick="closeModal('editPropertyModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-1">Edit Property</h2>
+        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6">Update core records</p>
+        
+        <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <input type="hidden" name="action" value="update">
+            <input type="hidden" name="id" id="edit_prop_id">
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Title</label><input type="text" name="title" id="edit_prop_title" required class="form-input"></div>
+                <div><label class="form-label">Property Code</label><input type="text" name="property_code" id="edit_prop_code" required class="form-input"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Location</label><input type="text" name="location" id="edit_prop_location" required class="form-input"></div>
+                <div><label class="form-label">Property Type</label>
+                    <select name="property_type" id="edit_prop_type" class="form-input">
+                        <option value="Apartment">Apartment</option>
+                        <option value="Villa">Villa</option>
+                        <option value="Office">Office</option>
+                        <option value="Shop">Shop</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Landlord</label>
+                    <select name="landlord_id" id="edit_prop_landlord" class="form-input">
+                        <option value="">Select Landlord</option>
+                        <?php foreach ($lands as $l): ?>
+                        <option value="<?php echo $l['id']; ?>"><?php echo htmlspecialchars($l['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div><label class="form-label">Total Area (Sqm)</label><input type="number" name="area" id="edit_prop_area" class="form-input"></div>
+            </div>
+            <div>
+                <label class="form-label">Status</label>
+                <select name="status" id="edit_prop_status" class="form-input">
+                    <option value="Available">Available</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Under Maintenance">Under Maintenance</option>
+                    <option value="Sold">Sold</option>
+                </select>
+            </div>
+            <div><label class="form-label">Description</label><textarea name="description" id="edit_prop_description" rows="3" class="form-input"></textarea></div>
+            <div><label class="form-label">Add More Images</label><input type="file" name="property_images[]" multiple class="form-input" accept="image/*"></div>
+            <button type="submit" class="w-full py-4 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 transition-colors">Apply Changes →</button>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="deletePropertyModal" style="display:none;">
+    <div class="modal-card max-w-md">
+        <h2 class="text-2xl font-black mb-2 text-red-600">Delete Property</h2>
+        <p class="text-slate-600 mb-6 font-medium">Are you sure you want to delete <span id="delete_prop_name" class="font-bold text-slate-900"></span>? This will also remove all associated units and leases.</p>
+        <form action="actions/property_actions.php" method="POST" class="flex gap-4">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="id" id="delete_prop_id">
+            <button type="button" onclick="closeModal('deletePropertyModal')" class="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl transition-all hover:bg-slate-200">Cancel</button>
+            <button type="submit" class="flex-1 py-4 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">Delete Forever</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditPropertyModal(prop) {
+    document.getElementById('edit_prop_id').value = prop.id;
+    document.getElementById('edit_prop_title').value = prop.title;
+    document.getElementById('edit_prop_code').value = prop.property_code || '';
+    document.getElementById('edit_prop_location').value = prop.location;
+    document.getElementById('edit_prop_type').value = prop.property_type;
+    document.getElementById('edit_prop_landlord').value = prop.landlord_id || '';
+    document.getElementById('edit_prop_area').value = prop.area;
+    document.getElementById('edit_prop_status').value = prop.status;
+    document.getElementById('edit_prop_description').value = prop.description;
+    openModal('editPropertyModal');
+}
+
+function confirmDeleteProperty(id, name) {
+    document.getElementById('delete_prop_id').value = id;
+    document.getElementById('delete_prop_name').innerText = name;
+    openModal('deletePropertyModal');
+}
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

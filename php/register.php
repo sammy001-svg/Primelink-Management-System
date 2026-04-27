@@ -53,78 +53,109 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($password !== $confirmPassword) {
         $error = "Passwords do not match.";
     } elseif (!empty($fullName) && !empty($email) && !empty($password)) {
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        if ($stmt->fetch()) {
-            $error = "Email already registered.";
-        } else {
-            try {
-                $pdo->beginTransaction();
+        try {
+            // 0. Check for existing email & Resolve Orphan status
+            $stmt = $pdo->prepare("SELECT id, role FROM users WHERE email = ?");
+            $stmt->execute([$email]);
+            $existingUser = $stmt->fetch();
+            
+            if ($existingUser) {
+                $userId = $existingUser['id'];
+                // Check if already has a profile/tenant record depending on role
+                if ($role === 'tenant') {
+                    $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ? OR email = ?");
+                    $stmt->execute([$userId, $email]);
+                    if ($stmt->fetch()) {
+                        $error = "This email is already registered and your account is active. Please login.";
+                    }
+                } else {
+                    // Profile check for non-tenants
+                    $stmt = $pdo->prepare("SELECT id FROM profiles WHERE id = ?");
+                    $stmt->execute([$userId]);
+                    if ($stmt->fetch()) {
+                        $error = "Email already registered. Please login.";
+                    }
+                }
                 
+                if ($error) throw new Exception($error);
+                // If we are here, user exists in 'users' but missing specific role records. We proceed.
+            } else {
                 $userId = generateUUID();
                 $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
                 
-                // Handle File Uploads
-                $idCopyUrl = null;
-                $spouseIdCopyUrl = null;
-                
-                if ($role === 'tenant') {
-                    if (isset($_FILES['id_copy']) && $_FILES['id_copy']['error'] === UPLOAD_ERR_OK) {
-                        $ext = pathinfo($_FILES['id_copy']['name'], PATHINFO_EXTENSION);
-                        $fileName = "id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
-                        move_uploaded_file($_FILES['id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
-                        $idCopyUrl = "php/uploads/ids/" . $fileName;
-                    }
-                    
-                    if (isset($_FILES['spouse_id_copy']) && $_FILES['spouse_id_copy']['error'] === UPLOAD_ERR_OK) {
-                        $ext = pathinfo($_FILES['spouse_id_copy']['name'], PATHINFO_EXTENSION);
-                        $fileName = "spouse_id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
-                        move_uploaded_file($_FILES['spouse_id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
-                        $spouseIdCopyUrl = "php/uploads/ids/" . $fileName;
-                    }
-                }
-
-                // Insert into users
+                $pdo->beginTransaction();
                 $stmt = $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, ?)");
                 $stmt->execute([$userId, $email, $hashedPassword, $role]);
+                $pdo->commit();
+            }
+
+            if ($error) throw new Exception($error);
+
+            $pdo->beginTransaction();
+            
+            // Handle File Uploads
+            $idCopyUrl = null;
+            $spouseIdCopyUrl = null;
+            
+            if ($role === 'tenant') {
+                if (isset($_FILES['id_copy']) && $_FILES['id_copy']['error'] === UPLOAD_ERR_OK) {
+                    $ext = pathinfo($_FILES['id_copy']['name'], PATHINFO_EXTENSION);
+                    $fileName = "id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
+                    if (!is_dir(__DIR__ . "/uploads/ids")) mkdir(__DIR__ . "/uploads/ids", 0777, true);
+                    move_uploaded_file($_FILES['id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
+                    $idCopyUrl = "php/uploads/ids/" . $fileName;
+                }
                 
-                // Insert into profiles (with physical address)
+                if (isset($_FILES['spouse_id_copy']) && $_FILES['spouse_id_copy']['error'] === UPLOAD_ERR_OK) {
+                    $ext = pathinfo($_FILES['spouse_id_copy']['name'], PATHINFO_EXTENSION);
+                    $fileName = "spouse_id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
+                    if (!is_dir(__DIR__ . "/uploads/ids")) mkdir(__DIR__ . "/uploads/ids", 0777, true);
+                    move_uploaded_file($_FILES['spouse_id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
+                    $spouseIdCopyUrl = "php/uploads/ids/" . $fileName;
+                }
+            }
+
+            // 1. Create Profile (Resilient)
+            $stmt = $pdo->prepare("SELECT id FROM profiles WHERE id = ?");
+            $stmt->execute([$userId]);
+            if (!$stmt->fetch()) {
                 try {
                     $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
                 } catch (PDOException $e) {
                     if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'address') !== false) {
                         $pdo->exec("ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ");
-                        // Retry
                         $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
                         $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
-                    } else {
-                        throw $e;
-                    }
+                    } else { throw $e; }
                 }
-                
-                // Insert into tenants
-                if ($role === 'tenant') {
-                    $tenantId = generateUUID();
-                    $stmt = $pdo->prepare("INSERT INTO tenants (
-                        id, user_id, full_name, email, phone, status,
-                        terms_accepted_at, signature_name,
-                        spouse_name, id_no, spouse_id_no, id_copy_url, spouse_id_copy_url,
-                        spouse_phone, marital_status, has_kids, current_address,
-                        spouse_email, alt_contact, spouse_alt_contact,
-                        profession, spouse_profession, employer_name, spouse_employer_name,
-                        occupation_type, business_name, business_nature, business_location,
-                        next_of_kin_name, next_of_kin_contact, next_of_kin_relationship
-                    ) VALUES (
-                        ?, ?, ?, ?, ?, 'Pending',
-                        NOW(), ?,
-                        ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, ?, ?
-                    )");
+            }
+            
+            // 2. Create Tenant Record (Self-Healing)
+            if ($role === 'tenant') {
+                $tenantId = generateUUID();
+                $tenantSql = "INSERT INTO tenants (
+                    id, user_id, full_name, email, phone, status,
+                    terms_accepted_at, signature_name,
+                    spouse_name, id_no, spouse_id_no, id_copy_url, spouse_id_copy_url,
+                    spouse_phone, marital_status, has_kids, current_address,
+                    spouse_email, alt_contact, spouse_alt_contact,
+                    profession, spouse_profession, employer_name, spouse_employer_name,
+                    occupation_type, business_name, business_nature, business_location,
+                    next_of_kin_name, next_of_kin_contact, next_of_kin_relationship
+                ) VALUES (
+                    ?, ?, ?, ?, ?, 'Pending',
+                    NOW(), ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?
+                )";
+
+                try {
+                    $stmt = $pdo->prepare($tenantSql);
                     $stmt->execute([
                         $tenantId, $userId, $fullName, $email, $phone,
                         $fullName, // Signature Name
@@ -135,31 +166,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $occupationType, $businessName, $businessNature, $businessLocation,
                         $nokName, $nokContact, $nokRelationship
                     ]);
-
-                    // AUTOMATIC DOCUMENT GENERATION
-                    $now = date('Y-m-d H:i:s');
-                    
-                    // 1. Lease Agreement Record
-                    $leaseDocId = generateUUID();
-                    $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'Lease', ?, 'Generated')");
-                    $stmt->execute([$leaseDocId, $tenantId, "Signed Lease Agreement - " . $fullName, "view_lease.php?tenant_id=" . $tenantId]);
-
-                    // 2. ID Document Record
-                    if ($idCopyUrl) {
-                        $idDocId = generateUUID();
-                        $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'ID', ?, 'Upload')");
-                        $stmt->execute([$idDocId, $tenantId, "ID Verification Copy - " . $fullName, $idCopyUrl]);
-                    }
+                } catch (PDOException $e) {
+                    if ($e->getCode() == '42S22') {
+                        // Self-healing
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_email` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `occupation_type` VARCHAR(100) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_nature` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL");
+                        
+                        $stmt = $pdo->prepare($tenantSql);
+                        $stmt->execute([
+                            $tenantId, $userId, $fullName, $email, $phone,
+                            $fullName, // Signature Name
+                            $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
+                            $spousePhone, $maritalStatus, $hasKids, $address,
+                            $spouseEmail, $altContact, $spouseAltContact,
+                            $profession, $spouseProfession, $employerName, $spouseEmployerName,
+                            $occupationType, $businessName, $businessNature, $businessLocation,
+                            $nokName, $nokContact, $nokRelationship
+                        ]);
+                    } else { throw $e; }
                 }
-                
-                $pdo->commit();
-                $suffix = $role === 'tenant' ? 'T' : ($role === 'utility' ? 'U' : 'X');
-                $generatedId = "PRM-" . substr($userId, 0, 4) . "-" . $suffix;
-                $success = true;
-            } catch (Exception $e) {
-                $pdo->rollBack();
-                $error = "Registration failed: " . $e->getMessage();
+
+                // AUTOMATIC DOCUMENT GENERATION
+                $leaseDocId = generateUUID();
+                $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'Lease', ?, 'Generated')");
+                $stmt->execute([$leaseDocId, $tenantId, "Signed Lease Agreement - " . $fullName, "view_lease.php?tenant_id=" . $tenantId]);
+
+                if ($idCopyUrl) {
+                    $idDocId = generateUUID();
+                    $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'ID', ?, 'Upload')");
+                    $stmt->execute([$idDocId, $tenantId, "ID Verification Copy - " . $fullName, $idCopyUrl]);
+                }
             }
+            
+            $pdo->commit();
+            $suffix = $role === 'tenant' ? 'T' : ($role === 'utility' ? 'U' : 'X');
+            $generatedId = "PRM-" . substr($userId, 0, 4) . "-" . $suffix;
+            $success = true;
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $error = "Registration failed: " . $e->getMessage();
         }
     } else {
         $error = "Please fill in all required fields.";
