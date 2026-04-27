@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Redirect root to php/ directory
+RewriteRule ^$ php/index.php [L]
+
+# Map everything else to the php folder if it doesn't exist in the root
+RewriteCond %{REQUEST_URI} !^/php/
+RewriteRule ^(.*)$ php/$1 [L]
