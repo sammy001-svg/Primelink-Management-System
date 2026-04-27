@@ -98,6 +98,9 @@ $migrations = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     // Add address to profiles
     "ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ",
+    // Expand units table
+    "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `images` JSON NULL AFTER `status` ",
+    "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `category` VARCHAR(100) NULL AFTER `images` ",
 ];
 
 $results = [];
