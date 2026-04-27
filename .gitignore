@@ -1,5 +1,6 @@
 # Database & Environment
 php/.env
+.env.local
 php/config/db.php (only ignore if it contains production credentials, but we use .env)
 # Actually, let's just ignore .env and provide a .env.example
 
