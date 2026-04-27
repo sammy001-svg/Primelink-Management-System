@@ -6,14 +6,14 @@ $pageTitle = "Tenant Payments & Invoices";
 $user = getCurrentUser($pdo);
 $searchTerm = $_GET['search'] ?? '';
 
-// Fetch all tenants with their active leases
+// Fetch all tenants (with their active leases if any)
 $tenants = $pdo->query("
     SELECT t.id, t.full_name, t.phone, u.unit_number, p.title as property_title, l.monthly_rent
     FROM tenants t
-    JOIN leases l ON t.id = l.tenant_id
-    JOIN units u ON l.unit_id = u.id
-    JOIN properties p ON u.property_id = p.id
-    WHERE l.status = 'Active'
+    LEFT JOIN leases l ON t.id = l.tenant_id AND l.status = 'Active'
+    LEFT JOIN units u ON l.unit_id = u.id
+    LEFT JOIN properties p ON u.property_id = p.id
+    WHERE t.status = 'Active'
     ORDER BY t.full_name
 ")->fetchAll();
 

@@ -54,14 +54,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Passwords do not match.";
     } elseif (!empty($fullName) && !empty($email) && !empty($password)) {
         try {
-            // 0. Check for existing email & Resolve Orphan status
+            // 0. PRE-FLIGHT: Self-Healing (Outside transaction to avoid implicit commit)
+            if ($role === 'tenant') {
+                try {
+                    $pdo->query("SELECT id_no FROM tenants LIMIT 1");
+                } catch (PDOException $e) {
+                    if ($e->getCode() == '42S22') {
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_no` VARCHAR(100) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_copy_url` TEXT NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `terms_accepted_at` TIMESTAMP NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `marital_status` VARCHAR(50) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `has_kids` TINYINT(1) DEFAULT 0");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `current_address` TEXT NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_phone` VARCHAR(50) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_id_no` VARCHAR(100) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_email` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `profession` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `employer_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `occupation_type` VARCHAR(100) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_nature` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL");
+                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL");
+                    }
+                }
+            }
+
+            // 1. Check for existing email & Resolve Orphan status
             $stmt = $pdo->prepare("SELECT id, role FROM users WHERE email = ?");
             $stmt->execute([$email]);
             $existingUser = $stmt->fetch();
             
             if ($existingUser) {
                 $userId = $existingUser['id'];
-                // Check if already has a profile/tenant record depending on role
                 if ($role === 'tenant') {
                     $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ? OR email = ?");
                     $stmt->execute([$userId, $email]);
@@ -69,16 +96,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $error = "This email is already registered and your account is active. Please login.";
                     }
                 } else {
-                    // Profile check for non-tenants
                     $stmt = $pdo->prepare("SELECT id FROM profiles WHERE id = ?");
                     $stmt->execute([$userId]);
                     if ($stmt->fetch()) {
                         $error = "Email already registered. Please login.";
                     }
                 }
-                
                 if ($error) throw new Exception($error);
-                // If we are here, user exists in 'users' but missing specific role records. We proceed.
             } else {
                 $userId = generateUUID();
                 $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
@@ -88,8 +112,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$userId, $email, $hashedPassword, $role]);
                 $pdo->commit();
             }
-
-            if ($error) throw new Exception($error);
 
             $pdo->beginTransaction();
             
@@ -115,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // 1. Create Profile (Resilient)
+            // 1. Create Profile
             $stmt = $pdo->prepare("SELECT id FROM profiles WHERE id = ?");
             $stmt->execute([$userId]);
             if (!$stmt->fetch()) {
@@ -123,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
                 } catch (PDOException $e) {
-                    if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'address') !== false) {
+                    if ($e->getCode() == '42S22') {
                         $pdo->exec("ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ");
                         $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
                         $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
@@ -131,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            // 2. Create Tenant Record (Self-Healing)
+            // 2. Create Tenant Record
             if ($role === 'tenant') {
                 $tenantId = generateUUID();
                 $tenantSql = "INSERT INTO tenants (
@@ -153,54 +175,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ?, ?, ?, ?,
                     ?, ?, ?
                 )";
-
-                try {
-                    $stmt = $pdo->prepare($tenantSql);
-                    $stmt->execute([
-                        $tenantId, $userId, $fullName, $email, $phone,
-                        $fullName, // Signature Name
-                        $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
-                        $spousePhone, $maritalStatus, $hasKids, $address,
-                        $spouseEmail, $altContact, $spouseAltContact,
-                        $profession, $spouseProfession, $employerName, $spouseEmployerName,
-                        $occupationType, $businessName, $businessNature, $businessLocation,
-                        $nokName, $nokContact, $nokRelationship
-                    ]);
-                } catch (PDOException $e) {
-                    if ($e->getCode() == '42S22') {
-                        // Self-healing
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_no` VARCHAR(100) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_copy_url` TEXT NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `terms_accepted_at` TIMESTAMP NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `marital_status` VARCHAR(50) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `has_kids` TINYINT(1) DEFAULT 0");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `current_address` TEXT NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_name` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_phone` VARCHAR(50) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_id_no` VARCHAR(100) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_email` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `profession` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `employer_name` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `occupation_type` VARCHAR(100) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_name` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_nature` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL");
-                        $pdo->exec("ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL");
-                        
-                        $stmt = $pdo->prepare($tenantSql);
-                        $stmt->execute([
-                            $tenantId, $userId, $fullName, $email, $phone,
-                            $fullName, // Signature Name
-                            $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
-                            $spousePhone, $maritalStatus, $hasKids, $address,
-                            $spouseEmail, $altContact, $spouseAltContact,
-                            $profession, $spouseProfession, $employerName, $spouseEmployerName,
-                            $occupationType, $businessName, $businessNature, $businessLocation,
-                            $nokName, $nokContact, $nokRelationship
-                        ]);
-                    } else { throw $e; }
-                }
+                $stmt = $pdo->prepare($tenantSql);
+                $stmt->execute([
+                    $tenantId, $userId, $fullName, $email, $phone,
+                    $fullName, $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
+                    $spousePhone, $maritalStatus, $hasKids, $address,
+                    $spouseEmail, $altContact, $spouseAltContact,
+                    $profession, $spouseProfession, $employerName, $spouseEmployerName,
+                    $occupationType, $businessName, $businessNature, $businessLocation,
+                    $nokName, $nokContact, $nokRelationship
+                ]);
 
                 // AUTOMATIC DOCUMENT GENERATION
                 $leaseDocId = generateUUID();
@@ -214,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            $pdo->commit();
+            if ($pdo->inTransaction()) $pdo->commit();
             $suffix = $role === 'tenant' ? 'T' : ($role === 'utility' ? 'U' : 'X');
             $generatedId = "PRM-" . substr($userId, 0, 4) . "-" . $suffix;
             $success = true;

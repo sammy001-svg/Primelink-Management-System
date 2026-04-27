@@ -32,8 +32,19 @@ if ($role === 'landlord') {
     $stmt->execute([$landlordId]);
     $tenants = $stmt->fetchAll();
     $canAddTenant = false;
-} else {
     requireRole(['staff']);
+    
+    // AUTO-REPAIR: Ensure all users with tenant role have a record in the tenants table
+    // This fixes "registered but invisible" tenants on cPanel
+    $pdo->exec("
+        INSERT IGNORE INTO tenants (id, user_id, full_name, email, phone, status, created_at)
+        SELECT u.id, u.id, p.full_name, u.email, p.phone, 'Active', NOW()
+        FROM users u
+        JOIN profiles p ON u.id = p.id
+        WHERE u.role = 'tenant'
+        AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.user_id = u.id)
+    ");
+
     $stmt = $pdo->query("SELECT t.*, u.id as user_uuid FROM tenants t LEFT JOIN profiles u ON t.user_id = u.id ORDER BY t.created_at DESC");
     $tenants = $stmt->fetchAll();
     $canAddTenant = true;
