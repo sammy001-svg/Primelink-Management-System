@@ -94,9 +94,10 @@ $migrations = [
         `category` ENUM('Lease', 'ID', 'Termination', 'Other') NOT NULL,
         `file_url` TEXT NOT NULL,
         `file_size` VARCHAR(50),
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`) ON DELETE CASCADE
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // Add address to profiles
+    "ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ",
 ];
 
 $results = [];
