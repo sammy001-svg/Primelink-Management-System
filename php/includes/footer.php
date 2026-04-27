@@ -60,15 +60,12 @@ function closeMobileDrawer(e) {
 }
 
 // ========== SUB-MENU TOGGLE ==========
-function toggleSubMenu(id, forceState = null) {
-    const el = document.getElementById(id);
-    const trigger = event.currentTarget;
-    const icon = trigger.querySelector('svg:last-child');
-    
-    const isHidden = el.classList.contains('hidden');
-    const targetState = (forceState !== null) ? !forceState : isHidden;
+function toggleSubMenu(btn) {
+    const el = btn.nextElementSibling; // the dropdown div immediately after the button
+    if (!el) return;
+    const icon = btn.querySelector('svg:last-child');
 
-    if (!targetState) {
+    if (el.classList.contains('hidden')) {
         el.classList.remove('hidden');
         if (icon) icon.style.transform = 'rotate(180deg)';
     } else {

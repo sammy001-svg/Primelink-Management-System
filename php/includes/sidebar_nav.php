@@ -87,20 +87,16 @@ if ($user_role === 'tenant') {
                 }
             }
         ?>
-        <div class="space-y-1" 
-             <?php if ($hasSubLinks): ?> 
-                onmouseenter="toggleSubMenu('menu-<?php echo md5($link['label']); ?>', true)" 
-                onmouseleave="toggleSubMenu('menu-<?php echo md5($link['label']); ?>', false)" 
-             <?php endif; ?>>
+        <div class="space-y-1">
             <?php if ($hasSubLinks): ?>
-                <button onclick="toggleSubMenu('menu-<?php echo md5($link['label']); ?>')" class="w-full sidebar-link <?php echo $isParentActive ? 'active' : ''; ?> flex justify-between items-center group">
+                <button onclick="toggleSubMenu(this)" class="w-full sidebar-link <?php echo $isParentActive ? 'active' : ''; ?> flex justify-between items-center group">
                     <div class="flex items-center gap-3">
                         <span class="sidebar-icon-wrap <?php echo $isParentActive ? 'text-white dark:text-slate-900' : 'text-slate-400'; ?>"><?php echo $link['icon']; ?></span>
                         <?php echo $link['label']; ?>
                     </div>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="transition-transform <?php echo $isParentActive ? 'rotate-180' : ''; ?>"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
-                <div id="menu-<?php echo md5($link['label']); ?>" class="<?php echo $isParentActive ? '' : 'hidden'; ?> pl-11 pr-4 space-y-1 py-1">
+                <div class="<?php echo $isParentActive ? '' : 'hidden'; ?> pl-11 pr-4 space-y-1 py-1">
                     <?php foreach ($link['sub_links'] as $sub):
                         $isSubActive = $current_page === $sub['href'];
                     ?>

@@ -51,8 +51,9 @@ CREATE TABLE IF NOT EXISTS properties (
     property_type ENUM('Apartment', 'Villa', 'Single Room', 'Shop', 'Office', 'Land', 'Other') DEFAULT 'Apartment',
     status ENUM('Available', 'Under Maintenance', 'Inactive', 'Sold') DEFAULT 'Available',
     area DECIMAL(10, 2),
-    images JSON, -- Replacing TEXT[]
-    amenities JSON, -- Replacing TEXT[]
+    property_code VARCHAR(50) NULL,
+    images JSON,
+    amenities JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (landlord_id) REFERENCES landlords(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -173,11 +174,12 @@ CREATE TABLE IF NOT EXISTS maintenance_requests (
     FOREIGN KEY (assigned_staff_id) REFERENCES employees(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Transactions
+-- 176. Transactions (Updated with invoice_id)
 CREATE TABLE IF NOT EXISTS transactions (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(36),
     lease_id VARCHAR(36),
+    invoice_id VARCHAR(36), -- Link to specific invoice
     amount DECIMAL(15, 2) NOT NULL,
     transaction_type ENUM('Rent', 'Deposit', 'Maintenance', 'Penalty', 'Water', 'Service Charge', 'Electricity Token', 'Water Token') NOT NULL,
     status ENUM('Paid', 'Pending', 'Failed', 'Overdue') DEFAULT 'Pending',
@@ -187,6 +189,70 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL,
     FOREIGN KEY (lease_id) REFERENCES leases(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 191. Landlord Payouts
+CREATE TABLE IF NOT EXISTS landlord_payouts (
+    id VARCHAR(36) PRIMARY KEY,
+    landlord_id VARCHAR(36),
+    amount DECIMAL(15, 2) NOT NULL,
+    payout_date DATE NOT NULL,
+    status ENUM('Pending', 'Completed', 'Failed') DEFAULT 'Pending',
+    reference_no VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (landlord_id) REFERENCES landlords(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 202. Expenses
+CREATE TABLE IF NOT EXISTS expenses (
+    id VARCHAR(36) PRIMARY KEY,
+    property_id VARCHAR(36),
+    description VARCHAR(255) NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    category ENUM('Maintenance', 'Utilities', 'Salaries', 'Taxes', 'Marketing', 'Legal', 'Other') DEFAULT 'Other',
+    expense_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 214. Landlord Advances
+CREATE TABLE IF NOT EXISTS landlord_advances (
+    id VARCHAR(36) PRIMARY KEY,
+    landlord_id VARCHAR(36),
+    amount DECIMAL(15, 2) NOT NULL,
+    purpose TEXT,
+    status ENUM('Pending', 'Approved', 'Rejected', 'Deducted') DEFAULT 'Pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMP NULL,
+    is_deducted TINYINT(1) DEFAULT 0,
+    FOREIGN KEY (landlord_id) REFERENCES landlords(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 227. Landlord Loans
+CREATE TABLE IF NOT EXISTS landlord_loans (
+    id VARCHAR(36) PRIMARY KEY,
+    landlord_id VARCHAR(36),
+    principal_amount DECIMAL(15, 2) NOT NULL,
+    interest_rate DECIMAL(5, 2) DEFAULT 0,
+    total_repayable DECIMAL(15, 2) NOT NULL,
+    balance_remaining DECIMAL(15, 2),
+    status ENUM('Active', 'Cleared', 'Defaulted') DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (landlord_id) REFERENCES landlords(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 240. Invoices
+CREATE TABLE IF NOT EXISTS invoices (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id VARCHAR(36),
+    lease_id VARCHAR(36),
+    amount DECIMAL(15, 2) NOT NULL,
+    due_date DATE NOT NULL,
+    status ENUM('Unpaid', 'Partially Paid', 'Paid', 'Overdue', 'Cancelled') DEFAULT 'Unpaid',
+    invoice_type VARCHAR(100) DEFAULT 'Rent',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    FOREIGN KEY (lease_id) REFERENCES leases(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Utility Tokens

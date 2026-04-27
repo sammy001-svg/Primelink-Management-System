@@ -115,16 +115,76 @@ CREATE TABLE IF NOT EXISTS maintenance_requests (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Transactions
+-- Transactions (Updated with invoice_id)
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
     lease_id UUID REFERENCES leases(id) ON DELETE SET NULL,
+    invoice_id UUID, -- Link to specific invoice
     amount NUMERIC(15, 2) NOT NULL,
     transaction_type TEXT CHECK (transaction_type IN ('Rent', 'Deposit', 'Maintenance', 'Penalty', 'Water', 'Service Charge', 'Electricity Token', 'Water Token')) NOT NULL,
     status TEXT CHECK (status IN ('Paid', 'Pending', 'Failed')) DEFAULT 'Pending',
     payment_method TEXT,
     transaction_date DATE DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Landlord Payouts
+CREATE TABLE IF NOT EXISTS landlord_payouts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    landlord_id UUID REFERENCES landlords(id) ON DELETE CASCADE,
+    amount NUMERIC(15, 2) NOT NULL,
+    payout_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    status TEXT CHECK (status IN ('Pending', 'Completed', 'Failed')) DEFAULT 'Pending',
+    reference_no TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Expenses
+CREATE TABLE IF NOT EXISTS expenses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    property_id UUID REFERENCES properties(id) ON DELETE SET NULL,
+    description TEXT NOT NULL,
+    amount NUMERIC(15, 2) NOT NULL,
+    category TEXT CHECK (category IN ('Maintenance', 'Utilities', 'Salaries', 'Taxes', 'Marketing', 'Legal', 'Other')) DEFAULT 'Other',
+    expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Landlord Advances
+CREATE TABLE IF NOT EXISTS landlord_advances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    landlord_id UUID REFERENCES landlords(id) ON DELETE CASCADE,
+    amount NUMERIC(15, 2) NOT NULL,
+    purpose TEXT,
+    status TEXT CHECK (status IN ('Pending', 'Approved', 'Rejected', 'Deducted')) DEFAULT 'Pending',
+    requested_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMP WITH TIME ZONE,
+    is_deducted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (landlord_id) REFERENCES landlords(id) ON DELETE CASCADE
+);
+
+-- Landlord Loans
+CREATE TABLE IF NOT EXISTS landlord_loans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    landlord_id UUID REFERENCES landlords(id) ON DELETE CASCADE,
+    principal_amount NUMERIC(15, 2) NOT NULL,
+    interest_rate NUMERIC(5, 2) DEFAULT 0,
+    total_repayable NUMERIC(15, 2) NOT NULL,
+    balance_remaining NUMERIC(15, 2),
+    status TEXT CHECK (status IN ('Active', 'Cleared', 'Defaulted')) DEFAULT 'Active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Invoices
+CREATE TABLE IF NOT EXISTS invoices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    lease_id UUID REFERENCES leases(id) ON DELETE CASCADE,
+    amount NUMERIC(15, 2) NOT NULL,
+    due_date DATE NOT NULL,
+    status TEXT CHECK (status IN ('Unpaid', 'Partially Paid', 'Paid', 'Overdue', 'Cancelled')) DEFAULT 'Unpaid',
+    invoice_type TEXT DEFAULT 'Rent',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
