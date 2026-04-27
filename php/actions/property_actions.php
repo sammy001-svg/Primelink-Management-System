@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Handle Image Uploads
         $imageUrls = [];
         if (!empty($_FILES['property_images']['name'][0])) {
-            $uploadDir = __DIR__ . '/../../uploads/properties/';
+            $uploadDir = __DIR__ . '/../uploads/properties/';
             if (!is_dir($uploadDir)) {
                 mkdir($uploadDir, 0777, true);
             }

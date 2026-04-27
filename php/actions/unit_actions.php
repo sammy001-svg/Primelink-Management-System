@@ -21,7 +21,7 @@ if ($action === 'create') {
     // Handle Image Uploads
     $imageUrls = [];
     if (!empty($_FILES['unit_images']['name'][0])) {
-        $uploadDir = __DIR__ . '/../../uploads/units/';
+        $uploadDir = __DIR__ . '/../uploads/units/';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0777, true);
         }
@@ -84,7 +84,7 @@ else if ($action === 'update') {
 
     // Handle New Image Uploads
     if (!empty($_FILES['unit_images']['name'][0])) {
-        $uploadDir = __DIR__ . '/../../uploads/units/';
+        $uploadDir = __DIR__ . '/../uploads/units/';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0777, true);
         }

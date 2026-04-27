@@ -89,8 +89,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$userId, $email, $hashedPassword, $role]);
                 
                 // Insert into profiles (with physical address)
-                $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
+                } catch (PDOException $e) {
+                    if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'address') !== false) {
+                        $pdo->exec("ALTER TABLE `profiles` ADD COLUMN IF NOT EXISTS `address` TEXT NULL AFTER `phone` ");
+                        // Retry
+                        $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role, address) VALUES (?, ?, ?, ?, ?, ?)");
+                        $stmt->execute([$userId, $fullName, $email, $phone, $role, $address]);
+                    } else {
+                        throw $e;
+                    }
+                }
                 
                 // Insert into tenants
                 if ($role === 'tenant') {
