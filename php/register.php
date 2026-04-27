@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $tenantId, $userId, $fullName, $email, $phone,
                         $fullName, // Signature Name
                         $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
-                        $spousePhone, $maritalStatus, $hasKids, $currentAddress,
+                        $spousePhone, $maritalStatus, $hasKids, $address,
                         $spouseEmail, $altContact, $spouseAltContact,
                         $profession, $spouseProfession, $employerName, $spouseEmployerName,
                         $occupationType, $businessName, $businessNature, $businessLocation,
