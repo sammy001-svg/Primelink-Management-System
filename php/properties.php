@@ -76,30 +76,31 @@ include __DIR__ . '/includes/sidebar.php';
             
             <h2 class="text-2xl font-black mb-8">Add New Property</h2>
             
-            <form action="actions/property_actions.php" method="POST" class="space-y-6">
+            <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-6">
                 <input type="hidden" name="action" value="create">
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
-                        <input type="text" name="title" required placeholder="E.g. Sapphire Residences" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
+                    <input type="text" name="title" required placeholder="E.g. Primelink Heights" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Location</label>
-                        <input type="text" name="location" required placeholder="E.g. Westlands, Nairobi" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <input type="text" name="location" required placeholder="E.g. Nairobi, Kilimani" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Code</label>
+                        <input type="text" name="property_code" placeholder="E.g. PL-001" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
-                    <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
+                    <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Price (KSh)</label>
-                        <input type="number" name="price" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    </div>
+                <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Type</label>
                         <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
@@ -107,15 +108,21 @@ include __DIR__ . '/includes/sidebar.php';
                             <option>Villa</option>
                             <option>Office</option>
                             <option>Commercial</option>
+                            <option>Shop</option>
                         </select>
                     </div>
                     <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqft)</label>
-                        <input type="number" name="area" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqm)</label>
+                        <input type="number" name="area" placeholder="E.g. 150" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
 
-                <button type="submit" class="btn-green w-full justify-center py-4">Save Property</button>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Images</label>
+                    <input type="file" name="property_images[]" multiple class="w-full p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400 font-bold hover:border-accent-green transition-all">
+                </div>
+
+                <button type="submit" class="btn-green w-full justify-center py-4 rounded-2xl shadow-xl shadow-accent-green/10 font-black">Register Property →</button>
             </form>
         </div>
     </div>
@@ -129,40 +136,41 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
         <?php else: ?>
             <?php foreach ($properties as $prop): ?>
-            <div class="glass-card group overflow-hidden">
-                <div class="relative h-48">
+            <div class="glass-card group overflow-hidden hover:ring-2 hover:ring-accent-green/30 transition-all duration-300">
+                <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="block relative h-48 overflow-hidden">
                     <?php 
                     $imgs = json_decode($prop['images'], true);
                     $imgUrl = !empty($imgs) ? $imgs[0] : 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?q=80&w=800';
                     ?>
-                    <img src="<?php echo htmlspecialchars($imgUrl); ?>" alt="Property" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+                    <img src="<?php echo htmlspecialchars((string)($imgUrl ?? '')); ?>" alt="Property" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700">
+                    <div class="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
                     <div class="absolute top-4 right-4">
                         <span class="px-3 py-1 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-accent-green shadow-lg">
-                            <?php echo htmlspecialchars($prop['status']); ?>
+                            <?php echo htmlspecialchars((string)($prop['status'] ?? 'Active')); ?>
                         </span>
                     </div>
-                </div>
+                </a>
                 <div class="p-6 space-y-4">
-                    <div>
-                        <h3 class="text-lg font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($prop['title']); ?></h3>
-                        <p class="text-xs text-slate-500 flex items-center gap-1">
+                    <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="block group/link">
+                        <h3 class="text-lg font-black text-slate-900 dark:text-white group-hover/link:text-accent-green transition-colors"><?php echo htmlspecialchars((string)($prop['title'] ?? '')); ?></h3>
+                        <p class="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-                            <?php echo htmlspecialchars($prop['location']); ?>
+                            <?php echo htmlspecialchars((string)($prop['location'] ?? '')); ?>
                         </p>
-                    </div>
+                    </a>
                     
                     <div class="grid grid-cols-3 gap-2">
                         <div class="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
                             <p class="text-[8px] font-black text-slate-400 uppercase">Type</p>
-                            <p class="text-[10px] font-bold"><?php echo htmlspecialchars($prop['property_type']); ?></p>
+                            <p class="text-[10px] font-bold"><?php echo htmlspecialchars((string)($prop['property_type'] ?? '')); ?></p>
                         </div>
                         <div class="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
-                            <p class="text-[8px] font-black text-slate-400 uppercase">Price</p>
-                            <p class="text-[10px] font-bold">KSh <?php echo number_format($prop['price']); ?></p>
+                            <p class="text-[8px] font-black text-slate-400 uppercase">Code</p>
+                            <p class="text-[10px] font-bold truncate px-1"><?php echo htmlspecialchars((string)($prop['property_code'] ?? 'N/A')); ?></p>
                         </div>
                         <div class="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
-                            <p class="text-[8px] font-black text-slate-400 uppercase">Area</p>
-                            <p class="text-[10px] font-bold"><?php echo $prop['area']; ?> sqft</p>
+                            <p class="text-[8px] font-black text-slate-400 uppercase">Footprint</p>
+                            <p class="text-[10px] font-bold"><?php echo (int)$prop['area']; ?> Sqm</p>
                         </div>
                     </div>
 

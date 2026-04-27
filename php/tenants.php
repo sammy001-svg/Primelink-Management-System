@@ -64,40 +64,143 @@ include __DIR__ . '/includes/sidebar.php';
 
     <!-- New Tenant Modal -->
     <div id="newTenantModal" class="modal-overlay" style="display:none;">
-        <div class="modal-card">
-            <button onclick="closeModal('newTenantModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        <div class="modal-card max-w-2xl px-10 py-12 h-[90vh] overflow-y-auto">
+            <button onclick="closeModal('newTenantModal')" class="absolute top-6 right-6 text-slate-400 hover:text-slate-900 transition-all transform hover:rotate-90">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
             
-            <h2 class="text-2xl font-black mb-8">Register New Tenant</h2>
+            <h2 class="text-3xl font-black mb-10 tracking-tight">Register New Tenant</h2>
             
-            <form action="actions/tenant_actions.php" method="POST" class="space-y-6">
+            <form action="actions/tenant_actions.php" method="POST" enctype="multipart/form-data" class="space-y-10">
                 <input type="hidden" name="action" value="create">
                 
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Full Name</label>
-                    <input type="text" name="full_name" required placeholder="John Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                <!-- Section 1: Basic Info -->
+                <div class="space-y-6">
+                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">1. Profile Details</h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Full Name</label>
+                            <input type="text" name="full_name" required placeholder="John Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Phone Number</label>
+                            <input type="text" name="phone" placeholder="+254 7XX..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Residential Address</label>
+                        <input type="text" name="address" required placeholder="Estate, Apartment, City" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
                 </div>
 
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Email Address</label>
-                    <input type="email" name="email" required placeholder="john@example.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                <!-- Section 2: Identity -->
+                <div class="space-y-6">
+                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">2. Identity & Family</h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">ID Number</label>
+                            <input type="text" name="id_no" placeholder="3XXXXXXX" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">ID Copy Upload</label>
+                            <input type="file" name="id_copy" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/50 rounded-2xl text-xs font-bold text-slate-400">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Marital Status</label>
+                            <select name="marital_status" onchange="toggleAdminSpouseFields(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                                <option value="Single">Single</option>
+                                <option value="Married">Married</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-3 px-2 pt-6">
+                            <input type="checkbox" name="has_kids" id="admin_has_kids" class="w-5 h-5 accent-green rounded">
+                            <label for="admin_has_kids" class="text-sm font-bold text-slate-500">Has Children</label>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Phone Number</label>
-                    <input type="text" name="phone" placeholder="+254..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                <!-- Spouse Details (Conditional) -->
+                <div id="admin-spouse-fields" class="hidden space-y-6 pt-4 animate-in slide-in-from-top-4">
+                    <h3 class="text-xs font-black text-accent-orange uppercase tracking-widest border-b border-slate-100 pb-2">Spouse Information</h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2 col-span-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse Name</label>
+                            <input type="text" name="spouse_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse Phone</label>
+                            <input type="text" name="spouse_phone" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse ID</label>
+                            <input type="text" name="spouse_id_no" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                        </div>
+                    </div>
                 </div>
 
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
-                    <input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                <!-- Section 3: Professional -->
+                <div class="space-y-6">
+                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">3. Professional & Business</h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Profession</label>
+                            <input type="text" name="profession" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Employer</label>
+                            <input type="text" name="employer_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Occupation Type</label>
+                        <select name="occupation_type" onchange="toggleAdminBusinessFields(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="Residential">Residential</option>
+                            <option value="Commercial">Commercial</option>
+                        </select>
+                    </div>
+                    <div id="admin-business-fields" class="hidden grid grid-cols-2 gap-6 pt-4 animate-in slide-in-from-bottom-4">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Business Name</label>
+                            <input type="text" name="business_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Nature of Business</label>
+                            <input type="text" name="business_nature" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                    </div>
                 </div>
 
-                <button type="submit" class="btn-green w-full justify-center py-4">Register Tenant</button>
+                <!-- Section 4: Login -->
+                <div class="space-y-6">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest border-b border-slate-900/10 pb-2">4. Access Credentials</h3>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Login Email</label>
+                        <input type="email" name="email" required placeholder="john@example.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
+                        <input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                    </div>
+                </div>
+
+                <div class="pt-6">
+                    <button type="submit" class="btn-green w-full justify-center py-5 rounded-2xl shadow-xl shadow-accent-green/10 font-black italic tracking-tighter">Execute Tenant Registry →</button>
+                    <p class="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest mt-4">Automated digital lease will be generated upon submission</p>
+                </div>
             </form>
         </div>
     </div>
+
+    <script>
+        function toggleAdminSpouseFields(status) {
+            document.getElementById('admin-spouse-fields').classList.toggle('hidden', status !== 'Married');
+        }
+        function toggleAdminBusinessFields(type) {
+            document.getElementById('admin-business-fields').classList.toggle('hidden', type !== 'Commercial');
+        }
+    </script>
 
     <!-- Search/Filter Bar -->
     <div class="glass-card p-4 flex gap-4">
@@ -139,18 +242,18 @@ include __DIR__ . '/includes/sidebar.php';
                                     <?php echo substr($t['full_name'], 0, 1); ?>
                                 </div>
                                 <div>
-                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($t['full_name']); ?></p>
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase">PRM-<?php echo substr($t['id'], 0, 4); ?></p>
+                                    <a href="tenant_details.php?id=<?php echo $t['id']; ?>" class="text-sm font-black text-slate-900 dark:text-white hover:text-accent-green transition-colors"><?php echo htmlspecialchars((string)($t['full_name'] ?? '')); ?></a>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">PRM-<?php echo substr((string)($t['id'] ?? ''), 0, 4); ?></p>
                                 </div>
                             </div>
                         </td>
                         <td class="p-6">
-                            <p class="text-sm font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($t['email']); ?></p>
-                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars($t['phone'] ?: 'No phone'); ?></p>
+                            <p class="text-sm font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars((string)($t['email'] ?? '')); ?></p>
+                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars((string)(($t['phone'] ?? '') ?: 'No phone')); ?></p>
                         </td>
                         <td class="p-6">
                             <span class="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                <?php echo htmlspecialchars($t['status']); ?>
+                                <?php echo htmlspecialchars((string)($t['status'] ?? 'Active')); ?>
                             </span>
                         </td>
                         <td class="p-6">

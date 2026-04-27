@@ -236,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <?php if ($error): ?>
                             <div class="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-sm font-bold text-center">
-                                <?php echo htmlspecialchars($error); ?>
+                                <?php echo htmlspecialchars((string)($error ?? '')); ?>
                             </div>
                         <?php endif; ?>
 

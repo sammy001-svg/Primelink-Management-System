@@ -67,10 +67,10 @@ include __DIR__ . '/includes/sidebar.php';
                     Back to Registry
                 </a>
             </div>
-            <h1 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight"><?php echo htmlspecialchars($property['title']); ?></h1>
+            <h1 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight"><?php echo htmlspecialchars((string)($property['title'] ?? '')); ?></h1>
             <p class="text-slate-500 font-medium flex items-center gap-1 mt-1">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-                <?php echo htmlspecialchars($property['location']); ?>
+                <?php echo htmlspecialchars((string)($property['location'] ?? '')); ?>
             </p>
         </div>
         <div class="flex items-center gap-3">
@@ -223,14 +223,14 @@ include __DIR__ . '/includes/sidebar.php';
                                                 <img src="<?php echo htmlspecialchars($uImg); ?>" class="w-full h-full object-cover">
                                             </div>
                                             <div>
-                                                <p class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($unit['unit_number']); ?></p>
-                                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Floor <?php echo $unit['floor_number'] ?: 'G'; ?></p>
+                                                <p class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)($unit['unit_number'] ?? '')); ?></p>
+                                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Floor <?php echo (string)(($unit['floor_number'] ?? '') ?: 'G'); ?></p>
                                             </div>
                                         </div>
                                     </td>
                                     <td class="p-4">
-                                        <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($unit['unit_type']); ?></p>
-                                        <p class="text-[9px] font-black uppercase text-accent-green/70"><?php echo htmlspecialchars($unit['category'] ?: 'Uncategorized'); ?></p>
+                                        <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars((string)($unit['unit_type'] ?? '')); ?></p>
+                                        <p class="text-[9px] font-black uppercase text-accent-green/70"><?php echo htmlspecialchars((string)(($unit['category'] ?? '') ?: 'Uncategorized')); ?></p>
                                     </td>
                                     <td class="p-4 text-right font-black text-sm">
                                         KSh <?php echo number_format($unit['rent_amount']); ?>

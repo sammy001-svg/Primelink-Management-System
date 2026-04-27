@@ -48,5 +48,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("Error creating maintenance request: " . $e->getMessage());
         }
     }
+
+    if ($action === 'assign_agent' && $user_role != 'tenant') {
+        $id = $_POST['id'] ?? '';
+        $staff_id = $_POST['staff_id'] ?? null;
+
+        try {
+            $stmt = $pdo->prepare("UPDATE maintenance_requests SET assigned_staff_id = ?, status = 'In Progress' WHERE id = ?");
+            $stmt->execute([$staff_id, $id]);
+            header("Location: ../maintenance.php?success=assigned");
+            exit();
+        } catch (PDOException $e) {
+            die("Error assigning agent: " . $e->getMessage());
+        }
+    }
+
+    if ($action === 'push_to_landlord' && $user_role != 'tenant') {
+        $id = $_POST['id'] ?? '';
+
+        try {
+            $stmt = $pdo->prepare("UPDATE maintenance_requests SET pushed_to_landlord = 1, landlord_approval_status = 'Pending' WHERE id = ?");
+            $stmt->execute([$id]);
+            header("Location: ../maintenance.php?success=pushed");
+            exit();
+        } catch (PDOException $e) {
+            die("Error pushing to landlord: " . $e->getMessage());
+        }
+    }
+
+    if ($action === 'landlord_decision' && $user_role === 'landlord') {
+        $id = $_POST['id'] ?? '';
+        $decision = $_POST['decision'] ?? 'Pending';
+
+        try {
+            $stmt = $pdo->prepare("UPDATE maintenance_requests SET landlord_approval_status = ? WHERE id = ?");
+            $stmt->execute([$decision, $id]);
+            header("Location: ../maintenance.php?success=decided");
+            exit();
+        } catch (PDOException $e) {
+            die("Error recording landlord decision: " . $e->getMessage());
+        }
+    }
 }
 ?>

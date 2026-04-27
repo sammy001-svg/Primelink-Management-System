@@ -153,8 +153,8 @@ include __DIR__ . '/includes/sidebar.php';
                         </td>
                         <?php if ($role !== 'tenant'): ?>
                         <td class="p-6">
-                            <p class="text-xs font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($k['tenant_name'] ?: 'N/A'); ?></p>
-                            <p class="text-[10px] text-slate-400 font-bold"><?php echo htmlspecialchars($k['property_title'] ?: ''); ?> - <?php echo htmlspecialchars($k['unit_number'] ?: ''); ?></p>
+                            <p class="text-xs font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)(($k['tenant_name'] ?? '') ?: 'N/A')); ?></p>
+                            <p class="text-[10px] text-slate-400 font-bold"><?php echo htmlspecialchars((string)(($k['property_title'] ?? '') ?: '')); ?> - <?php echo htmlspecialchars((string)(($k['unit_number'] ?? '') ?: '')); ?></p>
                         </td>
                         <?php endif; ?>
                         <td class="p-6">

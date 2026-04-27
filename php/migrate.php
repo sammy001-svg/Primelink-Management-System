@@ -101,6 +101,18 @@ $migrations = [
     // Expand units table
     "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `images` JSON NULL AFTER `status` ",
     "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `category` VARCHAR(100) NULL AFTER `images` ",
+    "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ",
+    "CREATE TABLE IF NOT EXISTS `landlord_payouts` (
+        `id` VARCHAR(36) PRIMARY KEY,
+        `landlord_id` VARCHAR(36) NOT NULL,
+        `amount` DECIMAL(15, 2) NOT NULL,
+        `fee_deducted` DECIMAL(15, 2) NOT NULL,
+        `payout_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        `reference_code` VARCHAR(50) UNIQUE NOT NULL,
+        `status` ENUM('Pending', 'Completed', 'Failed') DEFAULT 'Completed',
+        `method` ENUM('Bank', 'M-Pesa', 'Cash') DEFAULT 'Bank',
+        FOREIGN KEY (`landlord_id`) REFERENCES `landlords`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 ];
 
 $results = [];

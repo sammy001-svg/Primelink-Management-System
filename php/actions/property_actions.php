@@ -13,22 +13,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create') {
         $title = $_POST['title'] ?? '';
         $location = $_POST['location'] ?? '';
+        $property_code = $_POST['property_code'] ?? '';
         $description = $_POST['description'] ?? '';
-        $price = $_POST['price'] ?? 0;
+        $price = 0; // Price is now set per unit
         $property_type = $_POST['property_type'] ?? 'Apartment';
         $status = $_POST['status'] ?? 'Available';
         $landlord_id = $_POST['landlord_id'] ?? null;
         $area = $_POST['area'] ?? 0;
         
-        // Handle images (placeholder for real upload logic)
-        $images = json_encode([$_POST['image_url'] ?? 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?q=80&w=800']);
-        $amenities = json_encode(explode(',', $_POST['amenities'] ?? ''));
+        // Handle Image Uploads
+        $imageUrls = [];
+        if (!empty($_FILES['property_images']['name'][0])) {
+            $uploadDir = __DIR__ . '/../../uploads/properties/';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0777, true);
+            }
+
+            foreach ($_FILES['property_images']['name'] as $key => $val) {
+                if ($_FILES['property_images']['error'][$key] === UPLOAD_ERR_OK) {
+                    $fileName = time() . '_' . preg_replace("/[^a-zA-Z0-9.\-_]/", "", basename($_FILES['property_images']['name'][$key]));
+                    $targetPath = $uploadDir . $fileName;
+                    if (move_uploaded_file($_FILES['property_images']['tmp_name'][$key], $targetPath)) {
+                        $imageUrls[] = 'uploads/properties/' . $fileName;
+                    }
+                }
+            }
+        }
+
+        // If no images uploaded, use default
+        if (empty($imageUrls)) {
+            $imageUrls[] = 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?q=80&w=800';
+        }
+
+        $images = json_encode($imageUrls);
+        $amenities = json_encode([]); // Can be expanded later
 
         $id = generateUUID();
         
         try {
-            $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area]);
+            $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code]);
             
             header("Location: ../properties.php?success=created");
             exit();

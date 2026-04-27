@@ -214,7 +214,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <span class="badge badge-secondary mb-3 inline-block">Enterprise</span>
                     <h3 class="text-white font-black text-xl mb-2 leading-tight">Intelligent Payouts Are Live</h3>
                     <p class="text-slate-400 text-xs leading-relaxed mb-4">Automate landlord distributions with precision tracking and instant digital vouchers.</p>
-                    <button class="btn-orange text-xs w-full justify-center">Setup Now</button>
+                    <a href="payouts.php" class="btn-orange text-xs w-full justify-center">Setup Now</a>
                 </div>
                 <div class="absolute top-[-30%] right-[-10%] w-48 h-48 bg-accent-orange/15 rounded-full blur-3xl"></div>
             </div>
@@ -277,27 +277,61 @@ if (ctx) {
 </script>
 <?php endif; ?>
 
-<!-- New Property Modal (shared across all admin pages) -->
 <div class="modal-overlay" id="newPropertyModal" style="display:none;">
-    <div class="modal-card">
-        <button onclick="closeModal('newPropertyModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    <div class="modal-card max-w-2xl px-8 py-10">
+        <button onclick="closeModal('newPropertyModal')" class="absolute top-6 right-6 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all transform hover:rotate-90">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-2xl font-black mb-6">Add New Property</h2>
-        <form action="actions/property_actions.php" method="POST" class="space-y-5">
+        
+        <h2 class="text-2xl font-black mb-8">Add New Property</h2>
+        
+        <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-6">
             <input type="hidden" name="action" value="create">
-            <div class="grid grid-cols-2 gap-4">
-                <div><label class="form-label">Property Title</label><input type="text" name="title" required placeholder="Sapphire Heights" class="form-input"></div>
-                <div><label class="form-label">Location</label><input type="text" name="location" required placeholder="Westlands, Nairobi" class="form-input"></div>
+            
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
+                <input type="text" name="title" required placeholder="E.g. Primelink Heights" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
             </div>
-            <div><label class="form-label">Description</label><textarea name="description" rows="2" class="form-input" style="resize:vertical;"></textarea></div>
-            <div class="grid grid-cols-3 gap-4">
-                <div><label class="form-label">Price (KSh)</label><input type="number" name="price" required class="form-input"></div>
-                <div><label class="form-label">Type</label>
-                    <select name="property_type" class="form-input"><option>Apartment</option><option>Villa</option><option>Office</option><option>Commercial</option></select></div>
-                <div><label class="form-label">Area (sqft)</label><input type="number" name="area" class="form-input"></div>
+
+            <div class="grid grid-cols-2 gap-6">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Location</label>
+                    <input type="text" name="location" required placeholder="E.g. Nairobi, Kilimani" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Code</label>
+                    <input type="text" name="property_code" placeholder="E.g. PL-001" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                </div>
             </div>
-            <button type="submit" class="btn-green w-full justify-center py-4">Save Property</button>
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
+                <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-6">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Type</label>
+                    <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <option>Apartment</option>
+                        <option>Villa</option>
+                        <option>Office</option>
+                        <option>Commercial</option>
+                        <option>Shop</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqm)</label>
+                    <input type="number" name="area" placeholder="E.g. 150" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Images</label>
+                <input type="file" name="property_images[]" multiple class="w-full p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400 font-bold hover:border-accent-green transition-all">
+            </div>
+
+            <button type="submit" class="btn-green w-full justify-center py-4 rounded-2xl shadow-xl shadow-accent-green/10 font-black italic tracking-tight">Register Property →</button>
         </form>
     </div>
 </div>
