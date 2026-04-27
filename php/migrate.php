@@ -59,6 +59,30 @@ $migrations = [
         FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE,
         FOREIGN KEY (`unit_id`) REFERENCES `units`(`id`) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // Expand tenants table
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_name` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_no` VARCHAR(100) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_id_no` VARCHAR(100) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `id_copy_url` TEXT NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_id_copy_url` TEXT NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_phone` VARCHAR(50) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `marital_status` ENUM('Single', 'Married') DEFAULT 'Single'",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `has_kids` TINYINT(1) DEFAULT 0",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `current_address` TEXT NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_email` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `alt_contact` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_alt_contact` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `profession` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_profession` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `employer_name` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `spouse_employer_name` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `occupation_type` ENUM('Residential', 'Commercial') DEFAULT 'Residential'",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_name` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_nature` TEXT NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `business_location` TEXT NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL",
 ];
 
 $results = [];
