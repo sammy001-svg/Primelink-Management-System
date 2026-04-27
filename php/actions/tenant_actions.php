@@ -39,6 +39,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
         try {
+            // 0. Check for existing email
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt->execute([$email]);
+            if ($stmt->fetch()) {
+                die("Error: This email address is already registered in the system.");
+            }
+
             $pdo->beginTransaction();
 
             // 1. Create User
@@ -67,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $fileName = "id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
                 if (!is_dir(__DIR__ . "/../uploads/ids")) mkdir(__DIR__ . "/../uploads/ids", 0777, true);
                 move_uploaded_file($_FILES['id_copy']['tmp_name'], __DIR__ . "/../uploads/ids/" . $fileName);
-                $idCopyUrl = "uploads/ids/" . $fileName;
+                $idCopyUrl = "php/uploads/ids/" . $fileName;
             }
 
             // 4. Create Tenant Record

@@ -146,7 +146,11 @@ include __DIR__ . '/includes/sidebar.php';
                             <p class="text-sm font-medium text-slate-500 uppercase tracking-tighter"><?php echo htmlspecialchars((string)$activeLease['property_location']); ?> • <?php echo htmlspecialchars((string)$activeLease['unit_type']); ?></p>
                             <div class="pt-4 flex gap-4">
                                 <a href="property_details.php?id=<?php echo $activeLease['property_id']; ?>" class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-accent-green transition-colors">Manage Unit →</a>
-                                <a href="view_lease.php?tenant_id=<?php echo $tenant['id']; ?>" class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-accent-green transition-colors">View Lease Agreement</a>
+                                <?php if ($lease): ?>
+                                    <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-accent-green transition-colors">View Lease Agreement</a>
+                                <?php else: ?>
+                                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Active Lease</span>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>

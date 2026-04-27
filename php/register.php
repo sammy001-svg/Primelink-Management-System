@@ -73,14 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $ext = pathinfo($_FILES['id_copy']['name'], PATHINFO_EXTENSION);
                         $fileName = "id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
                         move_uploaded_file($_FILES['id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
-                        $idCopyUrl = "uploads/ids/" . $fileName;
+                        $idCopyUrl = "php/uploads/ids/" . $fileName;
                     }
                     
                     if (isset($_FILES['spouse_id_copy']) && $_FILES['spouse_id_copy']['error'] === UPLOAD_ERR_OK) {
                         $ext = pathinfo($_FILES['spouse_id_copy']['name'], PATHINFO_EXTENSION);
                         $fileName = "spouse_id_" . substr($userId, 0, 8) . "_" . time() . "." . $ext;
                         move_uploaded_file($_FILES['spouse_id_copy']['tmp_name'], __DIR__ . "/uploads/ids/" . $fileName);
-                        $spouseIdCopyUrl = "uploads/ids/" . $fileName;
+                        $spouseIdCopyUrl = "php/uploads/ids/" . $fileName;
                     }
                 }
 

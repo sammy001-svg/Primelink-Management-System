@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $fileName = time() . '_' . preg_replace("/[^a-zA-Z0-9.\-_]/", "", basename($_FILES['property_images']['name'][$key]));
                     $targetPath = $uploadDir . $fileName;
                     if (move_uploaded_file($_FILES['property_images']['tmp_name'][$key], $targetPath)) {
-                        $imageUrls[] = 'uploads/properties/' . $fileName;
+                        $imageUrls[] = 'php/uploads/properties/' . $fileName;
                     }
                 }
             }

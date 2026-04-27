@@ -30,7 +30,7 @@ if ($action === 'create') {
             $fileName = time() . '_' . basename($_FILES['unit_images']['name'][$key]);
             $targetPath = $uploadDir . $fileName;
             if (move_uploaded_file($_FILES['unit_images']['tmp_name'][$key], $targetPath)) {
-                $imageUrls[] = 'uploads/units/' . $fileName;
+                $imageUrls[] = 'php/uploads/units/' . $fileName;
             }
         }
     }
@@ -93,7 +93,7 @@ else if ($action === 'update') {
             $fileName = time() . '_' . basename($_FILES['unit_images']['name'][$key]);
             $targetPath = $uploadDir . $fileName;
             if (move_uploaded_file($_FILES['unit_images']['tmp_name'][$key], $targetPath)) {
-                $imageUrls[] = 'uploads/units/' . $fileName;
+                $imageUrls[] = 'php/uploads/units/' . $fileName;
             }
         }
     }
