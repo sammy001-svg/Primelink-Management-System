@@ -154,12 +154,31 @@ CREATE TABLE IF NOT EXISTS transactions (
     lease_id VARCHAR(36),
     amount DECIMAL(15, 2) NOT NULL,
     transaction_type ENUM('Rent', 'Deposit', 'Maintenance', 'Penalty', 'Water', 'Service Charge', 'Electricity Token', 'Water Token') NOT NULL,
-    status ENUM('Paid', 'Pending', 'Failed') DEFAULT 'Pending',
+    status ENUM('Paid', 'Pending', 'Failed', 'Overdue') DEFAULT 'Pending',
     payment_method VARCHAR(100),
+    description TEXT,
     transaction_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL,
     FOREIGN KEY (lease_id) REFERENCES leases(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Utility Tokens
+CREATE TABLE IF NOT EXISTS tokens (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id VARCHAR(36),
+    property_id VARCHAR(36),
+    unit_id VARCHAR(36),
+    token_type ENUM('Electricity', 'Water') NOT NULL,
+    token_code VARCHAR(100) UNIQUE NOT NULL,
+    units_value DECIMAL(15,2) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    status ENUM('Active', 'Used') DEFAULT 'Active',
+    created_by VARCHAR(36),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`unit_id`) REFERENCES `units`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- HR Leaves
