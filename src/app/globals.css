@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent-gold: #D4AF37;
+  --color-accent-silver: #C0C0C0;
+
+  --color-primary-50: #f8fafc;
+  --color-primary-100: #f1f5f9;
+  --color-primary-200: #e2e8f0;
+  --color-primary-300: #cbd5e1;
+  --color-primary-400: #94a3b8;
+  --color-primary-500: #64748b;
+  --color-primary-600: #475569;
+  --color-primary-700: #334155;
+  --color-primary-800: #1e293b;
+  --color-primary-900: #0f172a;
+  --color-primary-950: #020617;
+}
+
+:root {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system;
+  --font-display: var(--font-outfit), var(--font-sans);
+}
+
+body {
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  letter-spacing: -0.011em;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/60 dark:border-slate-800/60 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.2)];
+  }
+
+  /* Premium Form Utilities */
+  .form-group {
+    @apply space-y-2;
+  }
+
+  .form-label {
+    @apply text-sm font-bold text-slate-700 dark:text-slate-300 tracking-tight block ml-1;
+  }
+
+  .form-input, .form-select, .form-textarea {
+    @apply w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-3.5 text-base font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-accent-gold/15 focus:border-accent-gold transition-all duration-200;
+  }
+
+  .form-select {
+    @apply appearance-none cursor-pointer;
+  }
+
+  .form-textarea {
+    @apply resize-none min-h-[120px];
+  }
+}
+
+/* Accessibility & Readability Enhancements */
+::selection {
+  @apply bg-accent-gold/20 text-slate-900 dark:text-white;
+}
+
+/* Custom scrollbar for premium feel */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors;
+}
+
+/* Print Utilities */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-modal, #receipt-modal * {
+    visibility: visible;
+  }
+  #receipt-modal {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+  .print-hidden {
+    display: none !important;
+  }
+}

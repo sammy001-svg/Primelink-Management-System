@@ -1,0 +1,20 @@
+# Database & Environment
+php/.env
+php/config/db.php (only ignore if it contains production credentials, but we use .env)
+# Actually, let's just ignore .env and provide a .env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+error_log
+
+# PHP specific
+vendor/
+composer.lock (optional, but keep for consistency)
+
+# Temporary
+/tmp/
+node_modules

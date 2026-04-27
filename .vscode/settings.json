@@ -1,0 +1,6 @@
+{
+  "css.lint.unknownAtRules": "ignore",
+  "tailwindCSS.experimental.classRegex": [
+    ["@apply\\s+([^;]+)", "(?:'|\"|`|\\s)([^'\"`\\s]+)"]
+  ]
+}
