@@ -47,7 +47,7 @@ if ($_SESSION['role'] === 'landlord') {
 <body class="bg-slate-50 py-12 px-4">
     <div class="max-w-3xl mx-auto bg-white p-12 rounded-3xl shadow-2xl border border-slate-100 relative overflow-hidden">
         <!-- Brand Accents -->
-        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-accent-green via-accent-orange to-accent-green"></div>
+        <div class="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-accent-green via-accent-orange to-accent-green"></div>
         
         <div class="flex justify-between items-start mb-12">
             <div>

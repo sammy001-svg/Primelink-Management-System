@@ -14,9 +14,10 @@ $pageTitle = "Maintenance";
 if ($role === 'landlord') {
     $landlordId = getLandlordId($pdo);
     $stmt = $pdo->prepare("
-        SELECT m.*, p.title as property_title, t.full_name as tenant_name, e.full_name as assigned_agent_name
+        SELECT m.*, p.title as property_title, u.unit_number, t.full_name as tenant_name, e.full_name as assigned_agent_name
         FROM maintenance_requests m
         LEFT JOIN properties p ON m.property_id = p.id
+        LEFT JOIN units u ON m.unit_id = u.id
         LEFT JOIN tenants t ON m.tenant_id = t.id
         LEFT JOIN employees e ON m.assigned_staff_id = e.id
         WHERE p.landlord_id = ?
@@ -31,9 +32,10 @@ if ($role === 'landlord') {
     $tenant   = $stmt->fetch();
     $tenantId = $tenant['id'] ?? null;
     $stmt2 = $pdo->prepare("
-        SELECT m.*, p.title as property_title, t.full_name as tenant_name, e.full_name as assigned_agent_name
+        SELECT m.*, p.title as property_title, u.unit_number, t.full_name as tenant_name, e.full_name as assigned_agent_name
         FROM maintenance_requests m
         LEFT JOIN properties p ON m.property_id = p.id
+        LEFT JOIN units u ON m.unit_id = u.id
         LEFT JOIN tenants t ON m.tenant_id = t.id
         LEFT JOIN employees e ON m.assigned_staff_id = e.id
         WHERE m.tenant_id = ?
@@ -44,9 +46,10 @@ if ($role === 'landlord') {
     $canManage = false;
 } else {
     $requests  = $pdo->query("
-        SELECT m.*, p.title as property_title, t.full_name as tenant_name, e.full_name as assigned_agent_name
+        SELECT m.*, p.title as property_title, u.unit_number, t.full_name as tenant_name, e.full_name as assigned_agent_name
         FROM maintenance_requests m
         LEFT JOIN properties p ON m.property_id = p.id
+        LEFT JOIN units u ON m.unit_id = u.id
         LEFT JOIN tenants t ON m.tenant_id = t.id
         LEFT JOIN employees e ON m.assigned_staff_id = e.id
         ORDER BY m.created_at DESC
@@ -56,6 +59,12 @@ if ($role === 'landlord') {
 
 // Fetch Staff for Assignment
 $staff = $pdo->query("SELECT id, full_name, role FROM employees WHERE status = 'Active'")->fetchAll();
+
+// Fetch Properties for Admin Selection
+$allProperties = $pdo->query("SELECT id, title FROM properties ORDER BY title ASC")->fetchAll();
+
+// Fetch Units for Filtering
+$allUnits = $pdo->query("SELECT id, property_id, unit_number FROM units ORDER BY unit_number ASC")->fetchAll();
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -95,6 +104,24 @@ include __DIR__ . '/includes/sidebar.php';
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
                     <textarea name="description" rows="3" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
                 </div>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
+                        <select name="property_id" id="maintPropertySelect" onchange="filterMaintUnits(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                            <option value="">Select Property...</option>
+                            <?php foreach ($allProperties as $p): ?>
+                                <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars((string)$p['title']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit</label>
+                        <select name="unit_id" id="maintUnitSelect" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                            <option value="">Select Unit...</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Priority</label>
@@ -142,7 +169,10 @@ include __DIR__ . '/includes/sidebar.php';
                         </div>
                         <div>
                             <h3 class="text-sm font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$req['title']); ?></h3>
-                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest"><?php echo htmlspecialchars((string)($req['property_title'] ?: 'General Maintenance')); ?></p>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                <?php echo htmlspecialchars((string)($req['property_title'] ?: 'General')); ?> 
+                                <?php if ($req['unit_number']): ?> - Unit <?php echo htmlspecialchars((string)$req['unit_number']); ?><?php endif; ?>
+                            </p>
                         </div>
                     </div>
                     <div class="flex flex-col items-end gap-2">
@@ -232,3 +262,22 @@ include __DIR__ . '/includes/sidebar.php';
 </div>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
+
+<script>
+const allUnits = <?php echo json_encode($allUnits); ?>;
+
+function filterMaintUnits(propertyId) {
+    const unitSelect = document.getElementById('maintUnitSelect');
+    unitSelect.innerHTML = '<option value="">Select Unit...</option>';
+    
+    if (!propertyId) return;
+    
+    const filtered = allUnits.filter(u => u.property_id == propertyId);
+    filtered.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.unit_number;
+        unitSelect.appendChild(opt);
+    });
+}
+</script>

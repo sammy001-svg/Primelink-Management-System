@@ -30,18 +30,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = $_POST['description'] ?? '';
         $priority = $_POST['priority'] ?? 'Normal';
         $property_id = $_POST['property_id'] ?? null;
+        $unit_id = $_POST['unit_id'] ?? null;
         
-        // Find tenant_id for the current user
-        $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
-        $stmt->execute([$_SESSION['user_id']]);
-        $tenant = $stmt->fetch();
-        $tenant_id = $tenant['id'] ?? null;
+        // Find tenant_id for the current user (if tenant)
+        $tenant_id = null;
+        if ($_SESSION['role'] === 'tenant') {
+            $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $tenant = $stmt->fetch();
+            $tenant_id = $tenant['id'] ?? null;
+        }
 
         $id = generateUUID();
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO maintenance_requests (id, property_id, tenant_id, title, description, priority, status) VALUES (?, ?, ?, ?, ?, ?, 'Pending')");
-            $stmt->execute([$id, $property_id, $tenant_id, $title, $description, $priority]);
+            $stmt = $pdo->prepare("INSERT INTO maintenance_requests (id, property_id, unit_id, tenant_id, title, description, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')");
+            $stmt->execute([$id, $property_id, $unit_id, $tenant_id, $title, $description, $priority]);
             header("Location: ../maintenance.php?success=created");
             exit();
         } catch (PDOException $e) {

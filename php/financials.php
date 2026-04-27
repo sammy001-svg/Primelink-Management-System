@@ -18,6 +18,12 @@ $query = "SELECT tr.*, t.full_name as tenant_name
 
 if ($role === 'landlord') {
     $landlordId = getLandlordId($pdo);
+    
+    // PENDING ADVANCES logic: Get approved advances that haven't been deducted yet
+    $stmtAdv = $pdo->prepare("SELECT SUM(amount) as total_advances FROM landlord_advances WHERE landlord_id = ? AND status = 'Approved' AND is_deducted = 0");
+    $stmtAdv->execute([$landlordId]);
+    $pendingAdvTotal = $stmtAdv->fetch()['total_advances'] ?? 0;
+
     $query = "SELECT tr.*, t.full_name as tenant_name 
               FROM transactions tr 
               JOIN tenants t ON tr.tenant_id = t.id
@@ -36,13 +42,27 @@ if ($role === 'landlord') {
 $query .= " ORDER BY tr.transaction_date DESC";
 $transactions = $pdo->query($query)->fetchAll();
 
-// Calculate summary stats
+// Calculate summary stats (Current Month)
+$currentMonth = date('Y-m');
 $totalReceived = 0;
 $pendingAmount = 0;
-foreach ($transactions as $tr) {
-    if ($tr['status'] === 'Paid') $totalReceived += $tr['amount'];
-    if ($tr['status'] === 'Pending') $pendingAmount += $tr['amount'];
-}
+
+// Transactions summary for current month
+$stmt = $pdo->prepare("SELECT 
+    SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END) as total_paid,
+    SUM(CASE WHEN status = 'Pending' THEN amount ELSE 0 END) as total_pending
+    FROM transactions 
+    WHERE DATE_FORMAT(transaction_date, '%Y-%m') = ?");
+$stmt->execute([$currentMonth]);
+$monthlyStats = $stmt->fetch();
+$totalReceived = $monthlyStats['total_paid'] ?? 0;
+$pendingAmount = $monthlyStats['total_pending'] ?? 0;
+
+// Monthly Landlord Payouts
+$stmt = $pdo->prepare("SELECT SUM(amount) as total_payouts FROM landlord_payouts WHERE DATE_FORMAT(payout_date, '%Y-%m') = ? AND status = 'Completed'");
+$stmt->execute([$currentMonth]);
+$payoutStats = $stmt->fetch();
+$totalMonthlyPayouts = $payoutStats['total_payouts'] ?? 0;
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -83,22 +103,31 @@ if ($role === 'landlord') {
         <?php endif; ?>
     </div>
 
-    <!-- Summary Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="glass-card p-6 border-l-4 border-green-500">
-            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Collected</p>
-            <h3 class="text-3xl font-black mt-1">KSh <?php echo number_format($totalReceived); ?></h3>
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Collection (<?php echo date('M'); ?>)</p>
+            <h3 class="text-3xl font-black mt-1 text-green-600">KSh <?php echo number_format($totalReceived); ?></h3>
         </div>
         <div class="glass-card p-6 border-l-4 border-orange-400">
-            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending Collections</p>
-            <h3 class="text-3xl font-black mt-1">KSh <?php echo number_format($pendingAmount); ?></h3>
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Pending</p>
+            <h3 class="text-3xl font-black mt-1 text-orange-500">KSh <?php echo number_format($pendingAmount); ?></h3>
         </div>
-        <?php if ($role === 'landlord'): ?>
         <div class="glass-card p-6 border-l-4 border-blue-500">
-            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Available for Payout</p>
-            <h3 class="text-3xl font-black mt-1">KSh <?php echo number_format($totalReceived * 0.9); ?> <span class="text-[10px] font-medium text-slate-400">(Less 10% Fee)</span></h3>
+            <?php if ($role === 'landlord'): ?>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">My Net Payable (<?php echo date('M'); ?>)</p>
+                <?php 
+                    $grossEarnings = $totalReceived * 0.9; 
+                    $netPayable = $grossEarnings - ($pendingAdvTotal ?? 0);
+                ?>
+                <h3 class="text-3xl font-black mt-1 text-blue-600">KSh <?php echo number_format($netPayable); ?></h3>
+                <?php if (($pendingAdvTotal ?? 0) > 0): ?>
+                    <p class="text-[9px] font-bold text-red-500 uppercase mt-1 italic">- KSh <?php echo number_format($pendingAdvTotal); ?> Approved Advances</p>
+                <?php endif; ?>
+            <?php else: ?>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Monthly Payouts</p>
+                <h3 class="text-3xl font-black mt-1 text-blue-600">KSh <?php echo number_format($totalMonthlyPayouts); ?></h3>
+            <?php endif; ?>
         </div>
-        <?php endif; ?>
     </div>
 
     <!-- New Transaction Modal -->

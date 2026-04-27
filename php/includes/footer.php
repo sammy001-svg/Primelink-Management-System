@@ -59,6 +59,24 @@ function closeMobileDrawer(e) {
     }
 }
 
+// ========== SUB-MENU TOGGLE ==========
+function toggleSubMenu(id, forceState = null) {
+    const el = document.getElementById(id);
+    const trigger = event.currentTarget;
+    const icon = trigger.querySelector('svg:last-child');
+    
+    const isHidden = el.classList.contains('hidden');
+    const targetState = (forceState !== null) ? !forceState : isHidden;
+
+    if (!targetState) {
+        el.classList.remove('hidden');
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    } else {
+        el.classList.add('hidden');
+        if (icon) icon.style.transform = 'rotate(0deg)';
+    }
+}
+
 // ========== MODAL HELPERS ==========
 function openModal(id) {
     const m = document.getElementById(id);

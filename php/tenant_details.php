@@ -88,7 +88,7 @@ include __DIR__ . '/includes/sidebar.php';
                 </a>
             </div>
             <div class="flex items-center gap-6">
-                <div class="w-20 h-20 rounded-[2rem] bg-accent-green flex items-center justify-center text-3xl font-black shadow-xl ring-4 ring-white/10">
+                <div class="w-20 h-20 rounded-4xl bg-accent-green flex items-center justify-center text-3xl font-black shadow-xl ring-4 ring-white/10">
                     <?php echo substr($tenant['full_name'], 0, 1); ?>
                 </div>
                 <div>

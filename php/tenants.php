@@ -160,7 +160,7 @@ include __DIR__ . '/includes/sidebar.php';
                             <option value="Commercial">Commercial</option>
                         </select>
                     </div>
-                    <div id="admin-business-fields" class="hidden grid grid-cols-2 gap-6 pt-4 animate-in slide-in-from-bottom-4">
+                    <div id="admin-business-fields" class="hidden grid-cols-2 gap-6 pt-4 animate-in slide-in-from-bottom-4">
                         <div class="space-y-2">
                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Business Name</label>
                             <input type="text" name="business_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
