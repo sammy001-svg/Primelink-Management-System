@@ -50,9 +50,9 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
         <?php else: ?>
             <?php foreach ($documents as $doc): ?>
-            <div class="glass-card p-6 flex flex-col justify-between group hover:border-accent-gold/30 transition-all">
+            <div class="glass-card p-6 flex flex-col justify-between group hover:border-accent-green/30 transition-all">
                 <div class="space-y-4">
-                    <div class="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-accent-gold transition-colors shadow-inner">
+                    <div class="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-accent-green transition-colors shadow-inner">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
                     <div>

@@ -47,24 +47,24 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Full Name</label>
-                        <input type="text" name="full_name" required placeholder="Jane Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="text" name="full_name" required placeholder="Jane Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Email</label>
-                        <input type="email" name="email" required placeholder="jane@primelink.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="email" name="email" required placeholder="jane@primelink.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Role</label>
-                        <input type="text" name="role_title" required placeholder="Manager" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="text" name="role_title" required placeholder="Manager" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Salary (KSh)</label>
-                        <input type="number" name="salary" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="number" name="salary" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
-                <button type="submit" class="btn-gold w-full justify-center py-4">Add Employee</button>
+                <button type="submit" class="btn-green w-full justify-center py-4">Add Employee</button>
             </form>
         </div>
     </div>
@@ -91,7 +91,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <tr class="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
                         <td class="p-6">
                             <div class="flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-accent-gold font-black shadow-inner">
+                                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-accent-green font-black shadow-inner">
                                     <?php echo substr($emp['full_name'], 0, 1); ?>
                                 </div>
                                 <div>
@@ -113,7 +113,7 @@ include __DIR__ . '/includes/sidebar.php';
                             </span>
                         </td>
                         <td class="p-6 text-right">
-                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-gold transition-all">
+                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-green transition-all">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
                             </button>
                         </td>

@@ -82,27 +82,27 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
-                        <input type="text" name="title" required placeholder="E.g. Sapphire Residences" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="text" name="title" required placeholder="E.g. Sapphire Residences" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Location</label>
-                        <input type="text" name="location" required placeholder="E.g. Westlands, Nairobi" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="text" name="location" required placeholder="E.g. Westlands, Nairobi" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
-                    <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none"></textarea>
+                    <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Price (KSh)</label>
-                        <input type="number" name="price" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="number" name="price" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Type</label>
-                        <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                             <option>Apartment</option>
                             <option>Villa</option>
                             <option>Office</option>
@@ -111,11 +111,11 @@ include __DIR__ . '/includes/sidebar.php';
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqft)</label>
-                        <input type="number" name="area" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <input type="number" name="area" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                 </div>
 
-                <button type="submit" class="btn-gold w-full justify-center py-4">Save Property</button>
+                <button type="submit" class="btn-green w-full justify-center py-4">Save Property</button>
             </form>
         </div>
     </div>
@@ -137,7 +137,7 @@ include __DIR__ . '/includes/sidebar.php';
                     ?>
                     <img src="<?php echo htmlspecialchars($imgUrl); ?>" alt="Property" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                     <div class="absolute top-4 right-4">
-                        <span class="px-3 py-1 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-accent-gold shadow-lg">
+                        <span class="px-3 py-1 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-accent-green shadow-lg">
                             <?php echo htmlspecialchars($prop['status']); ?>
                         </span>
                     </div>
@@ -168,12 +168,12 @@ include __DIR__ . '/includes/sidebar.php';
 
                     <div class="flex justify-between items-center pt-2">
                         <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-full bg-accent-gold flex items-center justify-center text-xs font-black">
+                            <div class="w-8 h-8 rounded-full bg-accent-green flex items-center justify-center text-xs font-black">
                                 <?php echo substr($prop['landlord_name'] ?? 'U', 0, 1); ?>
                             </div>
                             <p class="text-[10px] font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($prop['landlord_name'] ?? 'Unassigned'); ?></p>
                         </div>
-                        <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="text-[10px] font-black text-accent-gold uppercase tracking-widest hover:underline">Details →</a>
+                        <a href="property_details.php?id=<?php echo $prop['id']; ?>" class="text-[10px] font-black text-accent-green uppercase tracking-widest hover:underline">Details →</a>
                     </div>
                 </div>
             </div>

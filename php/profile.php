@@ -80,13 +80,13 @@ $userInitial = strtoupper(substr($userName, 0, 1));
 
     <!-- Avatar + Info -->
     <div class="glass-card p-8 flex items-center gap-6">
-        <div class="w-20 h-20 rounded-2xl bg-linear-to-br from-accent-gold to-amber-600 flex items-center justify-center text-white font-black text-3xl shadow-xl shrink-0">
+        <div class="w-20 h-20 rounded-2xl bg-linear-to-br from-accent-green to-emerald-600 flex items-center justify-center text-white font-black text-3xl shadow-xl shrink-0">
             <?php echo $userInitial; ?>
         </div>
         <div>
             <h2 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($userName); ?></h2>
             <p class="text-slate-500 text-sm font-medium"><?php echo htmlspecialchars($userEmail); ?></p>
-            <span class="badge badge-gold mt-2 inline-block"><?php echo ucfirst($userRole); ?></span>
+            <span class="badge badge-primary mt-2 inline-block"><?php echo ucfirst($userRole); ?></span>
         </div>
     </div>
 

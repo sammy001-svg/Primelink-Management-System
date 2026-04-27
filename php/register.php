@@ -169,27 +169,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: { 'accent-gold': '#D4AF37' },
+                    colors: { 
+                        'accent-green': '#22c55e',
+                        'accent-orange': '#f97316'
+                    },
                     fontFamily: { sans: ['Inter', 'sans-serif'], heading: ['Outfit', 'sans-serif'] }
                 }
             }
         }
     </script>
     <style>
-        .role-option input:checked + .role-card { border-color: #D4AF37; background-color: rgba(212, 175, 55, 0.1); }
-        .section-header::after { content: ''; display: block; width: 40px; height: 3px; background: #D4AF37; margin-top: 4px; border-radius: 2px; }
+        .role-option input:checked + .role-card { border-color: #22c55e; background-color: rgba(34, 197, 94, 0.1); }
+        .section-header::after { content: ''; display: block; width: 40px; height: 3px; background: #22c55e; margin-top: 4px; border-radius: 2px; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         .tos-box { scroll-behavior: smooth; border: 1px solid rgba(255,255,255,0.05); }
     </style>
 </head>
-<body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-accent-gold/30">
+<body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-accent-green/30">
     <div class="min-h-screen grid grid-cols-1 lg:grid-cols-12">
         <!-- Marketing Side -->
-        <div class="hidden lg:flex lg:col-span-5 xl:col-span-6 relative overflow-hidden bg-slate-900 h-screen sticky top-0">
+        <div class="hidden lg:flex lg:col-span-5 xl:col-span-6 overflow-hidden bg-slate-900 h-screen sticky top-0">
             <div class="absolute inset-0 z-0">
                 <img src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1200" alt="Real Estate" class="w-full h-full object-cover opacity-40">
-                <div class="absolute inset-0 bg-linear-to-br from-emerald-600/20 to-teal-600/20 mix-blend-multiply opacity-60"></div>
+                <div class="absolute inset-0 bg-linear-to-br from-green-600/20 to-orange-600/20 mix-blend-multiply opacity-60"></div>
                 <div class="absolute inset-0 bg-linear-to-t from-slate-950 via-slate-900/60 to-transparent"></div>
             </div>
             <div class="relative z-10 w-full h-full flex flex-col justify-between p-16">
@@ -218,8 +221,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Lease Signed!</h2>
                         <p class="text-slate-500 dark:text-slate-400 font-medium text-lg text-center max-w-md mx-auto">Your digital lease has been executed. Access your documents in the vault.</p>
                         
-                        <div class="p-8 bg-slate-900 rounded-3xl border-2 border-accent-gold shadow-2xl space-y-2 relative overflow-hidden max-w-sm mx-auto">
-                            <p class="text-[10px] font-black text-accent-gold uppercase tracking-[0.3em]">Unique ID</p>
+                        <div class="p-8 bg-slate-900 rounded-3xl border-2 border-accent-green shadow-2xl space-y-2 relative overflow-hidden max-w-sm mx-auto">
+                            <p class="text-[10px] font-black text-accent-green uppercase tracking-[0.3em]">Unique ID</p>
                             <p class="text-4xl font-black text-white tracking-widest font-mono"><?php echo $generatedId; ?></p>
                         </div>
                         <a href="login.php" class="inline-block px-12 py-5 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest text-center shadow-lg transform transition hover:scale-105 active:scale-95">Continue to Portal</a>
@@ -268,9 +271,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">3. Marital & Family</h3>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Status</label><select name="marital_status" onchange="toggleSpouseFields(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"><option value="Single">Single</option><option value="Married">Married</option></select></div>
-                                    <div class="flex items-center gap-3 px-2 pt-4"><input type="checkbox" name="has_kids" id="has_kids" class="w-5 h-5 accent-gold rounded"><label for="has_kids" class="text-sm font-bold text-slate-500">I have children</label></div>
+                                    <div class="flex items-center gap-3 px-2 pt-4"><input type="checkbox" name="has_kids" id="has_kids" class="w-5 h-5 accent-green rounded"><label for="has_kids" class="text-sm font-bold text-slate-500">I have children</label></div>
                                 </div>
-                                <div id="spouse-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 animate-in fade-in slide-in-from-top-4">
+                                <div id="spouse-fields" class="hidden grid-cols-1 sm:grid-cols-2 gap-6 pt-4 animate-in fade-in slide-in-from-top-4">
                                     <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Full Name</label><input type="text" name="spouse_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Phone</label><input type="text" name="spouse_phone" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse ID</label><input type="text" name="spouse_id_no" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
@@ -300,7 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="space-y-8 pt-8 border-t border-slate-100 dark:border-slate-800">
                             <h3 id="login-section-header" class="text-lg font-black text-slate-900 dark:text-white section-header">5. Login Credentials</h3>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Active Email Address</label><input type="email" name="email" required placeholder="name@example.com" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20"></div>
+                                <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Active Email Address</label><input type="email" name="email" required placeholder="name@example.com" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20"></div>
                                 <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Create Password</label><input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                 <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Confirm Password</label><input type="password" name="confirm_password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                             </div>
@@ -318,14 +321,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <p>5. <strong>Execution:</strong> Checking "Accept Terms" constitutes your digital signature. Your legal name and the timestamp of this action will be embedded into the official lease document stored in our vault.</p>
                             </div>
                             <div class="flex items-start gap-4 px-2">
-                                <input type="checkbox" name="terms" id="terms" class="w-6 h-6 text-accent-gold bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-accent-gold/20">
+                                <input type="checkbox" name="terms" id="terms" class="w-6 h-6 text-accent-green bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-accent-green/20">
                                 <label for="terms" class="text-xs font-bold text-slate-600 dark:text-slate-300">I certify my identity and agree to the digital lease terms stated above. My acceptance serves as my legal signature.</label>
                             </div>
                         </div>
 
                         <button type="submit" class="w-full py-6 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-2xl font-black text-sm uppercase tracking-[0.3em] shadow-2xl transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95">Execute Registration</button>
                     </form>
-                    <p class="text-center text-xs font-bold text-slate-500 pb-16">Already have an account? <a href="login.php" class="text-accent-gold hover:underline">Sign In</a></p>
+                    <p class="text-center text-xs font-bold text-slate-500 pb-16">Already have an account? <a href="login.php" class="text-accent-green hover:underline">Sign In</a></p>
                 <?php endif; ?>
             </div>
         </div>

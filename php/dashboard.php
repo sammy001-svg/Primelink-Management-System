@@ -73,13 +73,13 @@ include __DIR__ . '/includes/sidebar.php';
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                 Add Property
             </button>
-            <a href="tenants.php?action=new" class="btn-gold text-xs gap-2">
+            <a href="tenants.php?action=new" class="btn-green text-xs gap-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                 Add Tenant
             </a>
         </div>
         <?php else: ?>
-        <a href="maintenance.php?action=new" class="btn-gold text-xs">+ New Maintenance Request</a>
+        <a href="maintenance.php?action=new" class="btn-green text-xs">+ New Maintenance Request</a>
         <?php endif; ?>
     </div>
 
@@ -93,7 +93,7 @@ include __DIR__ . '/includes/sidebar.php';
             ['label' => 'Total Properties', 'value' => number_format($stats['total_properties']), 'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg>', 'color' => 'text-blue-500', 'bg' => 'bg-blue-50 dark:bg-blue-900/20'],
             ['label' => 'Active Tenants',   'value' => number_format($stats['active_tenants']),   'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', 'color' => 'text-green-500', 'bg' => 'bg-green-50 dark:bg-green-900/20'],
             ['label' => 'Utility Tokens Sold', 'value' => number_format($stats['tokens_sold']),  'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>', 'color' => 'text-purple-500', 'bg' => 'bg-purple-50 dark:bg-purple-900/20'],
-            ['label' => 'Revenue (MTD)',     'value' => 'KSh ' . number_format($stats['revenue_mtd']), 'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', 'color' => 'text-amber-500', 'bg' => 'bg-amber-50 dark:bg-amber-900/20'],
+            ['label' => 'Revenue (MTD)',     'value' => 'KSh ' . number_format($stats['revenue_mtd']), 'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', 'color' => 'text-orange-500', 'bg' => 'bg-orange-50 dark:bg-orange-900/20'],
         ];
         foreach ($statCards as $card): ?>
         <div class="glass-card stat-card p-5 lg:p-6 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform">
@@ -121,7 +121,7 @@ include __DIR__ . '/includes/sidebar.php';
                         <h3 class="text-lg font-black text-slate-900 dark:text-white">Revenue Trend</h3>
                         <p class="text-xs text-slate-400 font-medium">Monthly rent collections (last 6 months)</p>
                     </div>
-                    <span class="badge badge-gold">Live</span>
+                    <span class="badge badge-primary">Live</span>
                 </div>
                 <div class="chart-wrap" style="height: 200px;">
                     <canvas id="revenueChart"></canvas>
@@ -135,7 +135,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="glass-card p-6">
                     <div class="flex justify-between items-center mb-5">
                         <h3 class="font-black text-slate-900 dark:text-white">Recent Requests</h3>
-                        <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-gold transition-colors uppercase tracking-widest">View All →</a>
+                        <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">View All →</a>
                     </div>
                     <?php if (empty($recentMaint)): ?>
                     <p class="text-sm text-slate-400 text-center py-6">No maintenance requests yet</p>
@@ -158,7 +158,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="glass-card p-6">
                     <div class="flex justify-between items-center mb-5">
                         <h3 class="font-black text-slate-900 dark:text-white">Recent Payments</h3>
-                        <a href="financials.php" class="text-[10px] font-black text-slate-400 hover:text-accent-gold transition-colors uppercase tracking-widest">View All →</a>
+                        <a href="financials.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">View All →</a>
                     </div>
                     <?php if (empty($recentTransactions)): ?>
                     <p class="text-sm text-slate-400 text-center py-6">No transactions recorded yet</p>
@@ -198,7 +198,7 @@ include __DIR__ . '/includes/sidebar.php';
                         Register Tenant
                     </a>
                     <a href="financials.php" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <span class="w-8 h-8 bg-amber-50 dark:bg-amber-900/30 rounded-lg flex items-center justify-center text-amber-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+                        <span class="w-8 h-8 bg-orange-50 dark:bg-orange-900/30 rounded-lg flex items-center justify-center text-orange-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
                         Record Payment
                     </a>
                     <a href="leases.php" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
@@ -211,12 +211,12 @@ include __DIR__ . '/includes/sidebar.php';
             <!-- Promo card -->
             <div class="glass-card p-6 relative overflow-hidden bg-slate-900 dark:bg-slate-800 border-none">
                 <div class="relative z-10">
-                    <span class="badge badge-gold mb-3 inline-block">Enterprise</span>
+                    <span class="badge badge-secondary mb-3 inline-block">Enterprise</span>
                     <h3 class="text-white font-black text-xl mb-2 leading-tight">Intelligent Payouts Are Live</h3>
                     <p class="text-slate-400 text-xs leading-relaxed mb-4">Automate landlord distributions with precision tracking and instant digital vouchers.</p>
-                    <button class="btn-gold text-xs w-full justify-center">Setup Now</button>
+                    <button class="btn-orange text-xs w-full justify-center">Setup Now</button>
                 </div>
-                <div class="absolute top-[-30%] right-[-10%] w-48 h-48 bg-accent-gold/15 rounded-full blur-3xl"></div>
+                <div class="absolute top-[-30%] right-[-10%] w-48 h-48 bg-accent-orange/15 rounded-full blur-3xl"></div>
             </div>
         </div>
     </div>
@@ -240,11 +240,11 @@ if (ctx) {
             datasets: [{
                 label: 'Revenue (KSh)',
                 data: <?php echo json_encode($chartData); ?>,
-                borderColor: '#D4AF37',
-                backgroundColor: 'rgba(212,175,55,0.08)',
+                borderColor: '#22c55e',
+                backgroundColor: 'rgba(34,197,94,0.08)',
                 fill: true,
                 tension: 0.4,
-                pointBackgroundColor: '#D4AF37',
+                pointBackgroundColor: '#22c55e',
                 pointRadius: 5,
                 pointHoverRadius: 7,
                 borderWidth: 2.5
@@ -297,7 +297,7 @@ if (ctx) {
                     <select name="property_type" class="form-input"><option>Apartment</option><option>Villa</option><option>Office</option><option>Commercial</option></select></div>
                 <div><label class="form-label">Area (sqft)</label><input type="number" name="area" class="form-input"></div>
             </div>
-            <button type="submit" class="btn-gold w-full justify-center py-4">Save Property</button>
+            <button type="submit" class="btn-green w-full justify-center py-4">Save Property</button>
         </form>
     </div>
 </div>

@@ -98,7 +98,7 @@ if (!empty($tenantId)) {
         <div class="glass-card p-6">
             <div class="flex justify-between items-center mb-5">
                 <h3 class="font-black text-slate-900 dark:text-white">My Requests</h3>
-                <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-gold uppercase tracking-widest transition-colors">View All →</a>
+                <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green uppercase tracking-widest transition-colors">View All →</a>
             </div>
             <?php if (empty($myRequests)): ?>
             <p class="text-sm text-slate-400 text-center py-6">No maintenance requests yet</p>
@@ -118,22 +118,22 @@ if (!empty($tenantId)) {
         </div>
 
         <!-- Utility Tokens -->
-        <div class="glass-card p-6 bg-accent-gold/5 border border-accent-gold/10">
+        <div class="glass-card p-6 bg-accent-green/5 border border-accent-green/10">
             <div class="flex justify-between items-center mb-5">
-                <h3 class="font-black text-accent-gold">Utility Tokens</h3>
-                <a href="tokens.php" class="text-[10px] font-black text-accent-gold uppercase tracking-widest">Buy Tokens →</a>
+                <h3 class="font-black text-accent-green">Utility Tokens</h3>
+                <a href="tokens.php" class="text-[10px] font-black text-accent-green uppercase tracking-widest">Buy Tokens →</a>
             </div>
             <div class="space-y-3">
                 <?php if (empty($myActiveTokens)): ?>
                 <p class="text-[10px] text-slate-400 font-bold text-center py-4">No active tokens found.</p>
                 <?php else: ?>
                 <?php foreach ($myActiveTokens as $tok): ?>
-                <div class="p-3 bg-white dark:bg-slate-800/80 rounded-xl border border-accent-gold/20 flex justify-between items-center">
+                <div class="p-3 bg-white dark:bg-slate-800/80 rounded-xl border border-accent-green/20 flex justify-between items-center">
                     <div>
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none"><?php echo $tok['token_type']; ?></p>
                         <p class="text-xs font-black text-slate-900 dark:text-white mt-1"><?php echo htmlspecialchars($tok['token_code']); ?></p>
                     </div>
-                    <span class="text-[9px] font-black text-accent-gold"><?php echo number_format($tok['units_value'], 1); ?>U</span>
+                    <span class="text-[9px] font-black text-accent-green"><?php echo number_format($tok['units_value'], 1); ?>U</span>
                 </div>
                 <?php endforeach; ?>
                 <?php endif; ?>

@@ -49,7 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             theme: {
                 extend: {
                     colors: {
-                        'accent-gold': '#D4AF37',
+                        'accent-green': '#22c55e',
+                        'accent-orange': '#f97316',
                     },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
@@ -60,13 +61,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </script>
 </head>
-<body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-accent-gold/30">
+<body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-accent-green/30">
     <div class="min-h-screen grid grid-cols-1 lg:grid-cols-12">
         <!-- Marketing Side (Hidden on Mobile) -->
         <div class="hidden lg:flex lg:col-span-7 xl:col-span-8 relative overflow-hidden bg-slate-900">
             <div class="absolute inset-0 z-0">
                 <img src="https://images.unsplash.com/photo-1613490493576-7fde63acd811?q=80&w=1200" alt="Real Estate" class="w-full h-full object-cover">
-                <div class="absolute inset-0 bg-linear-to-br from-accent-gold/20 to-amber-600/20 mix-blend-multiply opacity-60"></div>
+                <div class="absolute inset-0 bg-linear-to-br from-accent-green/20 to-orange-600/20 mix-blend-multiply opacity-60"></div>
                 <div class="absolute inset-0 bg-linear-to-t from-slate-950 via-slate-900/40 to-transparent"></div>
             </div>
 
@@ -97,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <!-- Auth Form Side -->
         <div class="col-span-1 lg:col-span-5 xl:col-span-4 flex items-center justify-center p-8 sm:p-12 relative">
-            <div class="absolute top-1/4 right-1/4 w-64 h-64 bg-accent-gold/10 rounded-full blur-[100px] -z-10"></div>
+            <div class="absolute top-1/4 right-1/4 w-64 h-64 bg-accent-green/10 rounded-full blur-[100px] -z-10"></div>
             <div class="absolute bottom-1/4 left-1/4 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] -z-10"></div>
             
             <div class="w-full max-w-sm space-y-8 text-center">
@@ -124,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="space-y-2 text-left">
                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Email Address</label>
                             <div class="relative group">
-                                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-gold transition-colors">
+                                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-green transition-colors">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10Z"/><path d="m22 7-10 7L2 7"/></svg>
                                 </span>
                                 <input 
@@ -132,17 +133,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     name="email"
                                     placeholder="name@company.com" 
                                     required
-                                    class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 shadow-sm"
+                                    class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 shadow-sm"
                                 />
                             </div>
                         </div>
                         <div class="space-y-2 text-left">
                             <div class="flex justify-between items-center px-1">
                                 <label class="text-[10px] font-black uppercase tracking-widest text-slate-400">Password</label>
-                                <a href="#" class="text-[10px] font-black uppercase tracking-widest text-accent-gold hover:underline">Forgot?</a>
+                                <a href="#" class="text-[10px] font-black uppercase tracking-widest text-accent-green hover:underline">Forgot?</a>
                             </div>
                             <div class="relative group">
-                                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-gold transition-colors">
+                                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-green transition-colors">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                                 </span>
                                 <input 
@@ -150,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     name="password"
                                     placeholder="••••••••"
                                     required
-                                    class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 transition-all placeholder:text-slate-300"
+                                    class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20 transition-all placeholder:text-slate-300"
                                 />
                             </div>
                         </div>
@@ -179,7 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
 
                     <p class="text-center text-xs font-bold text-slate-500 pt-4">
-                        Don't have an account? <a href="register.php" class="text-accent-gold hover:underline">Register Now</a>
+                        Don't have an account? <a href="register.php" class="text-accent-green hover:underline">Register Now</a>
                     </p>
                 </div>
             </div>

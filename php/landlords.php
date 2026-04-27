@@ -56,7 +56,7 @@ include __DIR__ . '/includes/sidebar.php';
 
     <!-- Stats -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div class="glass-card p-6 border-l-4 border-accent-gold">
+        <div class="glass-card p-6 border-l-4 border-accent-green">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Landlords</p>
             <h3 class="text-3xl font-black mt-1"><?php echo count($landlords); ?></h3>
         </div>
@@ -95,7 +95,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group">
                     <td class="p-5">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-linear-to-br from-accent-gold to-amber-600 flex items-center justify-center text-sm font-black text-white shrink-0">
+                            <div class="w-10 h-10 rounded-xl bg-linear-to-br from-accent-green to-emerald-600 flex items-center justify-center text-sm font-black text-white shrink-0">
                                 <?php echo strtoupper(substr($ll['full_name'], 0, 1)); ?>
                             </div>
                             <div>
@@ -116,7 +116,7 @@ include __DIR__ . '/includes/sidebar.php';
                     </td>
                     <td class="p-5 text-right">
                         <button onclick="openAssignModal('<?php echo $ll['id']; ?>','<?php echo htmlspecialchars($ll['full_name']); ?>')" 
-                                class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-accent-gold/10 hover:text-accent-gold rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
+                                class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-accent-green/10 hover:text-accent-green rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
                             Assign Properties
                         </button>
                     </td>
@@ -204,7 +204,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
                 <input type="password" name="password" required placeholder="••••••••" class="form-input">
             </div>
-            <button type="submit" class="btn-gold w-full justify-center py-4">Create Landlord Account</button>
+            <button type="submit" class="btn-green w-full justify-center py-4">Create Landlord Account</button>
         </form>
     </div>
 </div>
@@ -224,7 +224,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <?php foreach ($allProperties as $prop): ?>
                 <label class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
                     <input type="checkbox" name="property_ids[]" value="<?php echo $prop['id']; ?>"
-                           class="w-4 h-4 accent-amber-500 rounded"
+                           class="w-4 h-4 accent-accent-green rounded"
                            <?php echo ($prop['current_landlord'] && $prop['landlord_id'] === null) ? '' : ''; ?>>
                     <div>
                         <p class="font-bold text-sm"><?php echo htmlspecialchars($prop['title']); ?></p>
@@ -237,7 +237,7 @@ include __DIR__ . '/includes/sidebar.php';
                 </label>
                 <?php endforeach; ?>
             </div>
-            <button type="submit" class="btn-gold w-full justify-center py-4">Save Assignments</button>
+            <button type="submit" class="btn-green w-full justify-center py-4">Save Assignments</button>
         </form>
     </div>
 </div>

@@ -3,13 +3,16 @@
 
 /* ===================== TOKENS ===================== */
 :root {
-  --accent-gold: #d4af37;
-  --accent-gold-light: rgba(212, 175, 55, 0.1);
+  --accent-green: #22c55e;
+  --accent-green-light: rgba(34, 197, 94, 0.1);
+  --accent-orange: #f97316;
+  --accent-orange-light: rgba(249, 115, 22, 0.1);
   --sidebar-w: 272px;
   --radius-card: 20px;
   --radius-btn: 14px;
   --shadow-card: 0 4px 32px rgba(0,0,0,0.06);
-  --shadow-gold: 0 8px 24px rgba(212,175,55,0.25);
+  --shadow-green: 0 8px 24px rgba(34,197,94,0.25);
+  --shadow-orange: 0 8px 24px rgba(249,115,22,0.25);
   --transition-std: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   --font-inter: "Inter", sans-serif;
   --font-outfit: "Outfit", sans-serif;
@@ -39,8 +42,8 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(212,175,55,0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99,102,241,0.05) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(34,197,94,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(59,130,246,0.05) 0%, transparent 60%);
   pointer-events: none;
 }
 
@@ -107,13 +110,13 @@ html.dark .glass-card:hover { box-shadow: 0 8px 40px rgba(0,0,0,0.35); }
 html.dark .btn-primary { background: #f8fafc; color: #0f172a; }
 .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
 
-.btn-gold {
+.btn-green {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  background: var(--accent-gold);
-  color: #0f172a;
+  background: var(--accent-green);
+  color: #fff;
   border-radius: var(--radius-btn);
   font-weight: 800;
   font-size: 11px;
@@ -122,9 +125,28 @@ html.dark .btn-primary { background: #f8fafc; color: #0f172a; }
   transition: var(--transition-std);
   border: none;
   cursor: pointer;
-  box-shadow: var(--shadow-gold);
+  box-shadow: var(--shadow-green);
 }
-.btn-gold:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(212,175,55,0.35); }
+.btn-green:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(34,197,94,0.35); }
+
+.btn-orange {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: var(--accent-orange);
+  color: #fff;
+  border-radius: var(--radius-btn);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: var(--transition-std);
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-orange);
+}
+.btn-orange:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(249,115,22,0.35); }
 
 .btn-danger {
   display: inline-flex;
@@ -159,7 +181,8 @@ html.dark .btn-primary { background: #f8fafc; color: #0f172a; }
 .badge-orange { background: rgba(249,115,22,0.1); color: #ea580c; }
 .badge-red    { background: rgba(239,68,68,0.1); color: #dc2626; }
 .badge-blue   { background: rgba(59,130,246,0.1); color: #2563eb; }
-.badge-gold   { background: rgba(212,175,55,0.12); color: var(--accent-gold); }
+.badge-primary { background: var(--accent-green-light); color: var(--accent-green); }
+.badge-secondary { background: var(--accent-orange-light); color: var(--accent-orange); }
 .badge-slate  { background: rgba(100,116,139,0.1); color: #64748b; }
 
 /* Form Inputs */
@@ -180,9 +203,9 @@ html.dark .form-input {
   color: #f8fafc;
 }
 .form-input:focus {
-  border-color: var(--accent-gold);
+  border-color: var(--accent-green);
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(212,175,55,0.08);
+  box-shadow: 0 0 0 4px rgba(34,197,94,0.08);
 }
 html.dark .form-input:focus { background: #1e293b; }
 
@@ -264,8 +287,8 @@ html.dark .data-table th {
   transition: background 0.15s;
 }
 html.dark .data-table td { border-color: #1e293b; }
-.data-table tr:hover td { background: rgba(212,175,55,0.03); }
-html.dark .data-table tr:hover td { background: rgba(212,175,55,0.05); }
+.data-table tr:hover td { background: rgba(34,197,94,0.03); }
+html.dark .data-table tr:hover td { background: rgba(34,197,94,0.05); }
 .data-table tr:last-child td { border-bottom: none; }
 
 /* Top bar */
@@ -373,7 +396,7 @@ html.dark .mobile-nav {
   text-decoration: none;
   transition: color 0.2s;
 }
-.mobile-nav-link.active, .mobile-nav-link:hover { color: var(--accent-gold); }
+.mobile-nav-link.active, .mobile-nav-link:hover { color: var(--accent-green); }
 
 /* Mobile sidebar drawer */
 .mobile-drawer {

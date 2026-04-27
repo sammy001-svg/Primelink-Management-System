@@ -83,7 +83,7 @@ include __DIR__ . '/includes/sidebar.php';
             <p class="text-slate-500 font-medium">Generate and manage electricity and water tokens.</p>
         </div>
         <?php if ($role === 'tenant'): ?>
-        <button onclick="openModal('buyTokenModal')" class="btn-gold">
+        <button onclick="openModal('buyTokenModal')" class="btn-green">
             Buy Tokens
         </button>
         <?php else: ?>
@@ -99,7 +99,7 @@ include __DIR__ . '/includes/sidebar.php';
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Active Tokens</p>
             <h3 class="text-3xl font-black mt-1"><?php echo count(array_filter($tokens, fn($k) => $k['status'] == 'Active')); ?></h3>
         </div>
-        <div class="glass-card p-6 border-l-4 border-accent-gold">
+        <div class="glass-card p-6 border-l-4 border-accent-green">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Electricity Tokens</p>
             <h3 class="text-3xl font-black mt-1"><?php echo count(array_filter($tokens, fn($k) => $k['token_type'] == 'Electricity')); ?></h3>
         </div>
@@ -189,7 +189,7 @@ include __DIR__ . '/includes/sidebar.php';
             
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Select Tenant</label>
-                <select name="tenant_id" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                <select name="tenant_id" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     <option value="">Choose Tenant</option>
                     <?php foreach ($tenants as $t): ?>
                     <option value="<?php echo $t['id']; ?>"><?php echo htmlspecialchars($t['full_name']); ?></option>
@@ -200,20 +200,20 @@ include __DIR__ . '/includes/sidebar.php';
             <div class="grid grid-cols-2 gap-6">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Utility Type</label>
-                    <select name="token_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <select name="token_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                         <option value="Electricity">Electricity</option>
                         <option value="Water">Water</option>
                     </select>
                 </div>
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (KSh)</label>
-                    <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
             </div>
 
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Units (kWh / Liters)</label>
-                <input type="number" step="0.1" name="units_value" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                <input type="number" step="0.1" name="units_value" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
             </div>
 
             <button type="submit" class="btn-primary w-full justify-center py-4">Generate & Record Payment</button>
@@ -227,8 +227,8 @@ include __DIR__ . '/includes/sidebar.php';
         <button onclick="closeModal('buyTokenModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-2xl font-black mb-8 text-center text-accent-gold">Buy Tokens</h2>
-        <div class="p-6 bg-accent-gold/5 border border-accent-gold/10 rounded-2xl mb-8">
+        <h2 class="text-2xl font-black mb-8 text-center text-accent-green">Buy Tokens</h2>
+        <div class="p-6 bg-accent-green/5 border border-accent-green/10 rounded-2xl mb-8">
             <p class="text-xs text-center text-slate-500 font-bold leading-relaxed">
                 Tokens will be generated automatically upon payment verification via your registered phone number.
             </p>
@@ -238,7 +238,7 @@ include __DIR__ . '/includes/sidebar.php';
             
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Utility Type</label>
-                <select name="token_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                <select name="token_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     <option value="Electricity">Electricity (Token)</option>
                     <option value="Water">Water (Token)</option>
                 </select>
@@ -250,7 +250,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <?php foreach ([200, 500, 1000] as $amt): ?>
                     <label class="cursor-pointer">
                         <input type="radio" name="amount" value="<?php echo $amt; ?>" class="peer hidden" <?php echo ($amt == 500) ? 'checked' : ''; ?>>
-                        <div class="p-4 text-center bg-slate-100 dark:bg-slate-800/50 rounded-xl font-black text-sm border-2 border-transparent peer-checked:border-accent-gold peer-checked:text-accent-gold transition-all">
+                        <div class="p-4 text-center bg-slate-100 dark:bg-slate-800/50 rounded-xl font-black text-sm border-2 border-transparent peer-checked:border-accent-green peer-checked:text-accent-green transition-all">
                             KSh <?php echo $amt; ?>
                         </div>
                     </label>
@@ -260,10 +260,10 @@ include __DIR__ . '/includes/sidebar.php';
 
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Custom Amount</label>
-                <input type="number" name="amount_custom" placeholder="Other amount..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                <input type="number" name="amount_custom" placeholder="Other amount..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
             </div>
 
-            <button type="submit" class="btn-gold w-full justify-center py-4">Pay with M-Pesa</button>
+            <button type="submit" class="btn-green w-full justify-center py-4">Pay with M-Pesa</button>
         </form>
     </div>
 </div>

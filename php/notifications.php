@@ -82,14 +82,14 @@ include __DIR__ . '/includes/sidebar.php';
             $t = $n['type'] ?? 'info';
             $ic = $iconMap[$t] ?? $iconMap['info'];
         ?>
-        <div class="flex items-start gap-4 p-5 <?php echo $n['is_read'] ? '' : 'bg-amber-50/40 dark:bg-amber-900/10'; ?> hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+        <div class="flex items-start gap-4 p-5 <?php echo $n['is_read'] ? '' : 'bg-accent-green/5 dark:bg-accent-green/10'; ?> hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
             <div class="w-10 h-10 rounded-xl <?php echo $ic['bg']; ?> <?php echo $ic['color']; ?> flex items-center justify-center shrink-0 mt-0.5">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><?php echo $ic['icon']; ?></svg>
             </div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
                     <p class="font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($n['title']); ?></p>
-                    <?php if (!$n['is_read']): ?><span class="w-2 h-2 bg-accent-gold rounded-full shrink-0"></span><?php endif; ?>
+                    <?php if (!$n['is_read']): ?><span class="w-2 h-2 bg-accent-green rounded-full shrink-0"></span><?php endif; ?>
                 </div>
                 <p class="text-sm text-slate-500 mt-0.5 leading-relaxed"><?php echo htmlspecialchars($n['message']); ?></p>
                 <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wide mt-2"><?php echo date('M j, Y · g:i A', strtotime($n['created_at'])); ?></p>

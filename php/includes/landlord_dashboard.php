@@ -107,10 +107,10 @@ $transactions = $transactions->fetchAll();
 
     <!-- KPI Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <div class="glass-card p-6 hover:border-accent-gold/30 transition-all group">
+        <div class="glass-card p-6 hover:border-accent-green/30 transition-all group">
             <div class="flex items-center justify-between mb-4">
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">My Properties</p>
-                <div class="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-accent-gold flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-accent-green flex items-center justify-center">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
                 </div>
             </div>
@@ -151,7 +151,7 @@ $transactions = $transactions->fetchAll();
         <div class="glass-card overflow-hidden">
             <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="font-black">My Properties</h3>
-                <a href="properties.php" class="text-[10px] text-accent-gold font-black uppercase tracking-widest">View All →</a>
+                <a href="properties.php" class="text-[10px] text-accent-green font-black uppercase tracking-widest">View All →</a>
             </div>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
                 <?php if (empty($properties)): ?>
@@ -176,7 +176,7 @@ $transactions = $transactions->fetchAll();
         <div class="glass-card overflow-hidden">
             <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="font-black">Maintenance Requests</h3>
-                <a href="maintenance.php" class="text-[10px] text-accent-gold font-black uppercase tracking-widest">Manage →</a>
+                <a href="maintenance.php" class="text-[10px] text-accent-green font-black uppercase tracking-widest">Manage →</a>
             </div>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
                 <?php if (empty($maintenance)): ?>
@@ -201,7 +201,7 @@ $transactions = $transactions->fetchAll();
     <div class="glass-card overflow-hidden">
         <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <h3 class="font-black">Recent Income</h3>
-            <a href="financials.php" class="text-[10px] text-accent-gold font-black uppercase tracking-widest">View All →</a>
+            <a href="financials.php" class="text-[10px] text-accent-green font-black uppercase tracking-widest">View All →</a>
         </div>
         <table class="w-full text-left border-collapse">
             <thead><tr class="bg-slate-50 dark:bg-slate-800/50">

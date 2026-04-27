@@ -83,23 +83,23 @@ include __DIR__ . '/includes/sidebar.php';
                 <input type="hidden" name="action" value="create">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Issue Title</label>
-                    <input type="text" name="title" required placeholder="E.g. Leaking Faucet" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="text" name="title" required placeholder="E.g. Leaking Faucet" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
-                    <textarea name="description" rows="3" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none"></textarea>
+                    <textarea name="description" rows="3" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
                 </div>
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Priority</label>
-                        <select name="priority" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                        <select name="priority" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                             <option>Normal</option>
                             <option>High</option>
                             <option>Urgent</option>
                         </select>
                     </div>
                 </div>
-                <button type="submit" class="btn-gold w-full justify-center py-4">Submit Request</button>
+                <button type="submit" class="btn-green w-full justify-center py-4">Submit Request</button>
             </form>
         </div>
     </div>
@@ -128,7 +128,7 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
         <?php else: ?>
             <?php foreach ($requests as $req): ?>
-            <div class="glass-card p-6 hover:border-accent-gold/30 transition-all group">
+            <div class="glass-card p-6 hover:border-accent-green/30 transition-all group">
                 <div class="flex justify-between items-start mb-4">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-900 dark:text-white group-hover:bg-slate-900 group-hover:text-white transition-all">

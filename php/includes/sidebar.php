@@ -10,12 +10,12 @@ $userInitial = strtoupper(substr($userName, 0, 1));
 <aside class="w-[272px] min-h-screen sticky top-0 hidden lg:flex flex-col bg-white dark:bg-slate-950 border-r border-slate-200/80 dark:border-slate-800/80" style="height: 100vh; overflow-y: auto;">
     <!-- Logo -->
     <div class="flex items-center gap-3 p-6 pb-4 border-b border-slate-100 dark:border-slate-800/50">
-        <div class="w-10 h-10 bg-accent-gold rounded-xl flex items-center justify-center text-slate-900 shadow-lg shadow-amber-400/20 shrink-0">
+        <div class="w-10 h-10 bg-accent-green rounded-xl flex items-center justify-center text-slate-900 shadow-lg shadow-green-400/20 shrink-0">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         </div>
         <div>
             <h1 class="text-[17px] font-black tracking-tight text-slate-900 dark:text-white leading-none">PRIMELINK</h1>
-            <p class="text-[9px] font-black text-accent-gold uppercase tracking-[0.2em]">Management</p>
+            <p class="text-[9px] font-black text-accent-green uppercase tracking-[0.2em]">Management</p>
         </div>
     </div>
 
@@ -27,14 +27,14 @@ $userInitial = strtoupper(substr($userName, 0, 1));
     <!-- User Profile Footer -->
     <div class="p-4 border-t border-slate-100 dark:border-slate-800/50">
         <a href="profile.php" class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all group cursor-pointer">
-            <div class="w-9 h-9 rounded-xl bg-linear-to-br from-accent-gold to-amber-600 flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md">
+            <div class="w-9 h-9 rounded-xl bg-linear-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md">
                 <?php echo $userInitial; ?>
             </div>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-bold text-slate-900 dark:text-white truncate"><?php echo htmlspecialchars($userName); ?></p>
                 <p class="text-[10px] text-slate-400 uppercase font-bold tracking-wider"><?php echo ucfirst($role); ?></p>
             </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-300 dark:text-slate-600 group-hover:text-accent-gold transition-colors"><path d="m9 18 6-6-6-6"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-300 dark:text-slate-600 group-hover:text-accent-green transition-colors"><path d="m9 18 6-6-6-6"/></svg>
         </a>
         <a href="logout.php" class="mt-1 flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all font-bold text-sm">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
@@ -60,7 +60,7 @@ $userInitial = strtoupper(substr($userName, 0, 1));
         <!-- Search (desktop) -->
         <div class="hidden lg:flex flex-1 max-w-sm relative">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" placeholder="Search properties, tenants..." class="w-full pl-10 pr-4 py-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-300 placeholder-slate-400 border-none focus:outline-none focus:ring-2 focus:ring-amber-400/30">
+            <input type="text" placeholder="Search properties, tenants..." class="w-full pl-10 pr-4 py-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-300 placeholder-slate-400 border-none focus:outline-none focus:ring-2 focus:ring-green-400/30">
         </div>
 
         <!-- Right Actions -->
@@ -80,7 +80,7 @@ $userInitial = strtoupper(substr($userName, 0, 1));
             </a>
 
             <!-- User Avatar -->
-            <a href="profile.php" class="w-9 h-9 rounded-xl bg-linear-to-br from-accent-gold to-amber-600 flex items-center justify-center text-white font-black text-sm shadow-md hover:shadow-amber-400/30 hover:scale-105 transition-all shrink-0">
+            <a href="profile.php" class="w-9 h-9 rounded-xl bg-linear-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-black text-sm shadow-md hover:shadow-green-400/30 hover:scale-105 transition-all shrink-0">
                 <?php echo $userInitial; ?>
             </a>
         </div>

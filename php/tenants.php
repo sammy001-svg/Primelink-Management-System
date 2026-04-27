@@ -76,25 +76,25 @@ include __DIR__ . '/includes/sidebar.php';
                 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Full Name</label>
-                    <input type="text" name="full_name" required placeholder="John Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="text" name="full_name" required placeholder="John Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Email Address</label>
-                    <input type="email" name="email" required placeholder="john@example.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="email" name="email" required placeholder="john@example.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Phone Number</label>
-                    <input type="text" name="phone" placeholder="+254..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="text" name="phone" placeholder="+254..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
 
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
-                    <input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20 transition-all outline-none">
+                    <input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
 
-                <button type="submit" class="btn-gold w-full justify-center py-4">Register Tenant</button>
+                <button type="submit" class="btn-green w-full justify-center py-4">Register Tenant</button>
             </form>
         </div>
     </div>
@@ -103,7 +103,7 @@ include __DIR__ . '/includes/sidebar.php';
     <div class="glass-card p-4 flex gap-4">
         <div class="flex-1 relative">
             <svg class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" placeholder="Search tenants by name or email..." class="w-full pl-12 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-gold/20">
+            <input type="text" placeholder="Search tenants by name or email..." class="w-full pl-12 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20">
         </div>
         <select class="px-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold border-none">
             <option>All Status</option>
@@ -135,7 +135,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <tr class="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
                         <td class="p-6">
                             <div class="flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-accent-gold font-black shadow-inner">
+                                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-accent-green font-black shadow-inner">
                                     <?php echo substr($t['full_name'], 0, 1); ?>
                                 </div>
                                 <div>
@@ -157,7 +157,7 @@ include __DIR__ . '/includes/sidebar.php';
                             <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo date('M d, Y', strtotime($t['created_at'])); ?></p>
                         </td>
                         <td class="p-6 text-right">
-                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-gold transition-all">
+                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-green transition-all">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
                             </button>
                         </td>
