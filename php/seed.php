@@ -20,12 +20,12 @@ function seed($pdo) {
 
     // 2. Create Admin User
     $adminId = generateUUID();
-    $adminPass = password_hash('admin123', PASSWORD_DEFAULT);
+    $adminPass = password_hash('Prime@123@1L', PASSWORD_DEFAULT);
     $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, ?)")
-        ->execute([$adminId, 'admin@primelink.com', $adminPass, 'staff']);
+        ->execute([$adminId, 'Info@primelinkproperties.co.ke', $adminPass, 'admin']);
     
     $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?)")
-        ->execute([$adminId, 'System Administrator', 'admin@primelink.com', '+254700000000', 'staff']);
+        ->execute([$adminId, 'Primelink Official Admin', 'Info@primelinkproperties.co.ke', '+254000000000', 'admin']);
 
     // 3. Create a Landlord
     $landlordUserId = generateUUID();
