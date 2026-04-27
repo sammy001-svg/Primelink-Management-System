@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     email VARCHAR(255) UNIQUE NOT NULL,
     phone VARCHAR(50),
     profile_image TEXT,
+    address TEXT, -- Physical address for all roles
     role ENUM('tenant', 'landlord', 'staff', 'admin', 'utility') DEFAULT 'tenant',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS units (
     FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Tenants
+-- Tenants (Expanded with digital lease & spouse info)
 CREATE TABLE IF NOT EXISTS tenants (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36),
@@ -78,6 +79,31 @@ CREATE TABLE IF NOT EXISTS tenants (
     phone VARCHAR(50),
     profile_image TEXT,
     status ENUM('Active', 'Pending', 'Inactive') DEFAULT 'Pending',
+    terms_accepted_at TIMESTAMP NULL,
+    signature_name VARCHAR(255),
+    spouse_name VARCHAR(255),
+    id_no VARCHAR(100),
+    spouse_id_no VARCHAR(100),
+    id_copy_url TEXT,
+    spouse_id_copy_url TEXT,
+    spouse_phone VARCHAR(50),
+    marital_status VARCHAR(50),
+    has_kids TINYINT(1) DEFAULT 0,
+    current_address TEXT,
+    spouse_email VARCHAR(255),
+    alt_contact VARCHAR(255),
+    spouse_alt_contact VARCHAR(255),
+    profession VARCHAR(255),
+    spouse_profession VARCHAR(255),
+    employer_name VARCHAR(255),
+    spouse_employer_name VARCHAR(255),
+    occupation_type VARCHAR(100),
+    business_name VARCHAR(255),
+    business_nature VARCHAR(255),
+    business_location VARCHAR(255),
+    next_of_kin_name VARCHAR(255),
+    next_of_kin_contact VARCHAR(255),
+    next_of_kin_relationship VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
