@@ -76,6 +76,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: ../maintenance.php?success=pushed");
             exit();
         } catch (PDOException $e) {
+            // Self-healing: if columns missing
+            if ($e->getCode() == '42S22') {
+                try {
+                    $pdo->exec("ALTER TABLE `maintenance_requests` ADD COLUMN IF NOT EXISTS `pushed_to_landlord` TINYINT(1) DEFAULT 0");
+                    $pdo->exec("ALTER TABLE `maintenance_requests` ADD COLUMN IF NOT EXISTS `landlord_approval_status` ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending'");
+                    $stmt = $pdo->prepare("UPDATE maintenance_requests SET pushed_to_landlord = 1, landlord_approval_status = 'Pending' WHERE id = ?");
+                    $stmt->execute([$id]);
+                    header("Location: ../maintenance.php?success=pushed");
+                    exit();
+                } catch (PDOException $retryError) {
+                    die("Maintenance Repair Failed: " . $retryError->getMessage());
+                }
+            }
             die("Error pushing to landlord: " . $e->getMessage());
         }
     }

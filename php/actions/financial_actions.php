@@ -78,6 +78,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: ../tenant_payments.php?success=invoice_generated");
             exit();
         } catch (PDOException $e) {
+            // Self-healing: If invoices table is missing or columns are missing
+            if ($e->getCode() == '42S02') { // Table not found
+                try {
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS `invoices` (
+                        `id` VARCHAR(36) PRIMARY KEY,
+                        `tenant_id` VARCHAR(36),
+                        `lease_id` VARCHAR(36),
+                        `amount` DECIMAL(15, 2) NOT NULL,
+                        `due_date` DATE,
+                        `status` ENUM('Paid', 'Unpaid', 'Overdue', 'Cancelled') DEFAULT 'Unpaid',
+                        `invoice_type` VARCHAR(50) DEFAULT 'Rent',
+                        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                    
+                    // Retry
+                    $stmt = $pdo->prepare("INSERT INTO invoices (id, tenant_id, lease_id, amount, due_date, status, invoice_type) VALUES (?, ?, ?, ?, ?, 'Unpaid', ?)");
+                    $stmt->execute([generateUUID(), $tenant_id, $lease['id'], $amount, $due_date, $invoice_type]);
+                    header("Location: ../tenant_payments.php?success=invoice_generated");
+                    exit();
+                } catch (PDOException $subE) {
+                    die("Invoice System Repair Failed: " . $subE->getMessage());
+                }
+            }
             die("Error generating invoice: " . $e->getMessage());
         }
     }

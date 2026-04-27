@@ -57,6 +57,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: ../properties.php?success=created");
             exit();
         } catch (PDOException $e) {
+            // Self-healing: If column property_code is missing, add it and retry
+            if ($e->getCode() == '42S22' && strpos($e->getMessage(), 'property_code') !== false) {
+                try {
+                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN `property_code` VARCHAR(50) NULL AFTER `area` ");
+                    // Retry the insert
+                    $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code]);
+                    header("Location: ../properties.php?success=created");
+                    exit();
+                } catch (PDOException $retryError) {
+                    die("Database Repair Failed: " . $retryError->getMessage());
+                }
+            }
             die("Error creating property: " . $e->getMessage());
         }
     }

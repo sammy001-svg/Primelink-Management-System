@@ -38,15 +38,31 @@ if ($action === 'create') {
     $id = bin2hex(random_bytes(18));
     $imagesJson = json_encode($imageUrls);
 
-    $stmt = $pdo->prepare("
-        INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, rent_amount, status, images)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    
-    if ($stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson])) {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, rent_amount, status, images)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson]);
         header("Location: ../property_details.php?id=$propertyId&success=unit_created");
-    } else {
-        header("Location: ../property_details.php?id=$propertyId&error=create_failed");
+    } catch (PDOException $e) {
+        // Self-healing: category or images missing
+        if ($e->getCode() == '42S22') {
+            try {
+                $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `category` VARCHAR(100) NULL AFTER `unit_type` ");
+                $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `images` JSON NULL AFTER `status` ");
+                $stmt = $pdo->prepare("
+                    INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, rent_amount, status, images)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson]);
+                header("Location: ../property_details.php?id=$propertyId&success=unit_created");
+                exit();
+            } catch (PDOException $subE) {
+                die("Unit Repair Failed: " . $subE->getMessage());
+            }
+        }
+        header("Location: ../property_details.php?id=$propertyId&error=create_failed_detail&msg=" . urlencode($e->getMessage()));
     }
 }
 
