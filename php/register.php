@@ -1,6 +1,6 @@
 <?php
 /**
- * Registration Page - Expanded
+ * Registration Page - Digital Lease & Signature
  * Primelink Management System
  */
 
@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fullName = $_POST['full_name'] ?? '';
     $email = $_POST['email'] ?? '';
     $password = $_POST['password'] ?? '';
+    $confirmPassword = $_POST['confirm_password'] ?? '';
     $phone = $_POST['phone'] ?? '';
     $role = $_POST['role'] ?? 'tenant';
     $terms = $_POST['terms'] ?? '';
@@ -47,7 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $nokRelationship = $_POST['nok_relationship'] ?? null;
 
     if (empty($terms)) {
-        $error = "You must accept the Terms and Conditions.";
+        $error = "You must accept the Lease Agreement (Terms and Conditions).";
+    } elseif ($password !== $confirmPassword) {
+        $error = "Passwords do not match.";
     } elseif (!empty($fullName) && !empty($email) && !empty($password)) {
         $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
         $stmt->execute([$email]);
@@ -86,11 +89,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?)");
                 $stmt->execute([$userId, $fullName, $email, $phone, $role]);
                 
-                // Insert into targets
+                // Insert into tenants
                 if ($role === 'tenant') {
                     $tenantId = generateUUID();
                     $stmt = $pdo->prepare("INSERT INTO tenants (
                         id, user_id, full_name, email, phone, status,
+                        terms_accepted_at, signature_name,
                         spouse_name, id_no, spouse_id_no, id_copy_url, spouse_id_copy_url,
                         spouse_phone, marital_status, has_kids, current_address,
                         spouse_email, alt_contact, spouse_alt_contact,
@@ -99,6 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         next_of_kin_name, next_of_kin_contact, next_of_kin_relationship
                     ) VALUES (
                         ?, ?, ?, ?, ?, 'Pending',
+                        NOW(), ?,
                         ?, ?, ?, ?, ?,
                         ?, ?, ?, ?,
                         ?, ?, ?,
@@ -108,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     )");
                     $stmt->execute([
                         $tenantId, $userId, $fullName, $email, $phone,
+                        $fullName, // Signature Name
                         $spouseName, $idNo, $spouseIdNo, $idCopyUrl, $spouseIdCopyUrl,
                         $spousePhone, $maritalStatus, $hasKids, $currentAddress,
                         $spouseEmail, $altContact, $spouseAltContact,
@@ -115,6 +121,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $occupationType, $businessName, $businessNature, $businessLocation,
                         $nokName, $nokContact, $nokRelationship
                     ]);
+
+                    // AUTOMATIC DOCUMENT GENERATION
+                    $now = date('Y-m-d H:i:s');
+                    
+                    // 1. Lease Agreement Record
+                    $leaseDocId = generateUUID();
+                    $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'Lease', ?, 'Generated')");
+                    $stmt->execute([$leaseDocId, $tenantId, "Signed Lease Agreement - " . $fullName, "view_lease.php?tenant_id=" . $tenantId]);
+
+                    // 2. ID Document Record
+                    if ($idCopyUrl) {
+                        $idDocId = generateUUID();
+                        $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'ID', ?, 'Upload')");
+                        $stmt->execute([$idDocId, $tenantId, "ID Verification Copy - " . $fullName, $idCopyUrl]);
+                    }
                 }
                 
                 $pdo->commit();
@@ -156,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .section-header::after { content: ''; display: block; width: 40px; height: 3px; background: #D4AF37; margin-top: 4px; border-radius: 2px; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .tos-box { scroll-behavior: smooth; border: 1px solid rgba(255,255,255,0.05); }
     </style>
 </head>
 <body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-accent-gold/30">
@@ -175,10 +197,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <span class="text-3xl font-black text-white tracking-widest uppercase">PrimeLink</span>
                 </div>
                 <div class="max-w-xl space-y-6">
-                    <h2 class="text-6xl font-black text-white leading-tight drop-shadow-xl">Global <br>Standard <br>Relocation.</h2>
-                    <p class="text-xl text-slate-300 font-medium leading-relaxed max-w-lg">Complete your detailed profile to unlock premium property management services and tokenized utility payments.</p>
+                    <h2 class="text-6xl font-black text-white leading-tight drop-shadow-xl">Digital <br>Leasing <br>Simplified.</h2>
+                    <p class="text-xl text-slate-300 font-medium leading-relaxed max-w-lg">Your residency is just a signature away. Secure, transparent, and fully digital lease management.</p>
                 </div>
-                <div class="flex items-center gap-8 text-[10px] font-black text-white/50 uppercase tracking-[0.4em]"><span>Secure</span><span>Transparent</span><span>Modern</span></div>
+                <div class="flex items-center gap-8 text-[10px] font-black text-white/50 uppercase tracking-[0.4em]"><span>Legal</span><span>Digital</span><span>Unified</span></div>
             </div>
         </div>
 
@@ -190,11 +212,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="w-24 h-24 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-green-500/5">
                             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                         </div>
-                        <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Profile Created!</h2>
-                        <p class="text-slate-500 dark:text-slate-400 font-medium text-lg text-center max-w-md mx-auto">Welcome to the PrimeLink family. Your secure ID is generated below.</p>
+                        <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Lease Signed!</h2>
+                        <p class="text-slate-500 dark:text-slate-400 font-medium text-lg text-center max-w-md mx-auto">Your digital lease has been executed. Access your documents in the vault.</p>
                         
                         <div class="p-8 bg-slate-900 rounded-3xl border-2 border-accent-gold shadow-2xl space-y-2 relative overflow-hidden max-w-sm mx-auto">
-                            <p class="text-[10px] font-black text-accent-gold uppercase tracking-[0.3em]">Access Identifier</p>
+                            <p class="text-[10px] font-black text-accent-gold uppercase tracking-[0.3em]">Unique ID</p>
                             <p class="text-4xl font-black text-white tracking-widest font-mono"><?php echo $generatedId; ?></p>
                         </div>
                         <a href="login.php" class="inline-block px-12 py-5 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest text-center shadow-lg transform transition hover:scale-105 active:scale-95">Continue to Portal</a>
@@ -202,8 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php else: ?>
                     <form action="register.php" method="POST" enctype="multipart/form-data" class="space-y-12">
                         <div class="space-y-4">
-                            <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Complete Registry</h2>
-                            <p class="text-slate-500 dark:text-slate-400 font-medium">Please provide accurate verification details</p>
+                            <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Tenant Registry</h2>
+                            <p class="text-slate-500 dark:text-slate-400 font-medium">Capture details for your digital lease agreement</p>
                         </div>
 
                         <?php if ($error): ?>
@@ -214,24 +236,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <!-- Role Selector -->
                         <div class="grid grid-cols-2 gap-4">
-                            <label class="role-option cursor-pointer group"><input type="radio" name="role" value="tenant" checked class="hidden" onclick="toggleTenantFields(true)"><div class="role-card p-6 rounded-3xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 text-center space-y-3"><div class="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto transition-transform group-hover:scale-110"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div><p class="text-md font-black text-slate-900 dark:text-white">Tenant</p><p class="text-[10px] text-slate-500 uppercase tracking-tighter">Full Residency Profile</p></div></div></label>
-                            <label class="role-option cursor-pointer group"><input type="radio" name="role" value="utility" class="hidden" onclick="toggleTenantFields(false)"><div class="role-card p-6 rounded-3xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 text-center space-y-3"><div class="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center mx-auto transition-transform group-hover:scale-110"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><circle cx="12" cy="12" r="4"/></svg></div><div><p class="text-md font-black text-slate-900 dark:text-white">Utility User</p><p class="text-[10px] text-slate-500 uppercase tracking-tighter">Token Services Only</p></div></div></label>
+                            <label class="role-option cursor-pointer group"><input type="radio" name="role" value="tenant" checked class="hidden" onclick="toggleTenantFields(true)"><div class="role-card p-6 rounded-3xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 text-center space-y-3"><div class="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto transition-transform group-hover:scale-110"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div><p class="text-md font-black text-slate-900 dark:text-white">Tenant</p><p class="text-[10px] text-slate-500 uppercase tracking-tighter">Full Lease Profile</p></div></div></label>
+                            <label class="role-option cursor-pointer group"><input type="radio" name="role" value="utility" class="hidden" onclick="toggleTenantFields(false)"><div class="role-card p-6 rounded-3xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 text-center space-y-3"><div class="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center mx-auto transition-transform group-hover:scale-110"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><circle cx="12" cy="12" r="4"/></svg></div><div><p class="text-md font-black text-slate-900 dark:text-white">Utility User</p><p class="text-[10px] text-slate-500 uppercase tracking-tighter">Fast Tokens</p></div></div></label>
                         </div>
 
-                        <div id="common-fields" class="space-y-8">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Login Email</label><input type="email" name="email" required placeholder="name@example.com" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20"></div>
-                                <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Secure Password</label><input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20"></div>
-                            </div>
-                        </div>
-
-                        <!-- Tenant Only Fields -->
+                        <!-- Step 1: Personal & Primary -->
                         <div id="tenant-fields" class="space-y-12">
-                            <!-- Section 1: Identity -->
+                            <!-- Section: Personal Details -->
                             <div class="space-y-6">
-                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">Identity & Contact</h3>
+                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">1. Primary Information</h3>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Primary Name</label><input type="text" name="full_name" placeholder="John Doe" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Legal Name</label><input type="text" name="full_name" placeholder="John Doe" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Primary Phone</label><input type="text" name="phone" placeholder="+254 7XX..." class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">ID Number</label><input type="text" name="id_no" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Upload ID Copy</label><input type="file" name="id_copy" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-xs font-bold text-slate-400"></div>
@@ -239,70 +254,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                             </div>
 
-                            <!-- Section 2: Marital & Spouse -->
+                            <!-- Section: Marital & Family -->
                             <div class="space-y-6">
-                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">Marital & Family Details</h3>
+                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">2. Marital & Family</h3>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Marital Status</label><select name="marital_status" onchange="toggleSpouseFields(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"><option value="Single">Single</option><option value="Married">Married</option></select></div>
-                                    <div class="flex items-center gap-3 px-2 pt-4"><input type="checkbox" name="has_kids" id="has_kids" class="w-5 h-5 accent-gold"><label for="has_kids" class="text-sm font-bold text-slate-500">I have children/dependents</label></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Status</label><select name="marital_status" onchange="toggleSpouseFields(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"><option value="Single">Single</option><option value="Married">Married</option></select></div>
+                                    <div class="flex items-center gap-3 px-2 pt-4"><input type="checkbox" name="has_kids" id="has_kids" class="w-5 h-5 accent-gold rounded"><label for="has_kids" class="text-sm font-bold text-slate-500">I have children</label></div>
                                 </div>
-                                <div id="spouse-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                                <div id="spouse-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 animate-in fade-in slide-in-from-top-4">
                                     <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Full Name</label><input type="text" name="spouse_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse ID No</label><input type="text" name="spouse_id_no" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse ID Copy</label><input type="file" name="spouse_id_copy" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-xs font-bold text-slate-400"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Email</label><input type="email" name="spouse_email" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Phone</label><input type="text" name="spouse_phone" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse ID</label><input type="text" name="spouse_id_no" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Email</label><input type="email" name="spouse_email" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse ID Copy</label><input type="file" name="spouse_id_copy" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-xs font-bold text-slate-400"></div>
                                 </div>
                             </div>
 
-                            <!-- Section 3: Professional -->
+                            <!-- Section: Professional & Occupation -->
                             <div class="space-y-6">
-                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">Work & Professional</h3>
+                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">3. Work & Purpose</h3>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Primary Profession</label><input type="text" name="profession" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Employer Name</label><input type="text" name="employer_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                    <div id="spouse-work" class="hidden sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Profession</label><input type="text" name="spouse_profession" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Spouse Employer</label><input type="text" name="spouse_employer_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                    </div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Your Profession</label><input type="text" name="profession" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Employer</label><input type="text" name="employer_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                    <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Occupation Type</label><select name="occupation_type" onchange="toggleBusinessFields(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"><option value="Residential">Residential</option><option value="Commercial">Commercial</option></select></div>
                                 </div>
-                            </div>
-
-                            <!-- Section 4: Occupation Logic -->
-                            <div class="space-y-6">
-                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">Occupation Category</h3>
-                                <div class="grid grid-cols-1 gap-6">
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Purpose of Residency</label><select name="occupation_type" onchange="toggleBusinessFields(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"><option value="Residential">Residential</option><option value="Commercial">Commercial</option></select></div>
-                                    <div id="business-fields" class="hidden space-y-6 pt-2 animate-in slide-in-from-bottom-2 duration-300">
-                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                            <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Business Name</label><input type="text" name="business_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                            <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Nature of Business</label><input type="text" name="business_nature" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                            <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Business Location</label><input type="text" name="business_location" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
-                                        </div>
+                                <div id="business-fields" class="hidden space-y-6 animate-in slide-in-from-bottom-4 pt-4">
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Business Name</label><input type="text" name="business_name" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Nature of Business</label><input type="text" name="business_nature" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                                     </div>
-                                </div>
-                            </div>
-
-                            <!-- Section 5: Next of Kin -->
-                            <div class="space-y-6">
-                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">Emergency Contacts (Next of Kin)</h3>
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Name</label><input type="text" name="nok_name" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Contact No</label><input type="text" name="nok_contact" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none"></div>
-                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Relationship</label><input type="text" name="nok_relationship" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none"></div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="space-y-6">
-                            <div class="flex items-start gap-3 mt-4">
-                                <div class="flex items-center h-5"><input id="terms" name="terms" type="checkbox" required class="w-5 h-5 text-accent-gold border-slate-300 rounded focus:ring-accent-gold/20"></div>
-                                <div class="text-xs"><label for="terms" class="font-bold text-slate-700 dark:text-slate-300">I agree to the <a href="#" class="text-accent-gold hover:underline">Terms of Service</a> and <a href="#" class="text-accent-gold hover:underline">Privacy Policy</a></label></div>
+                        <!-- Step 2: Login Security -->
+                        <div class="space-y-8 pt-8 border-t border-slate-100 dark:border-slate-800">
+                            <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">4. Login Credentials</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div class="space-y-1 sm:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Active Email Address</label><input type="email" name="email" required placeholder="name@example.com" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-gold/20"></div>
+                                <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Create Password</label><input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
+                                <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Confirm Password</label><input type="password" name="confirm_password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none"></div>
                             </div>
-                            <button type="submit" class="w-full py-5 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-2xl transition-all active:scale-95">Complete Registration</button>
                         </div>
+
+                        <!-- Step 3: Terms as Lease -->
+                        <div class="space-y-6 pt-8 border-t border-slate-100 dark:border-slate-800">
+                            <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">5. Lease Execution (Legal)</h3>
+                            <div class="tos-box h-48 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900/50 rounded-3xl text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed space-y-4 font-medium">
+                                <p class="text-slate-900 dark:text-white font-black uppercase text-[10px] tracking-widest">Digital Lease Agreement & Terms of Service</p>
+                                <p>1. <strong>Agreement of Lease:</strong> By checking the box below, you (the Tenant) agree to enter into a binding lease agreement with PrimeLink Management System and the respective Landlord of the assigned property.</p>
+                                <p>2. <strong>Verification:</strong> You certify that all provided documents (ID copies, employment info) are valid and accurate under the penalty of perjury.</p>
+                                <p>3. <strong>Payment:</strong> You agree to fulfill all rental and utility payments (Electricity & Water Tokens) via the PrimeLink platform on the stipulated dates.</p>
+                                <p>4. <strong>Maintenance:</strong> All maintenance requests must be logged via the portal for formal tracking and resolution.</p>
+                                <p>5. <strong>Execution:</strong> Checking "Accept Terms" constitutes your digital signature. Your legal name and the timestamp of this action will be embedded into the official lease document stored in our vault.</p>
+                            </div>
+                            <div class="flex items-start gap-4 px-2">
+                                <input type="checkbox" name="terms" id="terms" required class="w-6 h-6 text-accent-gold bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-accent-gold/20">
+                                <label for="terms" class="text-xs font-bold text-slate-600 dark:text-slate-300">I certify my identity and agree to the digital lease terms stated above. My acceptance serves as my legal signature.</label>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full py-6 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-2xl font-black text-sm uppercase tracking-[0.3em] shadow-2xl transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95">Execute Registration</button>
                     </form>
-                    <p class="text-center text-xs font-bold text-slate-500 pb-12">Already have an account? <a href="login.php" class="text-accent-gold hover:underline">Sign In</a></p>
+                    <p class="text-center text-xs font-bold text-slate-500 pb-16">Already have an account? <a href="login.php" class="text-accent-gold hover:underline">Sign In</a></p>
                 <?php endif; ?>
             </div>
         </div>
@@ -311,39 +325,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script>
         function toggleTenantFields(show) {
             const el = document.getElementById('tenant-fields');
-            if (show) {
-                el.classList.remove('hidden');
-                el.classList.add('animate-in', 'fade-in', 'duration-500');
-            } else {
-                el.classList.add('hidden');
-            }
+            el.classList.toggle('hidden', !show);
         }
-
         function toggleSpouseFields(status) {
-            const fields = document.getElementById('spouse-fields');
-            const work = document.getElementById('spouse-work');
-            if (status === 'Married') {
-                fields.classList.remove('hidden');
-                work.classList.remove('hidden');
-            } else {
-                fields.classList.add('hidden');
-                work.classList.add('hidden');
-            }
+            document.getElementById('spouse-fields').classList.toggle('hidden', status !== 'Married');
         }
-
         function toggleBusinessFields(type) {
-            const el = document.getElementById('business-fields');
-            if (type === 'Commercial') {
-                el.classList.remove('hidden');
-            } else {
-                el.classList.add('hidden');
-            }
+            document.getElementById('business-fields').classList.toggle('hidden', type !== 'Commercial');
         }
-        
-        // Initial state
-        window.onload = () => {
-            toggleTenantFields(true);
-        };
+        window.onload = () => toggleTenantFields(true);
     </script>
 </body>
 </html>

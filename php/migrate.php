@@ -83,6 +83,20 @@ $migrations = [
     "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_name` VARCHAR(255) NULL",
     "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_contact` VARCHAR(255) NULL",
     "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `next_of_kin_relationship` VARCHAR(100) NULL",
+    // Digital Signature columns
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `terms_accepted_at` TIMESTAMP NULL AFTER `status`",
+    "ALTER TABLE `tenants` ADD COLUMN IF NOT EXISTS `signature_name` VARCHAR(255) NULL AFTER `terms_accepted_at`",
+    // Documents table (ensuring it exists)
+    "CREATE TABLE IF NOT EXISTS `documents` (
+        `id` VARCHAR(36) PRIMARY KEY,
+        `tenant_id` VARCHAR(36),
+        `title` VARCHAR(255) NOT NULL,
+        `category` ENUM('Lease', 'ID', 'Termination', 'Other') NOT NULL,
+        `file_url` TEXT NOT NULL,
+        `file_size` VARCHAR(50),
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 ];
 
 $results = [];
