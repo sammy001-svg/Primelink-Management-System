@@ -41,6 +41,10 @@ $migrations = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     // add landlord_id to properties if missing
     "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `landlord_id` VARCHAR(36) NULL AFTER `id`",
+    "ALTER TABLE `landlord_payouts` ADD CONSTRAINT `fk_payouts_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `landlords`(`id`) ON DELETE CASCADE",
+    // Fix units table columns
+    "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `monthly_rent` DECIMAL(15, 2) NOT NULL DEFAULT 0 AFTER `unit_type` ",
+    "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `deposit_amount` DECIMAL(15, 2) NOT NULL DEFAULT 0 AFTER `monthly_rent` ",
     "ALTER TABLE `properties` ADD CONSTRAINT `fk_properties_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `landlords`(`id`) ON DELETE SET NULL",
     // tokens table
     "CREATE TABLE IF NOT EXISTS `tokens` (

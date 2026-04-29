@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS units (
     unit_number VARCHAR(50) NOT NULL,
     floor_number VARCHAR(50),
     unit_type VARCHAR(100) NOT NULL,
-    rent_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    monthly_rent DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    deposit_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
     status ENUM('Available', 'Occupied', 'Maintenance') DEFAULT 'Available',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
