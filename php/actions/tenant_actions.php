@@ -137,10 +137,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $businessName, $businessNature, $nokName, $nokContact, $nokRelationship
             ]);
 
-            // 5. Auto-generate Documents Link
-            $docId = generateUUID();
-            $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'Lease', ?, 'Generated')");
-            $stmt->execute([$docId, $tenantId, "System Generated Lease - " . $fullName, "view_lease.php?tenant_id=" . $tenantId]);
+            // 6. Handle Unit Assignment (Lease Creation)
+            $propertyId = $_POST['property_id'] ?? null;
+            $unitId = $_POST['unit_id'] ?? null;
+
+            if ($propertyId && $unitId) {
+                $leaseId = generateUUID();
+                // We fetch rent/deposit from units table to ensure accuracy
+                $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, status) 
+                                     SELECT ?, ?, ?, id, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), monthly_rent, deposit_amount, 'Active' 
+                                     FROM units WHERE id = ?");
+                $stmt->execute([$leaseId, $tenantId, $propertyId, $unitId]);
+                
+                // Update unit status
+                $stmt = $pdo->prepare("UPDATE units SET status = 'Occupied' WHERE id = ?");
+                $stmt->execute([$unitId]);
+            }
 
             if ($pdo->inTransaction()) $pdo->commit();
             header("Location: ../tenants.php?success=created");

@@ -35,7 +35,7 @@ if ($leaseId) {
         $lease['property_title'] = "TBD (Draft)";
         $lease['property_location'] = "Pending unit assignment";
         $lease['monthly_rent'] = 0;
-        $lease['deposit'] = 0;
+        $lease['deposit_amount'] = 0;
         $lease['start_date'] = date('Y-m-d');
         $lease['end_date'] = date('Y-m-d', strtotime('+1 year'));
         $lease['terms'] = "Standard draft terms apply.";
@@ -123,7 +123,7 @@ if ($userRole === 'tenant') {
                 </div>
                 <div>
                     <p class="text-xs text-slate-400">Security Deposit</p>
-                    <p class="text-xl font-black text-slate-900">KSh <?php echo number_format($lease['deposit']); ?></p>
+                    <p class="text-xl font-black text-slate-900">KSh <?php echo number_format($lease['deposit_amount']); ?></p>
                 </div>
             </div>
         </div>

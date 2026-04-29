@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS units (
 -- Tenants (Expanded with digital lease & spouse info)
 CREATE TABLE IF NOT EXISTS tenants (
     id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36),
+    user_id VARCHAR(36) UNIQUE,
     full_name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     phone VARCHAR(50),
@@ -132,7 +132,6 @@ CREATE TABLE IF NOT EXISTS leases (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     monthly_rent DECIMAL(15, 2) NOT NULL,
-    deposit DECIMAL(15, 2) NOT NULL DEFAULT 0,
     deposit_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
     terms TEXT,
     status ENUM('Active', 'Expired', 'Terminated') DEFAULT 'Active',
@@ -299,4 +298,79 @@ CREATE TABLE IF NOT EXISTS documents (
     file_size VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- BUSINESS MODULES (Sales, Inventory, Procurement)
+-- --------------------------------------------------------
+
+-- Warehouses
+CREATE TABLE IF NOT EXISTS warehouses (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    location TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Product Categories
+CREATE TABLE IF NOT EXISTS categories (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Products
+CREATE TABLE IF NOT EXISTS products (
+    id VARCHAR(36) PRIMARY KEY,
+    category_id VARCHAR(36),
+    name VARCHAR(255) NOT NULL,
+    sku VARCHAR(100) UNIQUE,
+    description TEXT,
+    purchase_price DECIMAL(15, 2) DEFAULT 0,
+    sale_price DECIMAL(15, 2) DEFAULT 0,
+    unit_of_measure VARCHAR(50) DEFAULT 'pc',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Inventory Stock
+CREATE TABLE IF NOT EXISTS inventory_stocks (
+    id VARCHAR(36) PRIMARY KEY,
+    product_id VARCHAR(36),
+    warehouse_id VARCHAR(36),
+    quantity DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
+    UNIQUE KEY (product_id, warehouse_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Sales
+CREATE TABLE IF NOT EXISTS sales (
+    id VARCHAR(36) PRIMARY KEY,
+    customer_name VARCHAR(255),
+    total_amount DECIMAL(15, 2) NOT NULL,
+    status ENUM('Pending', 'Paid', 'Cancelled') DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Procurements
+CREATE TABLE IF NOT EXISTS procurements (
+    id VARCHAR(36) PRIMARY KEY,
+    supplier_name VARCHAR(255),
+    total_amount DECIMAL(15, 2) NOT NULL,
+    status ENUM('Requested', 'Received', 'Cancelled') DEFAULT 'Requested',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Ledger Entries (Unified Accounting)
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    id VARCHAR(36) PRIMARY KEY,
+    transaction_type ENUM('Sale', 'Procurement', 'Rent', 'Expense', 'Payout') NOT NULL,
+    reference_id VARCHAR(36), -- Link to sale_id, procurement_id, etc.
+    debit DECIMAL(15, 2) DEFAULT 0,
+    credit DECIMAL(15, 2) DEFAULT 0,
+    description TEXT,
+    entry_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -50,7 +50,7 @@ if (!$invoice) die("Invoice not found.");
             <div class="text-right">
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice Date</p>
                 <p class="text-sm font-black mb-4"><?php echo date('F d, Y', strtotime($invoice['created_at'])); ?></p>
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest text-red-500">Due Date</p>
+                <p class="text-[10px] font-black text-red-500 uppercase tracking-widest">Due Date</p>
                 <p class="text-sm font-black text-red-500"><?php echo date('F d, Y', strtotime($invoice['due_date'])); ?></p>
             </div>
         </div>

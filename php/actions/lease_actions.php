@@ -16,13 +16,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $start_date  = $_POST['start_date'] ?? '';
         $end_date    = $_POST['end_date'] ?? '';
         $monthly_rent= $_POST['monthly_rent'] ?? 0;
-        $deposit     = $_POST['deposit'] ?? 0;
+        $deposit_amount = $_POST['deposit'] ?? 0;
         $terms       = $_POST['terms'] ?? '';
         $id          = generateUUID();
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, start_date, end_date, monthly_rent, deposit, terms) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $tenant_id, $property_id, $start_date, $end_date, $monthly_rent, $deposit, $terms]);
+            $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?)");
+            $stmt->execute([$id, $tenant_id, $property_id, $start_date, $end_date, $monthly_rent, $deposit_amount, $terms]);
             header("Location: ../leases.php?success=created");
             exit();
         } catch (PDOException $e) {
@@ -47,8 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $newId = generateUUID();
                 $rent = $new_rent ?: $old['monthly_rent'];
-                $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit, terms) VALUES (?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit'], "Renewal of lease " . $lease_id]);
+                $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit_amount'], "Renewal of lease " . $lease_id]);
             }
             header("Location: ../leases.php?success=renewed");
             exit();

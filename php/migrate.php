@@ -9,8 +9,8 @@ require_once __DIR__ . '/config/db.php';
 $migrations = [
     // leases: add property_id, deposit, terms if missing
     "ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `property_id` VARCHAR(36) NULL AFTER `tenant_id`",
-    "ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `deposit` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `monthly_rent`",
-    "ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `terms` TEXT NULL AFTER `deposit`",
+    "ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `deposit_amount` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `monthly_rent` ",
+    "ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `terms` TEXT NULL AFTER `deposit_amount` ",
     // Add FK for property_id (ignore if already exists)
     "ALTER TABLE `leases` ADD CONSTRAINT `fk_leases_property` FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE SET NULL",
     // transactions: add description column if missing

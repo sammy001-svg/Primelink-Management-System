@@ -56,6 +56,11 @@ if ($role === 'landlord') {
     $tenants = $stmt->fetchAll();
 }
 
+// Fetch Properties and Units for Assignment
+$allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
+$allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
+
+
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
@@ -91,6 +96,28 @@ include __DIR__ . '/includes/sidebar.php';
             <form action="actions/tenant_actions.php" method="POST" enctype="multipart/form-data" class="space-y-10">
                 <input type="hidden" name="action" value="create">
                 
+                <!-- Section 0: Lease Assignment -->
+                <div class="space-y-6">
+                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">0. Lease Assignment (Optional)</h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
+                            <select name="property_id" id="admin_property_select" onchange="filterAdminUnits(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                                <option value="">Select Property</option>
+                                <?php foreach ($allProperties as $p): ?>
+                                <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit / Room</label>
+                            <select name="unit_id" id="admin_unit_select" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                                <option value="">Select Unit</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Section 1: Basic Info -->
                 <div class="space-y-6">
                     <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">1. Profile Details</h3>
@@ -289,4 +316,26 @@ include __DIR__ . '/includes/sidebar.php';
     </div>
 </div>
 
+<script>
+const allUnits = <?php echo json_encode($allUnits); ?>;
+
+function filterAdminUnits(propertyId) {
+    const unitSelect = document.getElementById('admin_unit_select');
+    unitSelect.innerHTML = '<option value="">Select Unit</option>';
+    
+    if (!propertyId) return;
+    
+    const filtered = allUnits.filter(u => u.property_id === propertyId);
+    filtered.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.innerText = `${u.unit_number} (KSh ${parseInt(u.monthly_rent).toLocaleString()})`;
+        unitSelect.appendChild(opt);
+    });
+}
+
+function toggleAdminSpouseFields(status) {
+    document.getElementById('admin-spouse-fields').classList.toggle('hidden', status !== 'Married');
+}
+</script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

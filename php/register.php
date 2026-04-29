@@ -12,8 +12,12 @@ if (isLoggedIn()) {
 }
 
 $error = null;
-$success = null;
 $generatedId = null;
+
+// Fetch Available Properties and Units
+$allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
+$allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
+
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fullName = $_POST['full_name'] ?? '';
@@ -196,6 +200,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("INSERT INTO documents (id, tenant_id, title, category, file_url, file_size) VALUES (?, ?, ?, 'ID', ?, 'Upload')");
                     $stmt->execute([$idDocId, $tenantId, "ID Verification Copy - " . $fullName, $idCopyUrl]);
                 }
+
+                // LEASE ASSIGNMENT (STEP 0 DATA)
+                $propertyId = $_POST['property_id'] ?? null;
+                $unitId = $_POST['unit_id'] ?? null;
+
+                if ($propertyId && $unitId) {
+                    $leaseId = generateUUID();
+                    $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, status) 
+                                         SELECT ?, ?, ?, id, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), monthly_rent, deposit_amount, 'Active' 
+                                         FROM units WHERE id = ?");
+                    $stmt->execute([$leaseId, $tenantId, $propertyId, $unitId]);
+                    
+                    $stmt = $pdo->prepare("UPDATE units SET status = 'Occupied' WHERE id = ?");
+                    $stmt->execute([$unitId]);
+                }
             }
             
             if ($pdo->inTransaction()) $pdo->commit();
@@ -302,6 +321,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <label class="role-option cursor-pointer group"><input type="radio" name="role" value="utility" class="hidden" onclick="toggleTenantFields(false)"><div class="role-card p-6 rounded-3xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 text-center space-y-3"><div class="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center mx-auto transition-transform group-hover:scale-110"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><circle cx="12" cy="12" r="4"/></svg></div><div><p class="text-md font-black text-slate-900 dark:text-white">Utility User</p><p class="text-[10px] text-slate-500 uppercase tracking-tighter">Fast Tokens</p></div></div></label>
                         </div>
 
+                        <!-- Step 0: Unit Selection -->
+                        <div id="unit-selection-step" class="space-y-8 animate-in slide-in-from-top-4">
+                            <div class="space-y-4">
+                                <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">0. Select Your Unit</h3>
+                                <p class="text-xs font-bold text-slate-400">Choose the property and unit you wish to lease</p>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div class="space-y-1">
+                                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Property</label>
+                                    <select name="property_id" id="property_select" onchange="filterUnits(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20">
+                                        <option value="">Select Property</option>
+                                        <?php foreach ($allProperties as $p): ?>
+                                        <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Available Units</label>
+                                    <select name="unit_id" id="unit_select" onchange="updateUnitInfo(this.value)" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20">
+                                        <option value="">Select Unit</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="unit_info_card" class="hidden p-6 bg-accent-green/5 border border-accent-green/10 rounded-3xl animate-in zoom-in duration-300">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="text-[10px] font-black text-accent-green uppercase tracking-widest mb-1">Monthly Rent</p>
+                                        <p id="info_rent" class="text-2xl font-black text-slate-900 dark:text-white">KSh 0</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-[10px] font-black text-accent-green uppercase tracking-widest mb-1">Security Deposit</p>
+                                        <p id="info_deposit" class="text-2xl font-black text-slate-900 dark:text-white">KSh 0</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+
                         <!-- Step 1: Basic Information (Common to all) -->
                         <div class="space-y-6">
                             <h3 class="text-lg font-black text-slate-900 dark:text-white section-header">1. Profile Details</h3>
@@ -391,8 +448,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
+        const allUnits = <?php echo json_encode($allUnits); ?>;
+
+        function filterUnits(propertyId) {
+            const unitSelect = document.getElementById('unit_select');
+            const infoCard = document.getElementById('unit_info_card');
+            unitSelect.innerHTML = '<option value="">Select Unit</option>';
+            infoCard.classList.add('hidden');
+            
+            if (!propertyId) return;
+            
+            const filtered = allUnits.filter(u => u.property_id === propertyId);
+            filtered.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.id;
+                opt.innerText = u.unit_number;
+                unitSelect.appendChild(opt);
+            });
+        }
+
+        function updateUnitInfo(unitId) {
+            const infoCard = document.getElementById('unit_info_card');
+            if (!unitId) {
+                infoCard.classList.add('hidden');
+                return;
+            }
+            
+            const unit = allUnits.find(u => u.id === unitId);
+            if (unit) {
+                document.getElementById('info_rent').innerText = 'KSh ' + parseInt(unit.monthly_rent).toLocaleString();
+                document.getElementById('info_deposit').innerText = 'KSh ' + parseInt(unit.deposit_amount).toLocaleString();
+                infoCard.classList.remove('hidden');
+            }
+        }
+
         function toggleTenantFields(show) {
             document.getElementById('tenant-fields').classList.toggle('hidden', !show);
+            document.getElementById('unit-selection-step').classList.toggle('hidden', !show);
             document.getElementById('terms-section').classList.toggle('hidden', !show);
             
             // Dynamic numbering for Login Credentials
@@ -408,6 +500,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Toggle Required on Checkbox
             document.getElementById('terms').required = show;
         }
+
         function toggleSpouseFields(status) {
             document.getElementById('spouse-fields').classList.toggle('hidden', status !== 'Married');
         }

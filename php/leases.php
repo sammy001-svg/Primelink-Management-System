@@ -123,8 +123,9 @@ include __DIR__ . '/includes/sidebar.php';
                         </td>
                         <td class="text-slate-600 dark:text-slate-400"><?php echo date('M j, Y', strtotime($lease['start_date'])); ?></td>
                         <td class="text-slate-600 dark:text-slate-400"><?php echo date('M j, Y', strtotime($lease['end_date'])); ?></td>
-                        <td class="font-black text-slate-900 dark:text-white">KSh <?php echo number_format($lease['monthly_rent']); ?></td>
-                        <td class="text-slate-600 dark:text-slate-400">
+                        <td class="font-black text-slate-900 dark:text-white text-xs">KSh <?php echo number_format($lease['monthly_rent']); ?></td>
+                        <td class="font-black text-slate-900 dark:text-white text-xs">KSh <?php echo number_format($lease['deposit_amount']); ?></td>
+                        <td>
                             <?php if (!empty($lease['signed_lease_url'])): ?>
                                 <a href="<?php echo htmlspecialchars($lease['signed_lease_url']); ?>" target="_blank" class="flex items-center gap-1 text-accent-green font-bold hover:underline">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -197,7 +198,7 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div><label class="form-label">Monthly Rent (KSh)</label><input type="number" name="monthly_rent" required class="form-input"></div>
-                <div><label class="form-label">Security Deposit (KSh)</label><input type="number" name="deposit" class="form-input"></div>
+                <div><label class="form-label">Security Deposit (KSh)</label><input type="number" name="deposit" class="form-input" placeholder="e.g. 15000"></div>
             </div>
             <div><label class="form-label">Terms & Notes</label><textarea name="terms" rows="2" class="form-input" style="resize:vertical;"></textarea></div>
             <button type="submit" class="btn-gold w-full justify-center py-4">Create Lease Agreement</button>
