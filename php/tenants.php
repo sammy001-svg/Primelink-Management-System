@@ -56,6 +56,22 @@ if ($role === 'landlord') {
     $tenants = $stmt->fetchAll();
 }
 
+// Proactive Schema Repair for Units table
+try {
+    $pdo->query("SELECT monthly_rent FROM units LIMIT 1");
+} catch (PDOException $e) {
+    if ($e->getCode() == '42S22') {
+        try {
+            // Check if it's currently named rent_amount
+            $pdo->exec("ALTER TABLE `units` CHANGE COLUMN `rent_amount` `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
+        } catch (Exception $ex) {
+            // If rent_amount also missing, just add monthly_rent
+            $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
+        }
+        $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `deposit_amount` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `monthly_rent`");
+    }
+}
+
 // Fetch Properties and Units for Assignment
 $allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
 $allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
