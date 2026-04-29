@@ -1,4 +1,4 @@
-// File: C:\Primelink Mnagement System\src\app\layout.tsx
+// File: H:\Projects 2026\Primelink Mnagement System\src\app\layout.tsx
 import * as entry from '../../../src/app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

@@ -16,23 +16,30 @@ if ($role === 'tenant') {
     exit();
 }
 
+// Default permissions
+$canAddTenant = in_array($role, ['admin', 'staff']);
+$tenants = [];
+
 // Landlords only see tenants in their properties
 if ($role === 'landlord') {
     $landlordId = getLandlordId($pdo);
-    $stmt = $pdo->prepare("
-        SELECT DISTINCT t.*, u.id as user_uuid
-        FROM tenants t
-        LEFT JOIN profiles u ON t.user_id = u.id
-        JOIN leases ls ON ls.tenant_id = t.id AND ls.status = 'Active'
-        JOIN units un ON ls.unit_id = un.id
-        JOIN properties p ON un.property_id = p.id
-        WHERE p.landlord_id = ?
-        ORDER BY t.created_at DESC
-    ");
-    $stmt->execute([$landlordId]);
-    $tenants = $stmt->fetchAll();
-    $canAddTenant = false;
-    requireRole(['staff']);
+    if ($landlordId) {
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT t.*, u.id as user_uuid
+            FROM tenants t
+            LEFT JOIN profiles u ON t.user_id = u.id
+            JOIN leases ls ON ls.tenant_id = t.id AND ls.status = 'Active'
+            JOIN units un ON ls.unit_id = un.id
+            JOIN properties p ON un.property_id = p.id
+            WHERE p.landlord_id = ?
+            ORDER BY t.created_at DESC
+        ");
+        $stmt->execute([$landlordId]);
+        $tenants = $stmt->fetchAll();
+    }
+} else {
+    // Admin/Staff logic
+    requireRole(['admin', 'staff']);
     
     // AUTO-REPAIR: Ensure all users with tenant role have a record in the tenants table
     // This fixes "registered but invisible" tenants on cPanel
@@ -47,7 +54,6 @@ if ($role === 'landlord') {
 
     $stmt = $pdo->query("SELECT t.*, u.id as user_uuid FROM tenants t LEFT JOIN profiles u ON t.user_id = u.id ORDER BY t.created_at DESC");
     $tenants = $stmt->fetchAll();
-    $canAddTenant = true;
 }
 
 include __DIR__ . '/includes/header.php';
