@@ -13,17 +13,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create') {
         $tenant_id   = $_POST['tenant_id'] ?? '';
         $property_id = $_POST['property_id'] ?? '';
+        $unit_id     = $_POST['unit_id'] ?? null;
         $start_date  = $_POST['start_date'] ?? '';
         $end_date    = $_POST['end_date'] ?? '';
         $monthly_rent= $_POST['monthly_rent'] ?? 0;
-        $deposit_amount = $_POST['deposit'] ?? 0;
+        $deposit_amount = $_POST['deposit_amount'] ?? 0;
         $terms       = $_POST['terms'] ?? '';
         $id          = generateUUID();
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $tenant_id, $property_id, $start_date, $end_date, $monthly_rent, $deposit_amount, $terms]);
-            header("Location: ../leases.php?success=created");
+            $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms, status) VALUES (?,?,?,?,?,?,?,?,?,'Active')");
+            $stmt->execute([$id, $tenant_id, $property_id, $unit_id, $start_date, $end_date, $monthly_rent, $deposit_amount, $terms]);
+            
+            if ($unit_id) {
+                $stmt = $pdo->prepare("UPDATE units SET status = 'Occupied' WHERE id = ?");
+                $stmt->execute([$unit_id]);
+            }
+
+            // Redirect back if coming from tenant details
+            $redirect = $_POST['redirect'] ?? '../leases.php?success=created';
+            header("Location: " . $redirect);
             exit();
         } catch (PDOException $e) {
             die("Error creating lease: " . $e->getMessage());

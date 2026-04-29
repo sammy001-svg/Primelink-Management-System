@@ -72,6 +72,10 @@ foreach ($transactions as $tx) {
     }
 }
 
+// Fetch Properties and Units for Assignment
+$allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
+$allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
+
 $pageTitle = $tenant['full_name'] . " | Intelligence";
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -160,7 +164,7 @@ include __DIR__ . '/includes/sidebar.php';
                              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/></svg>
                         </div>
                         <p class="text-sm font-bold text-slate-400">No active residency found for this tenant.</p>
-                        <a href="leases.php?action=new&tenant_id=<?php echo (string)($tenant['id'] ?? ''); ?>" class="btn-green mt-6 inline-flex">Assign Unit Now</a>
+                        <button onclick="openModal('assignUnitModal')" class="btn-green mt-6 inline-flex">Assign Unit Now</button>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -430,7 +434,102 @@ function sendReminder(tenantId, type) {
 
 // Set initial tab
 switchTab('overview');
+
+const allUnits = <?php echo json_encode($allUnits); ?>;
+function filterDetailsUnits(propertyId) {
+    const unitSelect = document.getElementById('details_unit_select');
+    unitSelect.innerHTML = '<option value="">Select Unit</option>';
+    if (!propertyId) return;
+    const filtered = allUnits.filter(u => u.property_id === propertyId);
+    filtered.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.innerText = `${u.unit_number} (KSh ${parseInt(u.monthly_rent).toLocaleString()})`;
+        // We'll store rent/deposit in data attributes for quick filling
+        opt.dataset.rent = u.monthly_rent;
+        opt.dataset.deposit = u.deposit_amount;
+        unitSelect.appendChild(opt);
+    });
+}
+
+function updateLeaseTerms(unitId) {
+    const unitSelect = document.getElementById('details_unit_select');
+    const selected = unitSelect.options[unitSelect.selectedIndex];
+    if (selected && selected.dataset.rent) {
+        document.getElementById('details_monthly_rent').value = selected.dataset.rent;
+        document.getElementById('details_deposit_amount').value = selected.dataset.deposit;
+    }
+}
 </script>
+
+<!-- Assign Unit Modal -->
+<div id="assignUnitModal" class="modal fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeModal('assignUnitModal')"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+        <div class="p-8 lg:p-12">
+            <div class="flex justify-between items-center mb-10">
+                <div>
+                    <h2 class="text-2xl font-black tracking-tight">Assign Unit to Tenant</h2>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Creating immediate residency link</p>
+                </div>
+                <button onclick="closeModal('assignUnitModal')" class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:rotate-90 transition-transform">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <form action="actions/lease_actions.php" method="POST" class="space-y-8">
+                <input type="hidden" name="action" value="create">
+                <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                <input type="hidden" name="redirect" value="../tenant_details.php?id=<?php echo $tenantId; ?>&success=assigned">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
+                        <select name="property_id" required onchange="filterDetailsUnits(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="">Select Property</option>
+                            <?php foreach ($allProperties as $p): ?>
+                            <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit / Room</label>
+                        <select name="unit_id" id="details_unit_select" required onchange="updateLeaseTerms(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="">Select Unit</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent</label>
+                        <input type="number" name="monthly_rent" id="details_monthly_rent" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Security Deposit</label>
+                        <input type="number" name="deposit_amount" id="details_deposit_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Start Date</label>
+                        <input type="date" name="start_date" value="<?php echo date('Y-m-d'); ?>" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">End Date</label>
+                        <input type="date" name="end_date" value="<?php echo date('Y-m-d', strtotime('+1 year')); ?>" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-4 pt-4">
+                    <button type="button" onclick="closeModal('assignUnitModal')" class="px-8 py-4 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors">Cancel</button>
+                    <button type="submit" class="btn-green shadow-xl shadow-accent-green/20 px-12 py-4">Confirm Assignment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <style>
 .tab-btn.active { color: #22c55e; }
