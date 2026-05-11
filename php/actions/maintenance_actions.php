@@ -31,6 +31,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priority = $_POST['priority'] ?? 'Normal';
         $property_id = $_POST['property_id'] ?? null;
         $unit_id = $_POST['unit_id'] ?? null;
+        $image_path = null;
+
+        // Handle Image Upload
+        if (isset($_FILES['maintenance_image']) && $_FILES['maintenance_image']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = __DIR__ . '/../../uploads/maintenance/';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0777, true);
+            }
+            
+            $fileExtension = pathinfo($_FILES['maintenance_image']['name'], PATHINFO_EXTENSION);
+            $fileName = generateUUID() . '.' . $fileExtension;
+            $targetPath = $uploadDir . $fileName;
+            
+            if (move_uploaded_file($_FILES['maintenance_image']['tmp_name'], $targetPath)) {
+                $image_path = 'uploads/maintenance/' . $fileName;
+            }
+        }
         
         // Find tenant_id for the current user (if tenant)
         $tenant_id = null;
@@ -44,8 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = generateUUID();
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO maintenance_requests (id, property_id, unit_id, tenant_id, title, description, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')");
-            $stmt->execute([$id, $property_id, $unit_id, $tenant_id, $title, $description, $priority]);
+            $stmt = $pdo->prepare("INSERT INTO maintenance_requests (id, property_id, unit_id, tenant_id, title, description, image_path, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
+            $stmt->execute([$id, $property_id, $unit_id, $tenant_id, $title, $description, $image_path, $priority]);
             header("Location: ../maintenance.php?success=created");
             exit();
         } catch (PDOException $e) {

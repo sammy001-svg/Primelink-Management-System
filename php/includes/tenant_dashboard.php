@@ -26,6 +26,28 @@ if (!empty($tenantId)) {
     $tokenStmt = $pdo->prepare("SELECT * FROM tokens WHERE tenant_id = ? AND status = 'Active' ORDER BY created_at DESC LIMIT 3");
     $tokenStmt->execute([$tenantId]);
     $myActiveTokens = $tokenStmt->fetchAll();
+
+    // Balances
+    $categoryBalances = [];
+    $balStmt = $pdo->prepare("
+        SELECT 
+            i.invoice_type,
+            SUM(i.amount) - COALESCE(SUM(t.paid_amount), 0) as balance
+        FROM invoices i
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount) as paid_amount 
+            FROM transactions 
+            WHERE status = 'Paid' 
+            GROUP BY invoice_id
+        ) t ON i.id = t.invoice_id
+        WHERE i.tenant_id = ? AND i.status != 'Paid'
+        GROUP BY i.invoice_type
+    ");
+    $balStmt->execute([$tenantId]);
+    $balances = $balStmt->fetchAll();
+    foreach ($balances as $b) {
+        $categoryBalances[$b['invoice_type']] = (float)$b['balance'];
+    }
 }
 ?>
 <div class="space-y-6">
@@ -115,6 +137,35 @@ if (!empty($tenantId)) {
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
+        </div>
+
+        <!-- Outstanding Balances -->
+        <div class="glass-card p-6">
+            <h3 class="font-black text-slate-900 dark:text-white mb-5">Outstanding Balances</h3>
+            <div class="space-y-3">
+                <?php
+                $showBalances = [
+                    ['label' => 'Rent',  'val' => $categoryBalances['Rent'] ?? 0, 'color' => 'text-blue-500'],
+                    ['label' => 'Water', 'val' => $categoryBalances['Water'] ?? 0, 'color' => 'text-cyan-500'],
+                    ['label' => 'Waste', 'val' => $categoryBalances['Waste'] ?? 0, 'color' => 'text-orange-500'],
+                    ['label' => 'Other', 'val' => ($categoryBalances['Service Charge'] ?? 0) + ($categoryBalances['Other'] ?? 0), 'color' => 'text-purple-500'],
+                ];
+                $hasAnyBalance = false;
+                foreach ($showBalances as $sb): 
+                    if ($sb['val'] > 0) $hasAnyBalance = true;
+                ?>
+                <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                    <p class="text-xs font-bold text-slate-500"><?php echo $sb['label']; ?></p>
+                    <p class="text-sm font-black <?php echo $sb['color']; ?>">KSh <?php echo number_format($sb['val']); ?></p>
+                </div>
+                <?php endforeach; ?>
+                
+                <?php if (!$hasAnyBalance): ?>
+                <div class="text-center py-4">
+                    <p class="text-[10px] font-black text-green-500 uppercase tracking-widest">Account fully paid! ✨</p>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
 
         <!-- Utility Tokens -->

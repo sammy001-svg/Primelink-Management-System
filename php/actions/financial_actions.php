@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireLogin(['admin', 'staff', 'tenant']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -17,6 +17,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $payment_method = $_POST['payment_method'] ?? 'Cash';
         $transaction_date = $_POST['transaction_date'] ?? date('Y-m-d');
         $description = $_POST['description'] ?? '';
+        $invoice_id = $_POST['invoice_id'] ?? null;
+
+        $role = $_SESSION['role'];
+        $status = ($role === 'tenant') ? 'Pending' : 'Paid';
+
+        // Security check for tenants
+        if ($role === 'tenant') {
+            $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $realTenant = $stmt->fetch();
+            if (!$realTenant || $realTenant['id'] !== $tenant_id) {
+                header("Location: ../financials.php?error=unauthorized");
+                exit();
+            }
+        }
 
         // Get lease_id for the tenant
         $stmt = $pdo->prepare("SELECT id FROM leases WHERE tenant_id = ? AND status = 'Active' LIMIT 1");
@@ -25,24 +40,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $lease_id = $lease['id'] ?? null;
 
         if (!$lease_id) {
-            header("Location: ../tenant_payments.php?error=no_active_lease");
+            header("Location: ../financials.php?error=no_active_lease");
             exit();
         }
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO transactions (id, tenant_id, lease_id, amount, transaction_type, status, payment_method, description, transaction_date) VALUES (?, ?, ?, ?, ?, 'Paid', ?, ?, ?)");
+            $stmt = $pdo->prepare("INSERT INTO transactions (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 generateUUID(),
                 $tenant_id,
                 $lease_id,
+                $invoice_id,
                 $amount,
                 $transaction_type,
+                $status,
                 $payment_method,
                 $description,
                 $transaction_date
             ]);
 
-            header("Location: ../tenant_payments.php?success=payment_recorded");
+            $redirect = ($role === 'tenant') ? '../financials.php?success=payment_submitted' : '../tenant_payments.php?success=payment_recorded';
+            header("Location: $redirect");
             exit();
         } catch (PDOException $e) {
             die("Error recording payment: " . $e->getMessage());

@@ -161,6 +161,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <select name="transaction_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                         <option>Rent</option>
                         <option>Water</option>
+                        <option>Waste</option>
                         <option>Service Charge</option>
                         <option>Penalty</option>
                     </select>
@@ -218,6 +219,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <select name="invoice_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                         <option>Rent</option>
                         <option>Water</option>
+                        <option>Waste</option>
                         <option>Service Charge</option>
                         <option>Penalty</option>
                         <option>Other</option>

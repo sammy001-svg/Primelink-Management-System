@@ -94,7 +94,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
             <h2 class="text-2xl font-black mb-8">Submit Maintenance Request</h2>
-            <form action="actions/maintenance_actions.php" method="POST" class="space-y-6">
+            <form action="actions/maintenance_actions.php" method="POST" enctype="multipart/form-data" class="space-y-6">
                 <input type="hidden" name="action" value="create">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Issue Title</label>
@@ -104,6 +104,21 @@ include __DIR__ . '/includes/sidebar.php';
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
                     <textarea name="description" rows="3" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
                 </div>
+                
+                <!-- Image Upload -->
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Upload Image / Take Picture</label>
+                    <div class="relative group">
+                        <input type="file" name="maintenance_image" accept="image/*" capture="environment" class="hidden" id="maintenance_image_input" onchange="updateFileName(this)">
+                        <label for="maintenance_image_input" class="flex flex-col items-center justify-center w-full h-32 px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-all">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                <p id="file-name-display" class="text-xs font-bold text-slate-500">Tap to upload or take a photo</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
@@ -188,6 +203,15 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 
                 <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 line-clamp-2 italic font-medium">"<?php echo htmlspecialchars((string)($req['description'] ?: 'No details provided.')); ?>"</p>
+
+                <?php if ($req['image_path']): ?>
+                <div class="mb-6">
+                    <a href="<?php echo htmlspecialchars($req['image_path']); ?>" target="_blank" class="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        View Photo Evidence
+                    </a>
+                </div>
+                <?php endif; ?>
 
                 <div class="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <!-- Dispatch & Assignment Info -->
@@ -279,5 +303,18 @@ function filterMaintUnits(propertyId) {
         opt.textContent = u.unit_number;
         unitSelect.appendChild(opt);
     });
+}
+
+function updateFileName(input) {
+    const display = document.getElementById('file-name-display');
+    if (input.files && input.files[0]) {
+        display.textContent = input.files[0].name;
+        display.classList.remove('text-slate-500');
+        display.classList.add('text-accent-green');
+    } else {
+        display.textContent = "Tap to upload or take a photo";
+        display.classList.remove('text-accent-green');
+        display.classList.add('text-slate-500');
+    }
 }
 </script>

@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS maintenance_requests (
     tenant_id VARCHAR(36),
     title VARCHAR(255) NOT NULL,
     description TEXT,
+    image_path VARCHAR(255),
     priority ENUM('Low', 'Medium', 'High', 'Urgent') DEFAULT 'Medium',
     status ENUM('Pending', 'In Progress', 'Completed') DEFAULT 'Pending',
     assigned_staff_id VARCHAR(36),
