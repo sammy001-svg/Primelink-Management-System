@@ -14,16 +14,34 @@ if (empty($transaction_id)) {
 
 $stmt = $pdo->prepare("
     SELECT tr.*, t.full_name as tenant_name, t.email as tenant_email, t.phone as tenant_phone,
-           p.title as property_title, p.location, u.unit_number
+           p.title as property_title, p.location, u.unit_number,
+           -- Fallback info from active lease if tr.lease_id is null
+           al.property_id as fallback_property_id, 
+           ap.title as fallback_property_title,
+           au.unit_number as fallback_unit_number,
+           ap.location as fallback_location
     FROM transactions tr
     JOIN tenants t ON tr.tenant_id = t.id
-    JOIN leases l ON tr.lease_id = l.id
-    JOIN units u ON l.unit_id = u.id
-    JOIN properties p ON u.property_id = p.id
+    LEFT JOIN leases l ON tr.lease_id = l.id
+    LEFT JOIN units u ON l.unit_id = u.id
+    LEFT JOIN properties p ON u.property_id = p.id
+    -- Fallback Join: Get the tenant's current active lease if needed
+    LEFT JOIN leases al ON tr.tenant_id = al.tenant_id AND al.status = 'Active'
+    LEFT JOIN units au ON al.unit_id = au.id
+    LEFT JOIN properties ap ON al.property_id = ap.id
     WHERE tr.id = ?
 ");
 $stmt->execute([$transaction_id]);
 $txn = $stmt->fetch();
+
+if ($txn) {
+    // Graceful fallback for property details
+    if (empty($txn['property_title'])) {
+        $txn['property_title'] = $txn['fallback_property_title'] ?? 'General Account';
+        $txn['location'] = $txn['fallback_location'] ?? 'Managed Property';
+        $txn['unit_number'] = $txn['fallback_unit_number'] ?? 'N/A';
+    }
+}
 
 if (!$txn) {
     die("Receipt not found.");

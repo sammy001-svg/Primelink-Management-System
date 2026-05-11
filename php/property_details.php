@@ -23,7 +23,17 @@ $stmt = $pdo->prepare("
     LEFT JOIN landlords l ON p.landlord_id = l.id
     WHERE p.id = ?
 ");
-$stmt->execute([$propertyId]);
+try {
+    $stmt->execute([$propertyId]);
+} catch (PDOException $e) {
+    if ($e->getCode() == '42S22') {
+        $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_rate` DECIMAL(15,2) NOT NULL DEFAULT 0 ");
+        $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 ");
+        $stmt->execute([$propertyId]);
+    } else {
+        throw $e;
+    }
+}
 $property = $stmt->fetch();
 
 if (!$property) {
@@ -32,7 +42,18 @@ if (!$property) {
 
 // Fetch units
 $stmt = $pdo->prepare("SELECT * FROM units WHERE property_id = ? ORDER BY unit_number ASC");
-$stmt->execute([$propertyId]);
+try {
+    $stmt->execute([$propertyId]);
+} catch (PDOException $e) {
+    if ($e->getCode() == '42S22') {
+        // Repair missing meter columns
+        $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_meter` VARCHAR(100) NULL AFTER `deposit_amount` ");
+        $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_meter` VARCHAR(100) NULL AFTER `electricity_meter` ");
+        $stmt->execute([$propertyId]);
+    } else {
+        throw $e;
+    }
+}
 $units = $stmt->fetchAll();
 
 // Calculate stats
@@ -44,7 +65,7 @@ $totalRent = 0;
 foreach ($units as $u) {
     if ($u['status'] === 'Occupied') {
         $occupiedUnits++;
-        $totalRent += $u['rent_amount'];
+        $totalRent += $u['monthly_rent'];
     } else if ($u['status'] === 'Available') {
         $vacantUnits++;
     }
@@ -134,8 +155,19 @@ include __DIR__ . '/includes/sidebar.php';
 
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Electricity Meter #</label>
+                        <input type="text" name="electricity_meter" placeholder="E.g. 142XXX..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Water Meter #</label>
+                        <input type="text" name="water_meter" placeholder="E.g. WM-001..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent (KSh)</label>
-                        <input type="number" name="rent_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <input type="number" name="monthly_rent" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
@@ -229,11 +261,14 @@ include __DIR__ . '/includes/sidebar.php';
                                         </div>
                                     </td>
                                     <td class="p-4">
-                                        <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars((string)($unit['unit_type'] ?? '')); ?></p>
-                                        <p class="text-[9px] font-black uppercase text-accent-green/70"><?php echo htmlspecialchars((string)(($unit['category'] ?? '') ?: 'Uncategorized')); ?></p>
-                                    </td>
+                                         <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars((string)($unit['unit_type'] ?? '')); ?></p>
+                                         <div class="flex gap-2 items-center mt-1">
+                                             <span class="text-[8px] font-black uppercase px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded border border-blue-500/10">⚡ <?php echo htmlspecialchars(($unit['electricity_meter'] ?? '') ?: 'No Meter'); ?></span>
+                                             <span class="text-[8px] font-black uppercase px-1.5 py-0.5 bg-cyan-500/10 text-cyan-500 rounded border border-cyan-500/10">💧 <?php echo htmlspecialchars(($unit['water_meter'] ?? '') ?: 'No Meter'); ?></span>
+                                         </div>
+                                     </td>
                                     <td class="p-4 text-right font-black text-sm">
-                                        KSh <?php echo number_format($unit['rent_amount']); ?>
+                                        KSh <?php echo number_format($unit['monthly_rent']); ?>
                                     </td>
                                     <td class="p-4 text-center">
                                         <span class="px-2.5 py-1 <?php echo $unit['status'] === 'Occupied' ? 'bg-accent-green/10 text-accent-green' : ($unit['status'] === 'Maintenance' ? 'bg-slate-100 text-slate-500' : 'bg-accent-orange/10 text-accent-orange'); ?> rounded-full text-[9px] font-black uppercase tracking-widest border <?php echo $unit['status'] === 'Occupied' ? 'border-accent-green/20' : ($unit['status'] === 'Maintenance' ? 'border-slate-200' : 'border-accent-orange/20'); ?>">
@@ -303,6 +338,27 @@ include __DIR__ . '/includes/sidebar.php';
                 <?php endif; ?>
             </div>
 
+            <!-- Utility Rates -->
+            <div class="glass-card p-6 space-y-4">
+                <h3 class="text-lg font-black tracking-tight">Utility Rates</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center p-3 bg-blue-500/5 rounded-xl border border-blue-500/10">
+                        <div class="flex items-center gap-2">
+                            <span class="text-blue-500">💧</span>
+                            <p class="text-xs font-bold text-slate-600 dark:text-slate-400">Water Rate</p>
+                        </div>
+                        <p class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($property['water_rate'] ?? 0, 2); ?>/Unit</p>
+                    </div>
+                    <div class="flex justify-between items-center p-3 bg-orange-500/5 rounded-xl border border-orange-500/10">
+                        <div class="flex items-center gap-2">
+                            <span class="text-orange-500">🗑️</span>
+                            <p class="text-xs font-bold text-slate-600 dark:text-slate-400">Garbage Fee</p>
+                        </div>
+                        <p class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($property['garbage_fee'] ?? 0); ?>/mo</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Gallery Overlay -->
             <div class="glass-card p-6 space-y-4">
                 <h3 class="text-lg font-black tracking-tight">Media Presence</h3>
@@ -369,8 +425,19 @@ include __DIR__ . '/includes/sidebar.php';
 
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Electricity Meter #</label>
+                        <input type="text" name="electricity_meter" id="edit_electricity_meter" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Water Meter #</label>
+                        <input type="text" name="water_meter" id="edit_water_meter" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent (KSh)</label>
-                        <input type="number" name="rent_amount" id="edit_rent_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <input type="number" name="monthly_rent" id="edit_rent_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
@@ -399,7 +466,9 @@ include __DIR__ . '/includes/sidebar.php';
         document.getElementById('edit_floor_number').value = unit.floor_number;
         document.getElementById('edit_unit_type').value = unit.unit_type;
         document.getElementById('edit_category').value = unit.category || '';
-        document.getElementById('edit_rent_amount').value = unit.rent_amount;
+        document.getElementById('edit_electricity_meter').value = unit.electricity_meter || '';
+        document.getElementById('edit_water_meter').value = unit.water_meter || '';
+        document.getElementById('edit_rent_amount').value = unit.monthly_rent;
         document.getElementById('edit_status').value = unit.status;
         openModal('editUnitModal');
     }

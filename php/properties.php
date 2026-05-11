@@ -179,6 +179,10 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <div><label class="form-label">Total Area (Sqm)</label><input type="number" name="area" class="form-input"></div>
             </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Water Rate (per Unit)</label><input type="number" step="0.01" name="water_rate" required class="form-input" placeholder="e.g. 150"></div>
+                <div><label class="form-label">Garbage Fee (Monthly)</label><input type="number" step="0.01" name="garbage_fee" required class="form-input" placeholder="e.g. 500"></div>
+            </div>
             <div><label class="form-label">Description</label><textarea name="description" rows="3" class="form-input"></textarea></div>
             <div><label class="form-label">Images</label><input type="file" name="property_images[]" multiple class="form-input" accept="image/*"></div>
             <button type="submit" class="w-full py-4 bg-accent-green text-slate-900 font-bold rounded-xl hover:opacity-90 transition-all">Save Property →</button>
@@ -224,6 +228,10 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <div><label class="form-label">Total Area (Sqm)</label><input type="number" name="area" id="edit_prop_area" class="form-input"></div>
             </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="form-label">Water Rate (per Unit)</label><input type="number" step="0.01" name="water_rate" id="edit_prop_water_rate" required class="form-input"></div>
+                <div><label class="form-label">Garbage Fee (Monthly)</label><input type="number" step="0.01" name="garbage_fee" id="edit_prop_garbage_fee" required class="form-input"></div>
+            </div>
             <div>
                 <label class="form-label">Status</label>
                 <select name="status" id="edit_prop_status" class="form-input">
@@ -263,6 +271,8 @@ function openEditPropertyModal(prop) {
     document.getElementById('edit_prop_type').value = prop.property_type;
     document.getElementById('edit_prop_landlord').value = prop.landlord_id || '';
     document.getElementById('edit_prop_area').value = prop.area;
+    document.getElementById('edit_prop_water_rate').value = prop.water_rate || 0;
+    document.getElementById('edit_prop_garbage_fee').value = prop.garbage_fee || 0;
     document.getElementById('edit_prop_status').value = prop.status;
     document.getElementById('edit_prop_description').value = prop.description;
     openModal('editPropertyModal');

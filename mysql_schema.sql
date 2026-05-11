@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS properties (
     property_type ENUM('Apartment', 'Villa', 'Single Room', 'Shop', 'Office', 'Land', 'Other') DEFAULT 'Apartment',
     status ENUM('Available', 'Under Maintenance', 'Inactive', 'Sold') DEFAULT 'Available',
     area DECIMAL(10, 2),
+    water_rate DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    garbage_fee DECIMAL(15, 2) NOT NULL DEFAULT 0,
     property_code VARCHAR(50) NULL,
     images JSON,
     amenities JSON,
@@ -67,6 +69,8 @@ CREATE TABLE IF NOT EXISTS units (
     unit_type VARCHAR(100) NOT NULL,
     monthly_rent DECIMAL(15, 2) NOT NULL DEFAULT 0,
     deposit_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+    electricity_meter VARCHAR(100) NULL,
+    water_meter VARCHAR(100) NULL,
     status ENUM('Available', 'Occupied', 'Maintenance') DEFAULT 'Available',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE

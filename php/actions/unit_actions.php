@@ -15,7 +15,9 @@ if ($action === 'create') {
     $floorNumber = $_POST['floor_number'] ?? 'G';
     $unitType = $_POST['unit_type'];
     $category = $_POST['category'] ?? '';
-    $rentAmount = $_POST['rent_amount'];
+    $electricityMeter = $_POST['electricity_meter'] ?? '';
+    $waterMeter = $_POST['water_meter'] ?? '';
+    $monthlyRent = $_POST['monthly_rent'] ?? $_POST['rent_amount'] ?? 0;
     $status = $_POST['status'] ?? 'Available';
 
     // Handle Image Uploads
@@ -40,22 +42,32 @@ if ($action === 'create') {
 
     try {
         $stmt = $pdo->prepare("
-            INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, rent_amount, status, images)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, status, images)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson]);
+        $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $status, $imagesJson]);
         header("Location: ../property_details.php?id=$propertyId&success=unit_created");
     } catch (PDOException $e) {
-        // Self-healing: category or images missing
+        // Self-healing: category, images, or rent_amount naming drift
         if ($e->getCode() == '42S22') {
             try {
                 $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `category` VARCHAR(100) NULL AFTER `unit_type` ");
                 $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `images` JSON NULL AFTER `status` ");
+                $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_meter` VARCHAR(100) NULL AFTER `deposit_amount` ");
+                $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_meter` VARCHAR(100) NULL AFTER `electricity_meter` ");
+                
+                // Attempt to rename rent_amount to monthly_rent if it exists
+                try {
+                    $pdo->exec("ALTER TABLE `units` CHANGE COLUMN `rent_amount` `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
+                } catch(Exception $ex) {
+                    // Already renamed or missing
+                }
+
                 $stmt = $pdo->prepare("
-                    INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, rent_amount, status, images)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, status, images)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
-                $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson]);
+                $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $status, $imagesJson]);
                 header("Location: ../property_details.php?id=$propertyId&success=unit_created");
                 exit();
             } catch (PDOException $subE) {
@@ -73,7 +85,9 @@ else if ($action === 'update') {
     $floorNumber = $_POST['floor_number'];
     $unitType = $_POST['unit_type'];
     $category = $_POST['category'];
-    $rentAmount = $_POST['rent_amount'];
+    $electricityMeter = $_POST['electricity_meter'] ?? '';
+    $waterMeter = $_POST['water_meter'] ?? '';
+    $monthlyRent = $_POST['monthly_rent'] ?? $_POST['rent_amount'] ?? 0;
     $status = $_POST['status'];
 
     // Fetch existing images
@@ -102,11 +116,11 @@ else if ($action === 'update') {
 
     $stmt = $pdo->prepare("
         UPDATE units 
-        SET unit_number = ?, floor_number = ?, unit_type = ?, category = ?, rent_amount = ?, status = ?, images = ?
+        SET unit_number = ?, floor_number = ?, unit_type = ?, category = ?, electricity_meter = ?, water_meter = ?, monthly_rent = ?, status = ?, images = ?
         WHERE id = ?
     ");
     
-    if ($stmt->execute([$unitNumber, $floorNumber, $unitType, $category, $rentAmount, $status, $imagesJson, $unitId])) {
+    if ($stmt->execute([$unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $status, $imagesJson, $unitId])) {
         header("Location: ../property_details.php?id=$propertyId&success=unit_updated");
     } else {
         header("Location: ../property_details.php?id=$propertyId&error=update_failed");

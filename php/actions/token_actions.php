@@ -22,6 +22,66 @@ function generateTokenCode($type) {
     return "$prefix-" . implode('-', $segments);
 }
 
+/**
+ * Initiate Safaricom Daraja STK Push
+ * Returns true on success, false/error string on failure
+ */
+function initiateStkPush($phone, $amount, $accountRef) {
+    $consumerKey    = getenv('MPESA_CONSUMER_KEY')    ?: '';
+    $consumerSecret = getenv('MPESA_CONSUMER_SECRET') ?: '';
+    $shortcode      = getenv('MPESA_SHORTCODE')       ?: '174379'; // Sandbox default
+    $passkey        = getenv('MPESA_PASSKEY')         ?: '';
+    $callbackUrl    = getenv('MPESA_CALLBACK_URL')    ?: '';
+
+    // If credentials not set, skip (request is still saved as Pending)
+    if (empty($consumerKey) || empty($consumerSecret) || empty($passkey) || empty($callbackUrl)) {
+        return false; // Graceful no-op — admin will confirm manually
+    }
+
+    // Get OAuth token
+    $credentials = base64_encode("$consumerKey:$consumerSecret");
+    $ch = curl_init('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => ["Authorization: Basic $credentials"],
+    ]);
+    $tokenRes = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+    $accessToken = $tokenRes['access_token'] ?? null;
+    if (!$accessToken) return false;
+
+    // Build STK Push payload
+    $timestamp = date('YmdHis');
+    $password  = base64_encode($shortcode . $passkey . $timestamp);
+    $payload   = [
+        'BusinessShortCode' => $shortcode,
+        'Password'          => $password,
+        'Timestamp'         => $timestamp,
+        'TransactionType'   => 'CustomerPayBillOnline',
+        'Amount'            => (int)$amount,
+        'PartyA'            => $phone,
+        'PartyB'            => $shortcode,
+        'PhoneNumber'       => $phone,
+        'CallBackURL'       => $callbackUrl,
+        'AccountReference'  => $accountRef,
+        'TransactionDesc'   => 'Primelink Token Purchase',
+    ];
+
+    $ch = curl_init('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => [
+            "Authorization: Bearer $accessToken",
+            "Content-Type: application/json",
+        ],
+    ]);
+    $res = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+    return ($res['ResponseCode'] ?? '') === '0';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -37,11 +97,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $token_type     = $_POST['token_type'] ?? 'Electricity';
         $amount         = (float)$_POST['amount'];
         $meter_number   = trim($_POST['meter_number'] ?? '');
-        $payment_method = $_POST['payment_method'] ?? 'M-Pesa';
+        $payment_method = $_POST['payment_method'] ?? 'M-Pesa STK';
         $reference      = trim($_POST['reference'] ?? '');
+        $raw_phone      = trim($_POST['phone_number'] ?? '');
+
+        // Normalize phone to 254XXXXXXXXX format
+        $phone = preg_replace('/\D/', '', $raw_phone);
+        if (strlen($phone) === 9) $phone = '254' . $phone;
+        elseif (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
 
         if (empty($meter_number) || $amount <= 0) {
-            header("Location: ../tokens.php?error=invalid_input");
+            header("Location: ../tokens.php?error=Please+fill+all+required+fields");
+            exit();
+        }
+
+        if ($payment_method === 'M-Pesa STK' && strlen($phone) !== 12) {
+            header("Location: ../tokens.php?error=Invalid+phone+number+for+STK+Push");
             exit();
         }
 
@@ -52,10 +123,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $property_id = $lease['property_id'] ?? null;
         $unit_id     = $lease['unit_id'] ?? null;
 
+        // Build description with all relevant info
+        $desc = "Token request | Meter: $meter_number";
+        if ($phone)      $desc .= " | Phone: $phone";
+        if ($reference)  $desc .= " | Ref: $reference";
+
+        // Attempt Daraja STK Push (if credentials configured)
+        $stkPushResult = null;
+        if ($payment_method === 'M-Pesa STK' && $phone) {
+            $stkPushResult = initiateStkPush($phone, $amount, $meter_number);
+        }
+
         try {
             $pdo->beginTransaction();
 
-            // 1. Create a PENDING token request (no token code yet, status = Pending)
             $token_id = generateUUID();
             $stmt = $pdo->prepare("
                 INSERT INTO tokens 
@@ -64,10 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmt->execute([$token_id, $tenantId, $property_id, $unit_id, $token_type, $meter_number, $amount, $_SESSION['user_id']]);
 
-            // 2. Create a PENDING transaction for admin to confirm
             $trans_id   = generateUUID();
             $trans_type = ($token_type === 'Electricity') ? 'Electricity Token' : 'Water Token';
-            $desc       = "Token request for Meter: $meter_number" . ($reference ? " | Ref: $reference" : '');
             $stmtTrans  = $pdo->prepare("
                 INSERT INTO transactions 
                     (id, tenant_id, amount, transaction_type, payment_method, status, description, transaction_date) 
@@ -76,7 +155,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtTrans->execute([$trans_id, $tenantId, $amount, $trans_type, $payment_method, $desc]);
 
             $pdo->commit();
-            header("Location: ../tokens.php?success=requested&token_id=$token_id");
+
+            $successMsg = ($payment_method === 'M-Pesa STK')
+                ? 'stk_sent&phone=' . urlencode($phone)
+                : 'requested';
+
+            header("Location: ../tokens.php?success=$successMsg&token_id=$token_id");
             exit();
         } catch (PDOException $e) {
             $pdo->rollBack();

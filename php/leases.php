@@ -37,6 +37,25 @@ if ($role === 'landlord') {
     $leases->execute([$landlordId]);
     $leases = $leases->fetchAll();
     $canCreateLease = false;
+} elseif ($role === 'tenant') {
+    $stmtT = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+    $stmtT->execute([$_SESSION['user_id']]);
+    $tenantId = $stmtT->fetchColumn();
+
+    $leases = $pdo->prepare("
+        SELECT l.*, t.full_name as tenant_name, t.email as tenant_email,
+               p.title as property_title, p.location as property_location,
+               u.unit_number
+        FROM leases l
+        JOIN tenants t ON l.tenant_id = t.id
+        JOIN properties p ON l.property_id = p.id
+        LEFT JOIN units u ON l.unit_id = u.id
+        WHERE l.tenant_id = ?
+        ORDER BY l.created_at DESC
+    ");
+    $leases->execute([$tenantId]);
+    $leases = $leases->fetchAll();
+    $canCreateLease = false;
 } else {
     requireRole(['staff']);
     $leases = $pdo->query("
@@ -66,8 +85,12 @@ include __DIR__ . '/includes/sidebar.php';
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h1 class="text-3xl font-black text-slate-900 dark:text-white">Lease Management</h1>
-            <p class="text-slate-400 font-medium text-sm"><?php echo $role === 'landlord' ? 'Lease agreements for your properties.' : 'Create and track active lease agreements'; ?></p>
+            <h1 class="text-3xl font-black text-slate-900 dark:text-white"><?php echo $role === 'tenant' ? 'My Lease Agreement' : 'Lease Management'; ?></h1>
+            <p class="text-slate-400 font-medium text-sm"><?php 
+                if ($role === 'landlord') echo 'Lease agreements for your properties.';
+                elseif ($role === 'tenant') echo 'View your lease details, expiry dates, and download your agreement.';
+                else echo 'Create and track active lease agreements'; 
+            ?></p>
         </div>
         <?php if ($canCreateLease): ?>
         <button onclick="openModal('newLeaseModal')" class="btn-primary gap-2">
@@ -80,25 +103,25 @@ include __DIR__ . '/includes/sidebar.php';
     <!-- Leases Table -->
     <div class="glass-card overflow-hidden">
         <div class="p-6 border-b border-slate-100 dark:border-slate-800">
-            <h3 class="font-black text-slate-900 dark:text-white">All Leases <span class="text-slate-400 font-medium text-sm ml-2">(<?php echo count($leases); ?>)</span></h3>
+            <h3 class="font-black text-slate-900 dark:text-white"><?php echo $role === 'tenant' ? 'Current Lease Details' : 'All Leases'; ?> <span class="text-slate-400 font-medium text-sm ml-2">(<?php echo count($leases); ?>)</span></h3>
         </div>
         <?php if (empty($leases)): ?>
         <div class="text-center py-16">
             <svg class="mx-auto text-slate-200 dark:text-slate-800 mb-4" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <p class="text-slate-400 font-bold">No leases created yet</p>
-            <p class="text-slate-400 text-sm mt-1">Click "New Lease" to get started</p>
+            <p class="text-slate-400 font-bold">No leases found</p>
+            <p class="text-slate-400 text-sm mt-1">Contact administration if you believe this is an error.</p>
         </div>
         <?php else: ?>
         <div class="overflow-x-auto">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Tenant</th>
-                        <th>Property</th>
-                        <th>Start Date</th>
-                        <th>End Date</th>
+                        <?php if ($role !== 'tenant'): ?><th>Tenant</th><?php endif; ?>
+                        <th>Property & Unit</th>
+                        <th>Period</th>
                         <th>Monthly Rent</th>
-                        <th>Deposit</th>
+                        <th>Renewal Date</th>
+                        <th>Document</th>
                         <th>Status</th>
                         <th class="text-right">Actions</th>
                     </tr>
@@ -111,34 +134,41 @@ include __DIR__ . '/includes/sidebar.php';
                         
                         $statusBadge = $isTerminated ? 'badge-red' : ($isExpired ? 'badge-red' : ($isExpiring ? 'badge-orange' : 'badge-green'));
                         $statusText  = $isTerminated ? 'Terminated' : ($isExpired ? 'Expired' : ($isExpiring ? 'Expiring Soon' : 'Active'));
+                        
+                        // Calculate renewal date (End date + 1 day)
+                        $renewalDate = date('M j, Y', strtotime($lease['end_date'] . ' +1 day'));
                     ?>
                     <tr class="<?php echo $isTerminated ? 'opacity-60 grayscale-[0.5]' : ''; ?>">
+                        <?php if ($role !== 'tenant'): ?>
                         <td>
                             <div class="font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($lease['tenant_name']); ?></div>
                             <div class="text-xs text-slate-400"><?php echo htmlspecialchars($lease['tenant_email']); ?></div>
                         </td>
+                        <?php endif; ?>
                         <td>
                             <div class="font-bold"><?php echo htmlspecialchars($lease['property_title']); ?></div>
-                            <div class="text-xs text-slate-400"><?php echo htmlspecialchars($lease['property_location']); ?></div>
+                            <div class="text-xs text-slate-400"><?php echo htmlspecialchars($lease['property_location']); ?> <?php echo !empty($lease['unit_number']) ? '— Unit ' . htmlspecialchars($lease['unit_number']) : ''; ?></div>
                         </td>
-                        <td class="text-slate-600 dark:text-slate-400"><?php echo date('M j, Y', strtotime($lease['start_date'])); ?></td>
-                        <td class="text-slate-600 dark:text-slate-400"><?php echo date('M j, Y', strtotime($lease['end_date'])); ?></td>
+                        <td>
+                            <div class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo date('M j, Y', strtotime($lease['start_date'])); ?> —</div>
+                            <div class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter">Expires <?php echo date('M j, Y', strtotime($lease['end_date'])); ?></div>
+                        </td>
                         <td class="font-black text-slate-900 dark:text-white text-xs">KSh <?php echo number_format($lease['monthly_rent']); ?></td>
-                        <td class="font-black text-slate-900 dark:text-white text-xs">KSh <?php echo number_format($lease['deposit_amount']); ?></td>
+                        <td class="text-xs font-bold text-blue-500"><?php echo $renewalDate; ?></td>
                         <td>
                             <?php if (!empty($lease['signed_lease_url'])): ?>
-                                <a href="<?php echo htmlspecialchars($lease['signed_lease_url']); ?>" target="_blank" class="flex items-center gap-1 text-accent-green font-bold hover:underline">
+                                <a href="<?php echo htmlspecialchars($lease['signed_lease_url']); ?>" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 bg-accent-green/10 text-accent-green rounded-lg text-[10px] font-black uppercase hover:bg-accent-green hover:text-white transition-all">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                    Signed
+                                    Download Signed
                                 </a>
                             <?php else: ?>
-                                <span class="text-slate-300 text-xs italic">No Doc</span>
+                                <span class="text-slate-300 text-[10px] font-bold italic uppercase">Pending Signature</span>
                             <?php endif; ?>
                         </td>
                         <td><span class="badge <?php echo $statusBadge; ?>"><?php echo $statusText; ?></span></td>
                         <td class="text-right">
                             <div class="flex items-center justify-end gap-2">
-                                <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" target="_blank" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-slate-900 dark:hover:text-white" title="View Draft">
+                                <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" target="_blank" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-slate-900 dark:hover:text-white" title="View Full Terms">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                                 </a>
                                 <?php if ($canCreateLease && !$isTerminated): ?>
