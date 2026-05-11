@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     lease_id VARCHAR(36),
     invoice_id VARCHAR(36), -- Link to specific invoice
     amount DECIMAL(15, 2) NOT NULL,
-    transaction_type ENUM('Rent', 'Deposit', 'Maintenance', 'Penalty', 'Water', 'Service Charge', 'Electricity Token', 'Water Token') NOT NULL,
+    transaction_type ENUM('Rent', 'Deposit', 'Maintenance', 'Penalty', 'Water', 'Garbage', 'Service Charge', 'Electricity Token', 'Water Token') NOT NULL,
     status ENUM('Paid', 'Pending', 'Failed', 'Overdue') DEFAULT 'Pending',
     payment_method VARCHAR(100),
     description TEXT,

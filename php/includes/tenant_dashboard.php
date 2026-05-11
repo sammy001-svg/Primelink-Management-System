@@ -8,7 +8,15 @@ $myRequests = [];
 
 if (!empty($tenantId)) {
     // Lease info
-    $leaseStmt = $pdo->prepare("SELECT l.*, p.title as property_title, p.location FROM leases l JOIN properties p ON l.property_id = p.id WHERE l.tenant_id = ? ORDER BY l.created_at DESC LIMIT 1");
+    $leaseStmt = $pdo->prepare("
+        SELECT l.*, p.title as property_title, p.location, 
+               u.unit_number, u.electricity_meter, u.water_meter, u.deposit_amount as unit_deposit
+        FROM leases l 
+        JOIN properties p ON l.property_id = p.id 
+        JOIN units u ON l.unit_id = u.id
+        WHERE l.tenant_id = ? 
+        ORDER BY l.created_at DESC LIMIT 1
+    ");
     $leaseStmt->execute([$tenantId]);
     $tenantLease = $leaseStmt->fetch();
 
@@ -48,6 +56,12 @@ if (!empty($tenantId)) {
     foreach ($balances as $b) {
         $categoryBalances[$b['invoice_type']] = (float)$b['balance'];
     }
+
+    // Tenant Specific Stats for cards
+    $stats = [];
+    $stats['my_requests'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId'")->fetchColumn();
+    $stats['pending_requests'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId' AND status = 'Pending'")->fetchColumn();
+    $stats['my_payments'] = $pdo->query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE tenant_id = '$tenantId' AND status = 'Paid'")->fetchColumn();
 }
 ?>
 <div class="space-y-6">
@@ -85,33 +99,69 @@ if (!empty($tenantId)) {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        <!-- My Lease -->
+        <!-- My Lease & Unit -->
         <div class="glass-card p-6">
-            <h3 class="font-black text-slate-900 dark:text-white mb-5">My Current Lease</h3>
+            <h3 class="font-black text-slate-900 dark:text-white mb-5">My Property & Unit</h3>
             <?php if (!empty($tenantLease)): ?>
-            <div class="space-y-4">
-                <div class="flex justify-between items-start p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="space-y-6">
+                <!-- Property Info -->
+                <div class="flex justify-between items-start p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800/30">
                     <div>
-                        <p class="text-xs text-slate-400 font-bold uppercase">Property</p>
-                        <p class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenantLease['property_title']); ?></p>
-                        <p class="text-sm text-slate-500"><?php echo htmlspecialchars($tenantLease['location']); ?></p>
+                        <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Currently Renting</p>
+                        <p class="text-lg font-black text-slate-900 dark:text-white mt-1"><?php echo htmlspecialchars($tenantLease['property_title']); ?></p>
+                        <p class="text-xs text-slate-500 font-medium flex items-center gap-1">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <?php echo htmlspecialchars($tenantLease['location']); ?>
+                        </p>
                     </div>
-                    <span class="badge badge-green">Active</span>
+                    <div class="text-right">
+                        <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Unit</p>
+                        <p class="text-2xl font-black text-accent-green leading-none"><?php echo htmlspecialchars($tenantLease['unit_number']); ?></p>
+                    </div>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                        <p class="text-[10px] text-slate-400 font-black uppercase">Monthly Rent</p>
-                        <p class="font-black text-slate-900 dark:text-white">KSh <?php echo number_format($tenantLease['monthly_rent']); ?></p>
+
+                <!-- Financials -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-xs">
+                        <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Monthly Rent</p>
+                        <p class="text-base font-black text-slate-900 dark:text-white">KSh <?php echo number_format($tenantLease['monthly_rent']); ?></p>
                     </div>
-                    <div class="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                        <p class="text-[10px] text-slate-400 font-black uppercase">Lease Ends</p>
-                        <p class="font-black text-slate-900 dark:text-white"><?php echo date('M j, Y', strtotime($tenantLease['end_date'])); ?></p>
+                    <div class="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-xs">
+                        <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Security Deposit</p>
+                        <p class="text-base font-black text-slate-900 dark:text-white">KSh <?php echo number_format($tenantLease['unit_deposit']); ?></p>
                     </div>
+                </div>
+
+                <!-- Utility Meters -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="p-4 bg-linear-to-br from-blue-500/5 to-transparent border border-blue-500/10 rounded-2xl">
+                        <p class="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                            Electricity Meter
+                        </p>
+                        <p class="text-sm font-black text-slate-900 dark:text-white font-mono"><?php echo $tenantLease['electricity_meter'] ?: 'Not Assigned'; ?></p>
+                    </div>
+                    <div class="p-4 bg-linear-to-br from-cyan-500/5 to-transparent border border-cyan-500/10 rounded-2xl">
+                        <p class="text-[9px] text-cyan-400 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" stroke-opacity="0.3"/></svg>
+                            Water Meter
+                        </p>
+                        <p class="text-sm font-black text-slate-900 dark:text-white font-mono"><?php echo $tenantLease['water_meter'] ?: 'Not Assigned'; ?></p>
+                    </div>
+                </div>
+
+                <!-- Expiry Info -->
+                <div class="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-2xl flex justify-between items-center">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase">Lease Agreement Expiry</p>
+                    <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo date('M j, Y', strtotime($tenantLease['end_date'])); ?></p>
                 </div>
             </div>
             <?php else: ?>
-            <div class="text-center py-8">
-                <p class="text-slate-400 text-sm font-medium">No lease found. Contact your property manager.</p>
+            <div class="text-center py-12">
+                <div class="w-16 h-16 bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-300"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                </div>
+                <p class="text-slate-400 text-sm font-medium">No active lease found. Please contact management for unit assignment.</p>
             </div>
             <?php endif; ?>
         </div>

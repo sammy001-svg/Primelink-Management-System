@@ -113,17 +113,46 @@ include __DIR__ . '/includes/sidebar.php';
         <!-- Tenant Balances Quick View -->
         <div class="space-y-6">
             <div class="glass-card p-6">
-                <h3 class="text-lg font-black mb-6 tracking-tight">Active Tenants</h3>
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-black tracking-tight">Active Tenants</h3>
+                    <span class="text-[10px] font-black uppercase text-slate-400">Financial Summary</span>
+                </div>
                 <div class="space-y-4">
-                    <?php foreach ($tenants as $t): ?>
-                    <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                        <div>
-                            <p class="text-sm font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$t['full_name']); ?></p>
-                            <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest"><?php echo htmlspecialchars((string)$t['property_title']); ?> - <?php echo htmlspecialchars((string)$t['unit_number']); ?></p>
+                    <?php foreach ($tenants as $t): 
+                        // Fetch financial summary for this tenant
+                        $finStmt = $pdo->prepare("
+                            SELECT 
+                                (SELECT SUM(amount) FROM invoices WHERE tenant_id = ?) as total_invoiced,
+                                (SELECT SUM(amount) FROM transactions WHERE tenant_id = ? AND status = 'Paid') as total_paid
+                        ");
+                        $finStmt->execute([$t['id'], $t['id']]);
+                        $fin = $finStmt->fetch();
+                        $totalInv = $fin['total_invoiced'] ?? 0;
+                        $totalPaid = $fin['total_paid'] ?? 0;
+                        $balance = $totalInv - $totalPaid;
+                    ?>
+                    <div class="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800/50 hover:border-accent-green/30 transition-all group">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$t['full_name']); ?></p>
+                                <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest"><?php echo htmlspecialchars((string)$t['property_title']); ?> - <?php echo htmlspecialchars((string)$t['unit_number']); ?></p>
+                            </div>
+                            <a href="view_statement.php?tenant_id=<?php echo $t['id']; ?>" class="p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 text-accent-green opacity-0 group-hover:opacity-100 transition-all shadow-sm" title="View Detailed Statement">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+                            </a>
                         </div>
-                        <div class="text-right">
-                            <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Monthly Rent</p>
-                            <p class="text-sm font-black text-accent-green">KSh <?php echo number_format($t['monthly_rent']); ?></p>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-1">
+                                <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Total Paid</p>
+                                <p class="text-xs font-black text-slate-900 dark:text-white">KSh <?php echo number_format($totalPaid); ?></p>
+                            </div>
+                            <div class="space-y-1 text-right">
+                                <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Balance Due</p>
+                                <p class="text-xs font-black <?php echo $balance > 0 ? 'text-red-500' : 'text-accent-green'; ?>">
+                                    KSh <?php echo number_format($balance); ?>
+                                </p>
+                            </div>
                         </div>
                     </div>
                     <?php endforeach; ?>
@@ -197,7 +226,12 @@ include __DIR__ . '/includes/sidebar.php';
         <button onclick="closeModal('newInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-2xl font-black mb-8">Generate Professional Invoice</h2>
+        <h2 class="text-2xl font-black mb-4">Generate Professional Invoice</h2>
+        <div class="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl mb-6 border border-blue-100 dark:border-blue-800/30">
+            <p class="text-[10px] text-blue-600 dark:text-blue-400 font-bold leading-relaxed">
+                <span class="uppercase">Automated Billing Active:</span> Rent and Garbage fees are automatically billed to all active tenants on the 1st of every month. Use this form primarily for <strong>Water</strong> bills and special items.
+            </p>
+        </div>
         <form action="actions/financial_actions.php" method="POST" class="space-y-6">
             <input type="hidden" name="action" value="generate_invoice">
             <div class="space-y-2">
@@ -217,9 +251,9 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Invoice Type</label>
                     <select name="invoice_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <option selected>Water</option>
                         <option>Rent</option>
-                        <option>Water</option>
-                        <option>Waste</option>
+                        <option>Garbage</option>
                         <option>Service Charge</option>
                         <option>Penalty</option>
                         <option>Other</option>

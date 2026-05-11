@@ -23,11 +23,21 @@ if ($role === 'landlord') {
 
 // Route tenants to their scoped dashboard
 if ($role === 'tenant') {
+    $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $tenantId = $stmt->fetchColumn();
+
     include __DIR__ . '/includes/header.php';
     include __DIR__ . '/includes/sidebar.php';
     include __DIR__ . '/includes/tenant_dashboard.php';
     include __DIR__ . '/includes/footer.php';
     exit();
+}
+
+// Proactive Automated Billing (Admin/Staff only)
+if ($role === 'admin' || $role === 'staff') {
+    require_once __DIR__ . '/includes/automated_billing.php';
+    runAutomatedBilling($pdo);
 }
 
 // ========== LIVE STATS FROM DATABASE (Admin/Staff only reach here) ==========

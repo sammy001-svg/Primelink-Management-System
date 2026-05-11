@@ -162,7 +162,10 @@ include __DIR__ . '/includes/sidebar.php';
                                     Download Signed
                                 </a>
                             <?php else: ?>
-                                <span class="text-slate-300 text-[10px] font-bold italic uppercase">Pending Signature</span>
+                                <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 text-blue-500 rounded-lg text-[10px] font-black uppercase hover:bg-blue-500 hover:text-white transition-all">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+                                    View Digital
+                                </a>
                             <?php endif; ?>
                         </td>
                         <td><span class="badge <?php echo $statusBadge; ?>"><?php echo $statusText; ?></span></td>

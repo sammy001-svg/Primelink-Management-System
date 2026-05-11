@@ -170,13 +170,18 @@ include __DIR__ . '/includes/sidebar.php';
                         <input type="number" name="monthly_rent" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
-                        <select name="status" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                            <option value="Available">Available</option>
-                            <option value="Occupied">Occupied</option>
-                            <option value="Maintenance">Maintenance</option>
-                        </select>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Deposit Amount (KSh)</label>
+                        <input type="number" name="deposit_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
+                    <select name="status" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <option value="Available">Available</option>
+                        <option value="Occupied">Occupied</option>
+                        <option value="Maintenance">Maintenance</option>
+                    </select>
                 </div>
 
                 <div class="space-y-2">
@@ -440,13 +445,18 @@ include __DIR__ . '/includes/sidebar.php';
                         <input type="number" name="monthly_rent" id="edit_rent_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
-                        <select name="status" id="edit_status" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                            <option value="Available">Available</option>
-                            <option value="Occupied">Occupied</option>
-                            <option value="Maintenance">Maintenance</option>
-                        </select>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Deposit Amount (KSh)</label>
+                        <input type="number" name="deposit_amount" id="edit_deposit_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Status</label>
+                    <select name="status" id="edit_status" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <option value="Available">Available</option>
+                        <option value="Occupied">Occupied</option>
+                        <option value="Maintenance">Maintenance</option>
+                    </select>
                 </div>
 
                 <div class="space-y-2">
@@ -469,6 +479,7 @@ include __DIR__ . '/includes/sidebar.php';
         document.getElementById('edit_electricity_meter').value = unit.electricity_meter || '';
         document.getElementById('edit_water_meter').value = unit.water_meter || '';
         document.getElementById('edit_rent_amount').value = unit.monthly_rent;
+        document.getElementById('edit_deposit_amount').value = unit.deposit_amount;
         document.getElementById('edit_status').value = unit.status;
         openModal('editUnitModal');
     }

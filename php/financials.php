@@ -148,11 +148,17 @@ if ($role === 'landlord') {
             <h1 class="text-3xl font-black text-slate-900 dark:text-white tracking-tight"><?php echo $role === 'landlord' ? 'Financial Income' : 'Financial Overview'; ?></h1>
             <p class="text-slate-500 font-medium"><?php echo $role === 'landlord' ? 'Overview of earnings from your units.' : 'Track your payments, invoices, and revenue.'; ?></p>
         </div>
-        <?php if ($role != 'tenant'): ?>
-        <button onclick="openModal('newTransactionModal')" class="btn-primary">
-            + New Transaction
-        </button>
-        <?php endif; ?>
+        <div class="flex items-center gap-3">
+            <a href="tenant_payments.php" class="px-5 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Tenant Statements
+            </a>
+            <?php if ($role != 'tenant'): ?>
+            <button onclick="openModal('newTransactionModal')" class="btn-primary">
+                + New Transaction
+            </button>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if ($role === 'tenant'): ?>
