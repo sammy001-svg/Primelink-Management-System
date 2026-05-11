@@ -152,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Update unit status
                 $stmt = $pdo->prepare("UPDATE units SET status = 'Occupied' WHERE id = ?");
                 $stmt->execute([$unitId]);
+
+                // --- IMMEDIATE BILLING ---
+                require_once __DIR__ . '/../includes/automated_billing.php';
+                generateInitialInvoices($pdo, $tenantId, $leaseId, $unitId);
             }
 
             if ($pdo->inTransaction()) $pdo->commit();

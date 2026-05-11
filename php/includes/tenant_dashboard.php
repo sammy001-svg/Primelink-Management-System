@@ -197,7 +197,8 @@ if (!empty($tenantId)) {
                 $showBalances = [
                     ['label' => 'Rent',  'val' => $categoryBalances['Rent'] ?? 0, 'color' => 'text-blue-500'],
                     ['label' => 'Water', 'val' => $categoryBalances['Water'] ?? 0, 'color' => 'text-cyan-500'],
-                    ['label' => 'Waste', 'val' => $categoryBalances['Waste'] ?? 0, 'color' => 'text-orange-500'],
+                    ['label' => 'Garbage', 'val' => $categoryBalances['Garbage'] ?? 0, 'color' => 'text-orange-500'],
+                    ['label' => 'Deposit', 'val' => $categoryBalances['Deposit'] ?? 0, 'color' => 'text-indigo-500'],
                     ['label' => 'Other', 'val' => ($categoryBalances['Service Charge'] ?? 0) + ($categoryBalances['Other'] ?? 0), 'color' => 'text-purple-500'],
                 ];
                 $hasAnyBalance = false;

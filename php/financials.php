@@ -46,7 +46,8 @@ $transactions = $pdo->query($query)->fetchAll();
 $balancesBreakdown = [
     'Rent' => 0,
     'Water' => 0,
-    'Waste' => 0,
+    'Garbage' => 0,
+    'Deposit' => 0,
     'Other' => 0,
     'Previous' => 0
 ];
@@ -149,14 +150,19 @@ if ($role === 'landlord') {
             <p class="text-slate-500 font-medium"><?php echo $role === 'landlord' ? 'Overview of earnings from your units.' : 'Track your payments, invoices, and revenue.'; ?></p>
         </div>
         <div class="flex items-center gap-3">
-            <a href="tenant_payments.php" class="px-5 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                Tenant Statements
-            </a>
-            <?php if ($role != 'tenant'): ?>
-            <button onclick="openModal('newTransactionModal')" class="btn-primary">
-                + New Transaction
-            </button>
+            <?php if ($role !== 'tenant'): ?>
+                <a href="tenant_payments.php" class="px-5 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Tenant Statements
+                </a>
+                <button onclick="openModal('newTransactionModal')" class="btn-primary">
+                    + New Transaction
+                </button>
+            <?php else: ?>
+                <a href="view_statement.php?tenant_id=<?php echo $tenantId; ?>" class="px-5 py-3 bg-slate-900 text-white dark:bg-slate-50 dark:text-slate-900 rounded-2xl font-bold text-sm shadow-lg hover:scale-105 transition-all flex items-center gap-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    My Financial Statement
+                </a>
             <?php endif; ?>
         </div>
     </div>
@@ -187,12 +193,16 @@ if ($role === 'landlord') {
                         <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Water']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                        <span class="text-sm font-bold text-slate-500">Waste Fee</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Waste']); ?></span>
+                        <span class="text-sm font-bold text-slate-500">Garbage Fee</span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Garbage']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Previous Balance</span>
                         <span class="text-sm font-black text-red-500">KSh <?php echo number_format($balancesBreakdown['Previous']); ?></span>
+                    </div>
+                    <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                        <span class="text-sm font-bold text-slate-500">Security Deposit</span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Deposit']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Other Utilities</span>

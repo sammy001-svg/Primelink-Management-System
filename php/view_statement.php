@@ -5,11 +5,22 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireLogin();
 
+$user = getCurrentUser($pdo);
+$role = $_SESSION['role'] ?? 'tenant';
 $tenantId = $_GET['tenant_id'] ?? '';
+
+// SECURITY: Tenants can only see their own statement
+if ($role === 'tenant') {
+    $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $ownTenant = $stmt->fetch();
+    $tenantId = $ownTenant['id'] ?? null;
+}
+
 if (!$tenantId) {
-    header("Location: tenant_payments.php");
+    header("Location: " . ($role === 'tenant' ? "financials.php" : "tenant_payments.php"));
     exit();
 }
 
@@ -64,7 +75,7 @@ include __DIR__ . '/includes/sidebar.php';
     <div class="flex justify-between items-end">
         <div>
             <div class="flex items-center gap-3 mb-2">
-                <a href="tenant_payments.php" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-500 hover:text-slate-900 transition-all">
+                <a href="<?php echo ($role === 'tenant' ? 'financials.php' : 'tenant_payments.php'); ?>" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-500 hover:text-slate-900 transition-all">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
                 </a>
                 <h1 class="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Statement of Account</h1>
