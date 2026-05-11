@@ -1,15 +1,7 @@
 # Database & Environment
 php/.env
+.env
 .env.local
-php/config/db.php (only ignore if it contains production credentials, but we use .env)
-# Actually, let's just ignore .env and provide a .env.example
-
-# Node / JS
-node_modules/
-.next/
-dist/
-build/
-.npm/
 
 # OS files
 .DS_Store
@@ -21,8 +13,10 @@ error_log
 
 # PHP specific
 vendor/
-composer.lock (optional, but keep for consistency)
+
+# Uploads (user-generated content)
+php/uploads/*
+!php/uploads/.gitkeep
 
 # Temporary
 /tmp/
-node_modules
