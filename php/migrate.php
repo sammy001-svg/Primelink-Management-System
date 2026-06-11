@@ -153,7 +153,8 @@ $migrations = [
         ('smtp_from_email',     'noreply@primelink.co.ke'),
         ('notify_on_payment',   '1'),
         ('notify_on_maintenance','1'),
-        ('notify_on_lease',     '1')",
+        ('notify_on_lease',     '1'),
+        ('management_fee_rate', '10')",
     // Add garbage_fee to properties table
     "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0",
     // Ensure invoices.status supports Overdue (in case column was created before this value was added)
