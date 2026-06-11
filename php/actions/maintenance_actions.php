@@ -7,6 +7,9 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/notify.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $user_role = $_SESSION['role'] ?? 'tenant';
@@ -18,6 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("UPDATE maintenance_requests SET status = ? WHERE id = ?");
             $stmt->execute([$status, $id]);
+
+            logAction($pdo, 'maintenance_status_updated', 'Maintenance', $id, "Status set to {$status}");
+            // Notify the tenant who raised the request
+            $row = $pdo->prepare("SELECT mr.title, t.user_id FROM maintenance_requests mr LEFT JOIN tenants t ON mr.tenant_id = t.id WHERE mr.id = ?");
+            $row->execute([$id]);
+            $mr = $row->fetch();
+            if ($mr && $mr['user_id']) {
+                createNotification($pdo, $mr['user_id'], 'Maintenance Update', "Your request \"" . $mr['title'] . "\" is now <strong>{$status}</strong>.", 'info');
+            }
+
             header("Location: ../maintenance.php?success=updated");
             exit();
         } catch (PDOException $e) {
@@ -63,6 +76,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("INSERT INTO maintenance_requests (id, property_id, unit_id, tenant_id, title, description, image_path, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
             $stmt->execute([$id, $property_id, $unit_id, $tenant_id, $title, $description, $image_path, $priority]);
+
+            logAction($pdo, 'maintenance_created', 'Maintenance', $id, "{$priority} — {$title}");
+            notifyAllStaff($pdo, 'New Maintenance Request', "A {$priority} priority request has been submitted: \"{$title}\"", 'warning');
+
             header("Location: ../maintenance.php?success=created");
             exit();
         } catch (PDOException $e) {
@@ -77,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("UPDATE maintenance_requests SET assigned_staff_id = ?, status = 'In Progress' WHERE id = ?");
             $stmt->execute([$staff_id, $id]);
+            logAction($pdo, 'maintenance_assigned', 'Maintenance', $id, "Assigned to staff ID {$staff_id}");
             header("Location: ../maintenance.php?success=assigned");
             exit();
         } catch (PDOException $e) {

@@ -2,6 +2,8 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/includes/settings.php';
+
 $id = $_GET['id'] ?? '';
 $stmt = $pdo->prepare("
     SELECT tr.*, t.full_name as tenant_name, t.email as tenant_email,
@@ -17,6 +19,9 @@ $stmt->execute([$id]);
 $payment = $stmt->fetch();
 
 if (!$payment) die("Payment record not found.");
+
+$companyName = getSetting($pdo, 'company_name',    'Primelink Management System');
+$currency    = getSetting($pdo, 'currency_symbol', 'KSh');
 
 ?>
 <!DOCTYPE html>
@@ -49,7 +54,7 @@ if (!$payment) die("Payment record not found.");
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
             <h1 class="text-3xl font-black text-slate-900 uppercase tracking-tight">Payment Receipt</h1>
-            <p class="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Primelink Management Official Document</p>
+            <p class="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1"><?php echo htmlspecialchars($companyName); ?> — Official Document</p>
         </div>
 
         <div class="flex justify-between items-center bg-slate-50 p-6 rounded-2xl mb-10 border border-slate-100">
@@ -84,7 +89,7 @@ if (!$payment) die("Payment record not found.");
 
         <div class="p-8 bg-slate-900 text-white rounded-3xl text-center shadow-xl">
             <p class="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">Total Amount Received</p>
-            <h2 class="text-4xl font-black">KSh <?php echo number_format($payment['amount'], 2); ?></h2>
+            <h2 class="text-4xl font-black"><?php echo $currency; ?> <?php echo number_format($payment['amount'], 2); ?></h2>
         </div>
 
         <?php if ($payment['description']): ?>
@@ -95,7 +100,7 @@ if (!$payment) die("Payment record not found.");
         <?php endif; ?>
 
         <div class="mt-12 text-center">
-            <p class="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em]">Authorized Primelink Digital Receipt</p>
+            <p class="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em]">Authorized <?php echo htmlspecialchars($companyName); ?> Digital Receipt</p>
         </div>
     </div>
 </body>

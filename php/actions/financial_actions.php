@@ -7,6 +7,9 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin(['admin', 'staff', 'tenant']);
 
+require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/notify.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -59,6 +62,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $transaction_date
             ]);
 
+            $txId = $pdo->lastInsertId() ?: generateUUID();
+            $amtFmt = 'KSh ' . number_format((float)$amount);
+            logAction($pdo, 'payment_recorded', 'Financials', '', "{$transaction_type} — {$amtFmt} via {$payment_method}");
+
+            // Notify staff when tenant submits; notify tenant when staff records
+            if ($role === 'tenant') {
+                notifyAllStaff($pdo, 'Payment Submitted', "A tenant submitted a {$transaction_type} payment of {$amtFmt} — awaiting confirmation.", 'info');
+            } else {
+                $tenantUser = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
+                $tenantUser->execute([$tenant_id]);
+                $tuid = $tenantUser->fetchColumn();
+                if ($tuid) createNotification($pdo, $tuid, 'Payment Recorded', "Your {$transaction_type} payment of {$amtFmt} has been recorded.", 'success');
+            }
+
             $redirect = ($role === 'tenant') ? '../financials.php?success=payment_submitted' : '../tenant_payments.php?success=payment_recorded';
             header("Location: $redirect");
             exit();
@@ -92,6 +109,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $due_date,
                 $invoice_type
             ]);
+
+            $invId = generateUUID();
+            $amtFmt = 'KSh ' . number_format((float)$amount);
+            logAction($pdo, 'invoice_generated', 'Financials', $invId, "{$invoice_type} invoice — {$amtFmt} due {$due_date}");
+            $tenantUser = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
+            $tenantUser->execute([$tenant_id]);
+            $tuid = $tenantUser->fetchColumn();
+            if ($tuid) createNotification($pdo, $tuid, 'New Invoice', "A {$invoice_type} invoice for {$amtFmt} has been issued, due on " . date('M d, Y', strtotime($due_date)) . '.', 'warning');
 
             header("Location: ../tenant_payments.php?success=invoice_generated");
             exit();

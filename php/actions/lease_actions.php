@@ -7,6 +7,9 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireRole('staff');
 
+require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/notify.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -30,7 +33,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$unit_id]);
             }
 
-            // Redirect back if coming from tenant details
+            logAction($pdo, 'lease_created', 'Leases', $id, "Tenant {$tenant_id} — Unit {$unit_id} — from {$start_date} to {$end_date}");
+            // Notify the tenant
+            $tu = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
+            $tu->execute([$tenant_id]);
+            $tuid = $tu->fetchColumn();
+            if ($tuid) createNotification($pdo, $tuid, 'Lease Created', "Your tenancy agreement has been created, effective {$start_date}.", 'success');
+
             $redirect = $_POST['redirect'] ?? '../leases.php?success=created';
             header("Location: " . $redirect);
             exit();
@@ -59,6 +68,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?,?)");
                 $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit_amount'], "Renewal of lease " . $lease_id]);
             }
+            if ($old) {
+                logAction($pdo, 'lease_renewed', 'Leases', $newId, "Renewed from lease {$lease_id} — new end: {$new_end_date}");
+                $tu = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
+                $tu->execute([$old['tenant_id']]);
+                $tuid = $tu->fetchColumn();
+                if ($tuid) createNotification($pdo, $tuid, 'Lease Renewed', "Your lease has been renewed until " . date('M d, Y', strtotime($new_end_date)) . '.', 'success');
+            }
             header("Location: ../leases.php?success=renewed");
             exit();
         } catch (PDOException $e) {
@@ -74,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("UPDATE leases SET status = 'Terminated', termination_date = ?, termination_reason = ? WHERE id = ?");
             $stmt->execute([$date, $reason, $lease_id]);
+            logAction($pdo, 'lease_terminated', 'Leases', $lease_id, "Terminated on {$date}. Reason: {$reason}");
             header("Location: ../leases.php?success=terminated");
             exit();
         } catch (PDOException $e) {

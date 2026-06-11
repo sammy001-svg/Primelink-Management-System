@@ -120,6 +120,57 @@ $migrations = [
         `method` ENUM('Bank', 'M-Pesa', 'Cash') DEFAULT 'Bank',
         FOREIGN KEY (`landlord_id`) REFERENCES `landlords`(`id`) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // System settings key-value store
+    "CREATE TABLE IF NOT EXISTS `system_settings` (
+        `setting_key` VARCHAR(100) PRIMARY KEY,
+        `setting_value` TEXT,
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // Seed default settings (ignore if already set)
+    "INSERT IGNORE INTO `system_settings` (`setting_key`, `setting_value`) VALUES
+        ('company_name',        'Primelink Management System'),
+        ('company_email',       'info@primelink.co.ke'),
+        ('company_phone',       '+254 700 000000'),
+        ('company_address',     'Nairobi, Kenya'),
+        ('company_tagline',     'Premium Property Management'),
+        ('currency_symbol',     'KSh'),
+        ('invoice_prefix',      'INV'),
+        ('invoice_due_days',    '7'),
+        ('invoice_footer',      'Thank you for your payment. For inquiries contact us at the above details.'),
+        ('mpesa_shortcode',     '174379'),
+        ('mpesa_consumer_key',  ''),
+        ('mpesa_consumer_secret',''),
+        ('mpesa_passkey',       ''),
+        ('mpesa_callback_url',  ''),
+        ('mpesa_environment',   'sandbox'),
+        ('fiscal_year_start',   '1'),
+        ('mail_driver',         'mail'),
+        ('smtp_host',           ''),
+        ('smtp_port',           '587'),
+        ('smtp_user',           ''),
+        ('smtp_pass',           ''),
+        ('smtp_from_name',      'Primelink Management'),
+        ('smtp_from_email',     'noreply@primelink.co.ke'),
+        ('notify_on_payment',   '1'),
+        ('notify_on_maintenance','1'),
+        ('notify_on_lease',     '1')",
+    // Add status to users table
+    "ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `status` ENUM('Active','Inactive') NOT NULL DEFAULT 'Active' AFTER `role`",
+    // Audit log table
+    "CREATE TABLE IF NOT EXISTS `audit_logs` (
+        `id` VARCHAR(36) PRIMARY KEY,
+        `user_id` VARCHAR(36) NULL,
+        `user_name` VARCHAR(255),
+        `action` VARCHAR(100) NOT NULL,
+        `module` VARCHAR(100),
+        `record_id` VARCHAR(36),
+        `description` TEXT,
+        `ip_address` VARCHAR(45),
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_module` (`module`),
+        INDEX `idx_user`   (`user_id`),
+        INDEX `idx_created`(`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
 ];
 
 $results = [];

@@ -7,6 +7,8 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/../includes/settings.php';
+
 $user = getCurrentUser($pdo);
 $role = $_SESSION['role'] ?? 'tenant';
 
@@ -27,20 +29,27 @@ function generateTokenCode($type) {
  * Returns true on success, false/error string on failure
  */
 function initiateStkPush($phone, $amount, $accountRef) {
-    $consumerKey    = getenv('MPESA_CONSUMER_KEY')    ?: '';
-    $consumerSecret = getenv('MPESA_CONSUMER_SECRET') ?: '';
-    $shortcode      = getenv('MPESA_SHORTCODE')       ?: '174379'; // Sandbox default
-    $passkey        = getenv('MPESA_PASSKEY')         ?: '';
-    $callbackUrl    = getenv('MPESA_CALLBACK_URL')    ?: '';
+    global $pdo;
+    // DB settings take precedence; fall back to env vars for backwards-compat
+    $consumerKey    = getSetting($pdo, 'mpesa_consumer_key',    getenv('MPESA_CONSUMER_KEY')    ?: '');
+    $consumerSecret = getSetting($pdo, 'mpesa_consumer_secret', getenv('MPESA_CONSUMER_SECRET') ?: '');
+    $shortcode      = getSetting($pdo, 'mpesa_shortcode',       getenv('MPESA_SHORTCODE')       ?: '174379');
+    $passkey        = getSetting($pdo, 'mpesa_passkey',         getenv('MPESA_PASSKEY')         ?: '');
+    $callbackUrl    = getSetting($pdo, 'mpesa_callback_url',    getenv('MPESA_CALLBACK_URL')    ?: '');
+    $environment    = getSetting($pdo, 'mpesa_environment',     'sandbox');
 
     // If credentials not set, skip (request is still saved as Pending)
     if (empty($consumerKey) || empty($consumerSecret) || empty($passkey) || empty($callbackUrl)) {
         return false; // Graceful no-op — admin will confirm manually
     }
 
+    $baseUrl = $environment === 'live'
+        ? 'https://api.safaricom.co.ke'
+        : 'https://sandbox.safaricom.co.ke';
+
     // Get OAuth token
     $credentials = base64_encode("$consumerKey:$consumerSecret");
-    $ch = curl_init('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
+    $ch = curl_init("$baseUrl/oauth/v1/generate?grant_type=client_credentials");
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER     => ["Authorization: Basic $credentials"],
@@ -67,7 +76,7 @@ function initiateStkPush($phone, $amount, $accountRef) {
         'TransactionDesc'   => 'Primelink Token Purchase',
     ];
 
-    $ch = curl_init('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest');
+    $ch = curl_init("$baseUrl/mpesa/stkpush/v1/processrequest");
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
