@@ -59,12 +59,33 @@ if (!empty($tenantId)) {
 
     // Tenant Specific Stats for cards
     $stats = [];
-    $stats['my_requests'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId'")->fetchColumn();
+    $stats['my_requests']      = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId'")->fetchColumn();
     $stats['pending_requests'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId' AND status = 'Pending'")->fetchColumn();
-    $stats['my_payments'] = $pdo->query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE tenant_id = '$tenantId' AND status = 'Paid'")->fetchColumn();
+    $stats['my_payments']      = $pdo->query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE tenant_id = '$tenantId' AND status = 'Paid'")->fetchColumn();
+    $stats['overdue_invoices'] = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE tenant_id = '$tenantId' AND status = 'Overdue'")->fetchColumn();
 }
 ?>
 <div class="space-y-6">
+
+    <!-- Overdue alert — only shown when the tenant has overdue invoices -->
+    <?php if (!empty($stats['overdue_invoices']) && $stats['overdue_invoices'] > 0): ?>
+    <div class="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center text-red-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-black text-red-700 dark:text-red-400">
+                    You have <?php echo $stats['overdue_invoices']; ?> overdue invoice<?php echo $stats['overdue_invoices'] !== 1 ? 's' : ''; ?> past the due date.
+                </p>
+                <p class="text-[10px] text-red-500 font-medium mt-0.5">Please make payment immediately to avoid additional charges.</p>
+            </div>
+        </div>
+        <a href="financials.php" class="px-5 py-2.5 bg-red-500 text-white rounded-xl text-xs font-black whitespace-nowrap hover:bg-red-600 transition-colors self-start sm:self-auto">
+            Pay Now →
+        </a>
+    </div>
+    <?php endif; ?>
 
     <!-- Stats Row -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -191,7 +212,13 @@ if (!empty($tenantId)) {
 
         <!-- Outstanding Balances -->
         <div class="glass-card p-6">
-            <h3 class="font-black text-slate-900 dark:text-white mb-5">Outstanding Balances</h3>
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="font-black text-slate-900 dark:text-white">Outstanding Balances</h3>
+                <a href="view_statement.php" class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 hover:text-accent-green uppercase tracking-widest transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+                    Statement →
+                </a>
+            </div>
             <div class="space-y-3">
                 <?php
                 $showBalances = [

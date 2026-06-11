@@ -156,6 +156,8 @@ $migrations = [
         ('notify_on_lease',     '1')",
     // Add garbage_fee to properties table
     "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0",
+    // Ensure invoices.status supports Overdue (in case column was created before this value was added)
+    "ALTER TABLE `invoices` MODIFY COLUMN `status` ENUM('Unpaid','Paid','Overdue') NOT NULL DEFAULT 'Unpaid'",
     // Add status to users table
     "ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `status` ENUM('Active','Inactive') NOT NULL DEFAULT 'Active' AFTER `role`",
     // Audit log table

@@ -1,10 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 requireLogin(['admin', 'staff']);
+require_once __DIR__ . '/includes/settings.php';
 
-$pageTitle = "Tenant Payments & Invoices";
-$user = getCurrentUser($pdo);
+$pageTitle  = "Tenant Payments & Invoices";
+$user       = getCurrentUser($pdo);
 $searchTerm = $_GET['search'] ?? '';
+$filter     = $_GET['filter'] ?? '';   // 'overdue' to show only overdue
+
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
 // Fetch all tenants (with their active leases if any)
 $tenants = $pdo->query("
@@ -17,24 +21,28 @@ $tenants = $pdo->query("
     ORDER BY t.full_name
 ")->fetchAll();
 
-// Fetch recent invoices with optional search
-$invoiceQuery = "
-    SELECT i.*, t.full_name as tenant_name 
-    FROM invoices i
-    JOIN tenants t ON i.tenant_id = t.id
-";
+// Overdue summary stats
+$overdueInvoiceCount = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
+$overdueTenantCount  = (int)$pdo->query("SELECT COUNT(DISTINCT tenant_id) FROM invoices WHERE status='Overdue'")->fetchColumn();
+$overdueAmountTotal  = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status='Overdue'")->fetchColumn();
+
+// Fetch invoices with optional search + filter
+$conditions = [];
+$params     = [];
 
 if ($searchTerm) {
-    $invoiceQuery .= " WHERE t.full_name LIKE :search OR i.id LIKE :search OR i.invoice_type LIKE :search ";
+    $conditions[] = "(t.full_name LIKE :search OR i.id LIKE :search OR i.invoice_type LIKE :search)";
+    $params['search'] = "%$searchTerm%";
 }
 
-$invoiceQuery .= " ORDER BY i.created_at DESC LIMIT 50";
+if ($filter === 'overdue') {
+    $conditions[] = "i.status = 'Overdue'";
+}
+
+$whereClause  = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+$invoiceQuery = "SELECT i.*, t.full_name as tenant_name FROM invoices i JOIN tenants t ON i.tenant_id = t.id $whereClause ORDER BY i.created_at DESC LIMIT 100";
 $stmt = $pdo->prepare($invoiceQuery);
-if ($searchTerm) {
-    $stmt->execute(['search' => "%$searchTerm%"]);
-} else {
-    $stmt->execute();
-}
+$stmt->execute($params);
 $invoices = $stmt->fetchAll();
 
 include __DIR__ . '/includes/header.php';
@@ -49,6 +57,7 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
         <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
             <form class="relative flex-1 md:w-64">
+                <?php if ($filter): ?><input type="hidden" name="filter" value="<?php echo htmlspecialchars($filter); ?>"><?php endif; ?>
                 <input type="text" name="search" value="<?php echo htmlspecialchars((string)$searchTerm); ?>" placeholder="Search name, ID or type..." class="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-accent-green/20 outline-none transition-all">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </form>
@@ -60,6 +69,39 @@ include __DIR__ . '/includes/sidebar.php';
             </button>
         </div>
     </div>
+
+    <!-- Overdue summary + filter strip -->
+    <?php if ($overdueInvoiceCount > 0): ?>
+    <div class="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex flex-wrap gap-6">
+            <div>
+                <p class="text-[9px] font-black text-red-400 uppercase tracking-widest">Overdue Invoices</p>
+                <p class="text-2xl font-black text-red-600 dark:text-red-400"><?php echo $overdueInvoiceCount; ?></p>
+            </div>
+            <div>
+                <p class="text-[9px] font-black text-red-400 uppercase tracking-widest">Affected Tenants</p>
+                <p class="text-2xl font-black text-red-600 dark:text-red-400"><?php echo $overdueTenantCount; ?></p>
+            </div>
+            <div>
+                <p class="text-[9px] font-black text-red-400 uppercase tracking-widest">Overdue Amount</p>
+                <p class="text-2xl font-black text-red-600 dark:text-red-400"><?php echo $currency; ?> <?php echo number_format($overdueAmountTotal); ?></p>
+            </div>
+        </div>
+        <div class="flex gap-2">
+            <?php if ($filter === 'overdue'): ?>
+            <a href="tenant_payments.php" class="px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-black hover:bg-slate-50 transition-colors">Show All</a>
+            <?php else: ?>
+            <a href="tenant_payments.php?filter=overdue" class="px-4 py-2.5 bg-red-500 text-white rounded-xl text-xs font-black hover:bg-red-600 transition-colors">View Overdue Only</a>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+    <?php if ($filter === 'overdue'): ?>
+    <div class="flex items-center gap-2">
+        <span class="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black uppercase tracking-widest">Filtered: Overdue Only</span>
+        <a href="tenant_payments.php" class="text-[10px] font-black text-slate-400 hover:text-slate-700 transition-colors">Clear filter ×</a>
+    </div>
+    <?php endif; ?>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <!-- Invoices List -->
@@ -94,7 +136,14 @@ include __DIR__ . '/includes/sidebar.php';
                                     </td>
                                     <td class="p-6 text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($inv['amount']); ?></td>
                                     <td class="p-6">
-                                        <span class="px-3 py-1 <?php echo $inv['status'] == 'Paid' ? 'bg-green-500/10 text-green-500' : 'bg-orange-500/10 text-orange-500'; ?> rounded-full text-[10px] font-black uppercase tracking-widest">
+                                        <?php
+                                        $statusClasses = match($inv['status']) {
+                                            'Paid'    => 'bg-green-500/10 text-green-500 border-green-500/20',
+                                            'Overdue' => 'bg-red-500/10 text-red-500 border-red-500/20',
+                                            default   => 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+                                        };
+                                        ?>
+                                        <span class="px-3 py-1 <?php echo $statusClasses; ?> border rounded-full text-[10px] font-black uppercase tracking-widest">
                                             <?php echo htmlspecialchars((string)$inv['status']); ?>
                                         </span>
                                     </td>
@@ -127,15 +176,24 @@ include __DIR__ . '/includes/sidebar.php';
                         ");
                         $finStmt->execute([$t['id'], $t['id']]);
                         $fin = $finStmt->fetch();
-                        $totalInv = $fin['total_invoiced'] ?? 0;
-                        $totalPaid = $fin['total_paid'] ?? 0;
-                        $balance = $totalInv - $totalPaid;
+                        $totalInv  = $fin['total_invoiced'] ?? 0;
+                        $totalPaid = $fin['total_paid']     ?? 0;
+                        $balance   = $totalInv - $totalPaid;
+                        $ovdChk = $pdo->prepare("SELECT COUNT(*) FROM invoices WHERE tenant_id = ? AND status = 'Overdue'");
+                        $ovdChk->execute([$t['id']]);
+                        $tenantOverdueCount = (int)$ovdChk->fetchColumn();
                     ?>
-                    <div class="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800/50 hover:border-accent-green/30 transition-all group">
+                    <div class="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border <?php echo $tenantOverdueCount > 0 ? 'border-red-200 dark:border-red-800/30' : 'border-slate-100 dark:border-slate-800/50 hover:border-accent-green/30'; ?> transition-all group">
                         <div class="flex items-center justify-between mb-4">
                             <div>
                                 <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$t['full_name']); ?></p>
                                 <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest"><?php echo htmlspecialchars((string)$t['property_title']); ?> - <?php echo htmlspecialchars((string)$t['unit_number']); ?></p>
+                                <?php if ($tenantOverdueCount > 0): ?>
+                                <span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-red-500/10 text-red-500 rounded-full text-[9px] font-black border border-red-500/20">
+                                    <span class="w-1 h-1 rounded-full bg-red-500"></span>
+                                    <?php echo $tenantOverdueCount; ?> overdue
+                                </span>
+                                <?php endif; ?>
                             </div>
                             <a href="view_statement.php?tenant_id=<?php echo $t['id']; ?>" class="p-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 text-accent-green opacity-0 group-hover:opacity-100 transition-all shadow-sm" title="View Detailed Statement">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
@@ -145,12 +203,12 @@ include __DIR__ . '/includes/sidebar.php';
                         <div class="grid grid-cols-2 gap-4">
                             <div class="space-y-1">
                                 <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Total Paid</p>
-                                <p class="text-xs font-black text-slate-900 dark:text-white">KSh <?php echo number_format($totalPaid); ?></p>
+                                <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($totalPaid); ?></p>
                             </div>
                             <div class="space-y-1 text-right">
                                 <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Balance Due</p>
                                 <p class="text-xs font-black <?php echo $balance > 0 ? 'text-red-500' : 'text-accent-green'; ?>">
-                                    KSh <?php echo number_format($balance); ?>
+                                    <?php echo $currency; ?> <?php echo number_format($balance); ?>
                                 </p>
                             </div>
                         </div>

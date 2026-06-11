@@ -34,10 +34,12 @@ if ($role === 'tenant') {
     exit();
 }
 
-// Proactive Automated Billing (Admin/Staff only)
+// Proactive Automated Billing + Overdue Marking (Admin/Staff only)
 if ($role === 'admin' || $role === 'staff') {
     require_once __DIR__ . '/includes/automated_billing.php';
+    require_once __DIR__ . '/includes/overdue_billing.php';
     runAutomatedBilling($pdo);
+    runOverdueBilling($pdo);
 }
 
 // ========== LIVE STATS FROM DATABASE (Admin/Staff only reach here) ==========
@@ -47,6 +49,8 @@ $stats['active_tenants']      = $pdo->query("SELECT COUNT(*) FROM tenants WHERE 
 $stats['pending_maintenance'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE status='Pending'")->fetchColumn();
 $stats['tokens_sold']         = $pdo->query("SELECT COUNT(*) FROM tokens")->fetchColumn();
 $stats['revenue_mtd']         = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND MONTH(transaction_date)=MONTH(NOW())")->fetchColumn();
+$stats['overdue_invoices']    = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
+$stats['overdue_tenants']     = (int)$pdo->query("SELECT COUNT(DISTINCT tenant_id) FROM invoices WHERE status='Overdue'")->fetchColumn();
 
 // Monthly revenue for chart (last 6 months)
 $chartLabels = [];
@@ -117,6 +121,27 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Overdue Alert Banner (only visible when there are overdue invoices) -->
+    <?php if ($stats['overdue_invoices'] > 0): ?>
+    <div class="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center text-red-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-black text-red-700 dark:text-red-400">
+                    <?php echo $stats['overdue_invoices']; ?> Overdue Invoice<?php echo $stats['overdue_invoices'] !== 1 ? 's' : ''; ?> &mdash;
+                    <?php echo $stats['overdue_tenants']; ?> Tenant<?php echo $stats['overdue_tenants'] !== 1 ? 's' : ''; ?> Affected
+                </p>
+                <p class="text-[10px] text-red-500 font-medium mt-0.5">These invoices are past their due dates and require immediate attention.</p>
+            </div>
+        </div>
+        <a href="tenant_payments.php?filter=overdue" class="px-5 py-2.5 bg-red-500 text-white rounded-xl text-xs font-black whitespace-nowrap hover:bg-red-600 transition-colors self-start sm:self-auto">
+            View Overdue →
+        </a>
+    </div>
+    <?php endif; ?>
 
     <!-- Main Grid -->
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
