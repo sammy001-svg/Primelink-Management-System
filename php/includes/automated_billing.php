@@ -12,13 +12,20 @@
  * @return int Number of new invoices created
  */
 function runAutomatedBilling($pdo) {
+    // Ensure garbage_fee column exists (self-healing for older installs)
+    try {
+        $pdo->exec("ALTER TABLE `properties` ADD COLUMN `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0");
+    } catch (PDOException $e) {
+        // Column already exists — ignore
+    }
+
     // Standardize month and year for consistent matching
     $currentMonth = date('m');
     $currentYear = date('Y');
-    
+
     // Standard due date is the 5th of the month (as per tenancy agreement)
     $dueDate = date('Y-m-05');
-    
+
     // 1. Fetch all active leases with property and unit info
     $stmt = $pdo->query("
         SELECT l.id as lease_id, l.tenant_id, l.monthly_rent, p.garbage_fee, p.title as property_name, u.unit_number
@@ -104,9 +111,16 @@ function runAutomatedBilling($pdo) {
  * Useful for immediate billing upon registration.
  */
 function generateInitialInvoices($pdo, $tenantId, $leaseId, $unitId) {
+    // Ensure garbage_fee column exists (self-healing)
+    try {
+        $pdo->exec("ALTER TABLE `properties` ADD COLUMN `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0");
+    } catch (PDOException $e) {
+        // Already exists — ignore
+    }
+
     // Fetch property/unit details for accurate billing
-    $stmt = $pdo->prepare("SELECT u.monthly_rent, u.deposit_amount, p.garbage_fee 
-                           FROM units u JOIN properties p ON u.property_id = p.id 
+    $stmt = $pdo->prepare("SELECT u.monthly_rent, u.deposit_amount, p.garbage_fee
+                           FROM units u JOIN properties p ON u.property_id = p.id
                            WHERE u.id = ?");
     $stmt->execute([$unitId]);
     $details = $stmt->fetch();
