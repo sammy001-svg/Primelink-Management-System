@@ -1,18 +1,17 @@
 <?php
 /**
- * Main Dashboard
- * Primelink Management System
+ * Main Dashboard — Primelink Management System
  */
 
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
-$role = $_SESSION['role'] ?? 'tenant';
-$user = getCurrentUser($pdo);
+$role     = $_SESSION['role'] ?? 'tenant';
+$user     = getCurrentUser($pdo);
 $userName = $user['full_name'] ?? 'User';
 $pageTitle = "Dashboard";
 
-// Route landlords to their scoped dashboard
+// ── Route landlords ──────────────────────────────────────────────
 if ($role === 'landlord') {
     include __DIR__ . '/includes/header.php';
     include __DIR__ . '/includes/sidebar.php';
@@ -21,12 +20,11 @@ if ($role === 'landlord') {
     exit();
 }
 
-// Route tenants to their scoped dashboard
+// ── Route tenants ────────────────────────────────────────────────
 if ($role === 'tenant') {
     $stmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $tenantId = $stmt->fetchColumn();
-
     include __DIR__ . '/includes/header.php';
     include __DIR__ . '/includes/sidebar.php';
     include __DIR__ . '/includes/tenant_dashboard.php';
@@ -34,154 +32,294 @@ if ($role === 'tenant') {
     exit();
 }
 
-// Proactive Automated Billing + Overdue Marking (Admin/Staff only)
-if ($role === 'admin' || $role === 'staff') {
-    require_once __DIR__ . '/includes/automated_billing.php';
-    require_once __DIR__ . '/includes/overdue_billing.php';
-    runAutomatedBilling($pdo);
-    runOverdueBilling($pdo);
-}
+// ── Admin / Staff only ──────────────────────────────────────────
+require_once __DIR__ . '/includes/automated_billing.php';
+require_once __DIR__ . '/includes/overdue_billing.php';
+runAutomatedBilling($pdo);
+runOverdueBilling($pdo);
 
-// ========== LIVE STATS FROM DATABASE (Admin/Staff only reach here) ==========
-$stats = [];
-$stats['total_properties']    = $pdo->query("SELECT COUNT(*) FROM properties")->fetchColumn();
-$stats['active_tenants']      = $pdo->query("SELECT COUNT(*) FROM tenants WHERE status='Active'")->fetchColumn();
-$stats['pending_maintenance'] = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE status='Pending'")->fetchColumn();
-$stats['tokens_sold']         = $pdo->query("SELECT COUNT(*) FROM tokens")->fetchColumn();
-$stats['revenue_mtd']         = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND MONTH(transaction_date)=MONTH(NOW())")->fetchColumn();
-$stats['overdue_invoices']    = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
-$stats['overdue_tenants']     = (int)$pdo->query("SELECT COUNT(DISTINCT tenant_id) FROM invoices WHERE status='Overdue'")->fetchColumn();
+require_once __DIR__ . '/includes/settings.php';
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
-// Monthly revenue for chart (last 6 months)
-$chartLabels = [];
-$chartData   = [];
+// ── KPI Stats ───────────────────────────────────────────────────
+$totalProperties   = (int)$pdo->query("SELECT COUNT(*) FROM properties")->fetchColumn();
+$activeTenants     = (int)$pdo->query("SELECT COUNT(*) FROM tenants WHERE status='Active'")->fetchColumn();
+$pendingMaint      = (int)$pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE status='Pending'")->fetchColumn();
+$overdueInvoices   = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
+$overdueTenants    = (int)$pdo->query("SELECT COUNT(DISTINCT tenant_id) FROM invoices WHERE status='Overdue'")->fetchColumn();
+
+$totalUnits    = (int)$pdo->query("SELECT COUNT(*) FROM units")->fetchColumn();
+$occupiedUnits = (int)$pdo->query("SELECT COUNT(*) FROM units WHERE status='Occupied'")->fetchColumn();
+$vacantUnits   = $totalUnits - $occupiedUnits;
+$occupancyRate = $totalUnits > 0 ? round(($occupiedUnits / $totalUnits) * 100, 1) : 0;
+
+$revMTD       = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND MONTH(transaction_date)=MONTH(NOW()) AND YEAR(transaction_date)=YEAR(NOW())")->fetchColumn();
+$revYTD       = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND YEAR(transaction_date)=YEAR(NOW())")->fetchColumn();
+$outstanding  = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status IN ('Unpaid','Overdue')")->fetchColumn();
+
+$revLastMonth = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND MONTH(transaction_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(transaction_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))")->fetchColumn();
+$revTrendPct  = $revLastMonth > 0 ? round((($revMTD - $revLastMonth) / $revLastMonth) * 100, 1) : null;
+
+// ── Charts ──────────────────────────────────────────────────────
+$chartLabels   = [];
+$chartCollected = [];
+$chartInvoiced  = [];
 for ($i = 5; $i >= 0; $i--) {
-    $label = date('M', strtotime("-$i months"));
-    $month = date('m', strtotime("-$i months"));
-    $year  = date('Y', strtotime("-$i months"));
-    $rev   = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND MONTH(transaction_date)=$month AND YEAR(transaction_date)=$year")->fetchColumn();
-    $chartLabels[] = $label;
-    $chartData[]   = (float)$rev;
+    $m = date('m', strtotime("-$i months"));
+    $y = date('Y', strtotime("-$i months"));
+    $chartLabels[]   = date('M', strtotime("-$i months"));
+    $cStmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='Paid' AND DATE_FORMAT(transaction_date,'%m')=? AND DATE_FORMAT(transaction_date,'%Y')=?");
+    $cStmt->execute([$m, $y]); $chartCollected[] = (float)$cStmt->fetchColumn();
+    $iStmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE DATE_FORMAT(created_at,'%m')=? AND DATE_FORMAT(created_at,'%Y')=?");
+    $iStmt->execute([$m, $y]); $chartInvoiced[]  = (float)$iStmt->fetchColumn();
 }
 
-// Recent activity
-$recentMaint        = $pdo->query("SELECT title, status, created_at FROM maintenance_requests ORDER BY created_at DESC LIMIT 3")->fetchAll();
-$recentTransactions = $pdo->query("SELECT t.full_name, tx.amount, tx.status, tx.transaction_date FROM transactions tx JOIN tenants t ON tx.tenant_id = t.id ORDER BY tx.transaction_date DESC LIMIT 3")->fetchAll();
+// ── Expiring Leases (next 60 days) ─────────────────────────────
+$expiringLeases = $pdo->query("
+    SELECT l.id, l.end_date, t.full_name, p.title as prop_title, u.unit_number,
+           DATEDIFF(l.end_date, CURDATE()) as days_left
+    FROM leases l
+    JOIN tenants t ON l.tenant_id = t.id
+    JOIN units u ON l.unit_id = u.id
+    JOIN properties p ON u.property_id = p.id
+    WHERE l.status='Active' AND l.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)
+    ORDER BY l.end_date ASC LIMIT 6
+")->fetchAll();
+
+// ── Recent Activity ─────────────────────────────────────────────
+$recentTransactions = $pdo->query("
+    SELECT t.full_name, tx.amount, tx.status, tx.transaction_date, tx.transaction_type
+    FROM transactions tx JOIN tenants t ON tx.tenant_id = t.id
+    ORDER BY tx.transaction_date DESC LIMIT 5
+")->fetchAll();
+
+$recentMaint = $pdo->query("
+    SELECT mr.title, mr.status, mr.priority, mr.created_at,
+           t.full_name as tenant_name, p.title as prop_title
+    FROM maintenance_requests mr
+    LEFT JOIN tenants t ON mr.tenant_id = t.id
+    LEFT JOIN properties p ON mr.property_id = p.id
+    ORDER BY mr.created_at DESC LIMIT 5
+")->fetchAll();
+
+// ── Portfolio health score (0-100) ─────────────────────────────
+$healthScore = 0;
+if ($totalUnits > 0)      $healthScore += ($occupancyRate * 0.4);    // 40 pts
+if ($activeTenants > 0)   $healthScore += ($overdueInvoices === 0 ? 30 : max(0, 30 - ($overdueInvoices * 3))); // 30 pts
+if ($pendingMaint <= 3)   $healthScore += 20;                         // 20 pts
+elseif ($pendingMaint <= 8) $healthScore += 10;
+$revRateNorm  = $chartInvoiced[5] > 0 ? ($chartCollected[5] / $chartInvoiced[5]) * 10 : 10;
+$healthScore += min(10, $revRateNorm);                                 // 10 pts
+$healthScore  = min(100, round($healthScore));
+$healthLabel  = $healthScore >= 80 ? 'Excellent' : ($healthScore >= 60 ? 'Good' : ($healthScore >= 40 ? 'Fair' : 'Needs Attention'));
+$healthColor  = $healthScore >= 80 ? 'text-green-500' : ($healthScore >= 60 ? 'text-blue-500' : ($healthScore >= 40 ? 'text-orange-500' : 'text-red-500'));
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
-<div class="space-y-8 animate-in">
-    <!-- Greeting -->
+<div class="space-y-7 animate-in">
+
+    <!-- ── Greeting ──────────────────────────────────────── -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h1 class="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-                Good <?php echo (date('H') < 12) ? 'morning' : ((date('H') < 18) ? 'afternoon' : 'evening'); ?>, <?php echo htmlspecialchars(explode(' ', $userName)[0]); ?> 👋
-            </h1>
-            <p class="text-slate-500 dark:text-slate-400 font-medium text-sm mt-0.5"><?php echo date('l, F j, Y'); ?></p>
+            <div class="flex items-center gap-3 flex-wrap">
+                <h1 class="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    Good <?php echo date('H') < 12 ? 'morning' : (date('H') < 18 ? 'afternoon' : 'evening'); ?>, <?php echo htmlspecialchars(explode(' ', $userName)[0]); ?>
+                </h1>
+                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border <?php echo $healthScore >= 80 ? 'border-green-200 dark:border-green-800 text-green-600 bg-green-50 dark:bg-green-900/20' : ($healthScore >= 60 ? 'border-blue-200 dark:border-blue-800 text-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'border-orange-200 dark:border-orange-800 text-orange-600 bg-orange-50 dark:bg-orange-900/20'); ?>">
+                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                    Portfolio Health: <?php echo $healthLabel; ?>
+                </div>
+            </div>
+            <p class="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1"><?php echo date('l, F j, Y'); ?> &nbsp;·&nbsp; <?php echo $totalProperties; ?> propert<?php echo $totalProperties !== 1 ? 'ies' : 'y'; ?>, <?php echo $totalUnits; ?> units</p>
         </div>
-        <?php if ($role !== 'tenant'): ?>
-        <div class="flex gap-3 flex-wrap">
+        <div class="flex gap-2.5 flex-wrap">
             <button onclick="openModal('newPropertyModal')" class="btn-primary text-xs gap-2">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                Add Property
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                New Property
             </button>
             <a href="tenants.php?action=new" class="btn-green text-xs gap-2">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                Add Tenant
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Register Tenant
             </a>
         </div>
-        <?php else: ?>
-        <a href="maintenance.php?action=new" class="btn-green text-xs">+ New Maintenance Request</a>
-        <?php endif; ?>
     </div>
 
-    <?php if ($role !== 'tenant'): ?>
-    <!-- ===== ADMIN DASHBOARD ===== -->
+    <!-- ── 6 KPI Cards ───────────────────────────────────── -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
 
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-        <?php
-        $statCards = [
-            ['label' => 'Total Properties', 'value' => number_format($stats['total_properties']), 'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg>', 'color' => 'text-blue-500', 'bg' => 'bg-blue-50 dark:bg-blue-900/20'],
-            ['label' => 'Active Tenants',   'value' => number_format($stats['active_tenants']),   'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', 'color' => 'text-green-500', 'bg' => 'bg-green-50 dark:bg-green-900/20'],
-            ['label' => 'Utility Tokens Sold', 'value' => number_format($stats['tokens_sold']),  'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>', 'color' => 'text-purple-500', 'bg' => 'bg-purple-50 dark:bg-purple-900/20'],
-            ['label' => 'Revenue (MTD)',     'value' => 'KSh ' . number_format($stats['revenue_mtd']), 'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', 'color' => 'text-orange-500', 'bg' => 'bg-orange-50 dark:bg-orange-900/20'],
-        ];
-        foreach ($statCards as $card): ?>
-        <div class="glass-card stat-card p-5 lg:p-6 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform">
-            <div class="p-3 rounded-xl <?php echo $card['bg']; ?> <?php echo $card['color']; ?> shrink-0">
-                <?php echo $card['icon']; ?>
+        <!-- Properties -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='properties.php'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+                </div>
+                <span class="text-[9px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-widest">Props</span>
             </div>
-            <div class="min-w-0">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate"><?php echo $card['label']; ?></p>
-                <h3 class="text-xl lg:text-2xl font-black text-slate-900 dark:text-white truncate"><?php echo $card['value']; ?></h3>
+            <div>
+                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $totalProperties; ?></h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Properties</p>
             </div>
         </div>
-        <?php endforeach; ?>
+
+        <!-- Tenants -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='tenants.php'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center text-green-500">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </div>
+                <span class="text-[9px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-widest">Active</span>
+            </div>
+            <div>
+                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $activeTenants; ?></h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Tenants</p>
+            </div>
+        </div>
+
+        <!-- Occupancy -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='reports.php?tab=occupancy'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl <?php echo $occupancyRate >= 80 ? 'bg-green-50 dark:bg-green-900/30 text-green-500' : ($occupancyRate >= 50 ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-500' : 'bg-red-50 dark:bg-red-900/30 text-red-500'); ?> flex items-center justify-center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+                </div>
+                <span class="text-[9px] font-black <?php echo $vacantUnits > 0 ? 'text-orange-400' : 'text-slate-300 dark:text-slate-600'; ?> uppercase tracking-widest"><?php echo $vacantUnits; ?> vac</span>
+            </div>
+            <div>
+                <h3 class="text-2xl font-black <?php echo $occupancyRate >= 80 ? 'text-green-500' : ($occupancyRate >= 50 ? 'text-orange-500' : 'text-red-500'); ?>"><?php echo $occupancyRate; ?>%</h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Occupancy</p>
+            </div>
+            <div class="progress"><div class="progress-fill <?php echo $occupancyRate >= 80 ? 'bg-green-500' : ($occupancyRate >= 50 ? 'bg-orange-400' : 'bg-red-500'); ?>" style="width:<?php echo $occupancyRate; ?>%"></div></div>
+        </div>
+
+        <!-- Revenue MTD -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='financials.php'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-500">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </div>
+                <?php if ($revTrendPct !== null): ?>
+                <span class="kpi-trend <?php echo $revTrendPct >= 0 ? 'up' : 'down'; ?>">
+                    <?php echo $revTrendPct >= 0 ? '▲' : '▼'; ?> <?php echo abs($revTrendPct); ?>%
+                </span>
+                <?php endif; ?>
+            </div>
+            <div>
+                <h3 class="text-xl font-black text-slate-900 dark:text-white leading-tight"><?php echo $currency; ?> <?php echo number_format($revMTD); ?></h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Rev. MTD</p>
+            </div>
+        </div>
+
+        <!-- Maintenance -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='maintenance.php?status=Pending'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl <?php echo $pendingMaint > 5 ? 'bg-red-50 dark:bg-red-900/30 text-red-500' : ($pendingMaint > 0 ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-500' : 'bg-green-50 dark:bg-green-900/30 text-green-500'); ?> flex items-center justify-center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </div>
+                <span class="text-[9px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-widest">Pending</span>
+            </div>
+            <div>
+                <h3 class="text-2xl font-black <?php echo $pendingMaint > 5 ? 'text-red-500' : ($pendingMaint > 0 ? 'text-orange-500' : 'text-green-500'); ?>"><?php echo $pendingMaint; ?></h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Maintenance</p>
+            </div>
+        </div>
+
+        <!-- Overdue -->
+        <div class="glass-card stat-card p-5 flex flex-col gap-2 hover:-translate-y-0.5 transition-transform cursor-pointer" onclick="window.location='tenant_payments.php?filter=overdue'">
+            <div class="flex items-center justify-between">
+                <div class="w-9 h-9 rounded-xl <?php echo $overdueInvoices > 0 ? 'bg-red-50 dark:bg-red-900/30 text-red-500' : 'bg-green-50 dark:bg-green-900/30 text-green-500'; ?> flex items-center justify-center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                </div>
+                <?php if ($overdueTenants > 0): ?>
+                <span class="text-[9px] font-black text-red-400 uppercase tracking-widest"><?php echo $overdueTenants; ?> ten.</span>
+                <?php endif; ?>
+            </div>
+            <div>
+                <h3 class="text-2xl font-black <?php echo $overdueInvoices > 0 ? 'text-red-500' : 'text-green-500'; ?>"><?php echo $overdueInvoices; ?></h3>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Overdue</p>
+            </div>
+        </div>
+
     </div>
 
-    <!-- Overdue Alert Banner (only visible when there are overdue invoices) -->
-    <?php if ($stats['overdue_invoices'] > 0): ?>
-    <div class="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <!-- ── Overdue Alert ──────────────────────────────────── -->
+    <?php if ($overdueInvoices > 0): ?>
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl">
         <div class="flex items-center gap-3">
             <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center text-red-500 shrink-0">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
             </div>
             <div>
                 <p class="text-sm font-black text-red-700 dark:text-red-400">
-                    <?php echo $stats['overdue_invoices']; ?> Overdue Invoice<?php echo $stats['overdue_invoices'] !== 1 ? 's' : ''; ?> &mdash;
-                    <?php echo $stats['overdue_tenants']; ?> Tenant<?php echo $stats['overdue_tenants'] !== 1 ? 's' : ''; ?> Affected
+                    <?php echo $overdueInvoices; ?> Overdue Invoice<?php echo $overdueInvoices !== 1 ? 's' : ''; ?> — <?php echo $overdueTenants; ?> Tenant<?php echo $overdueTenants !== 1 ? 's' : ''; ?> Affected
                 </p>
-                <p class="text-[10px] text-red-500 font-medium mt-0.5">These invoices are past their due dates and require immediate attention.</p>
+                <p class="text-[10px] text-red-500 mt-0.5">Past due dates. Outstanding: <?php echo $currency; ?> <?php echo number_format($outstanding); ?></p>
             </div>
         </div>
-        <a href="tenant_payments.php?filter=overdue" class="px-5 py-2.5 bg-red-500 text-white rounded-xl text-xs font-black whitespace-nowrap hover:bg-red-600 transition-colors self-start sm:self-auto">
-            View Overdue →
-        </a>
+        <div class="flex gap-2 shrink-0">
+            <a href="reports.php?tab=aging" class="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl text-xs font-black whitespace-nowrap hover:bg-red-200 transition-colors">View Aging →</a>
+            <a href="tenant_payments.php?filter=overdue" class="px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-black whitespace-nowrap hover:bg-red-600 transition-colors">Manage Overdue →</a>
+        </div>
     </div>
     <?php endif; ?>
 
-    <!-- Main Grid -->
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+    <!-- ── Main Grid ─────────────────────────────────────── -->
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-        <!-- Left: Charts + Activity -->
+        <!-- LEFT: Chart + Recent Activity -->
         <div class="xl:col-span-2 space-y-6">
 
-            <!-- Revenue Chart -->
+            <!-- Revenue vs Invoiced Chart -->
             <div class="glass-card p-6 lg:p-8">
-                <div class="flex items-center justify-between mb-6">
+                <div class="flex items-start justify-between mb-6 gap-4">
                     <div>
-                        <h3 class="text-lg font-black text-slate-900 dark:text-white">Revenue Trend</h3>
-                        <p class="text-xs text-slate-400 font-medium">Monthly rent collections (last 6 months)</p>
+                        <h3 class="text-lg font-black text-slate-900 dark:text-white">Revenue vs Invoiced</h3>
+                        <p class="text-xs text-slate-400 font-medium mt-0.5">6-month collection performance</p>
                     </div>
-                    <span class="badge badge-primary">Live</span>
+                    <div class="flex items-center gap-4 shrink-0">
+                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                            <span class="w-3 h-1 rounded-full bg-accent-green"></span>Collected
+                        </div>
+                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                            <span class="w-3 h-1 rounded-full bg-blue-400"></span>Invoiced
+                        </div>
+                        <div class="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-900/20 rounded-xl">
+                            <span class="text-[10px] font-black text-green-600">YTD <?php echo $currency; ?> <?php echo number_format($revYTD); ?></span>
+                        </div>
+                    </div>
                 </div>
-                <div class="chart-wrap" style="height: 200px;">
-                    <canvas id="revenueChart"></canvas>
-                </div>
+                <div style="height:200px;"><canvas id="revenueChart"></canvas></div>
             </div>
 
-            <!-- Recent Activity -->
+            <!-- Recent Payments + Maintenance grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                <!-- Recent Maintenance -->
-                <div class="glass-card p-6">
-                    <div class="flex justify-between items-center mb-5">
-                        <h3 class="font-black text-slate-900 dark:text-white">Recent Requests</h3>
-                        <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">View All →</a>
+                <!-- Recent Payments -->
+                <div class="glass-card">
+                    <div class="flex justify-between items-center p-6 pb-4">
+                        <h3 class="font-black text-slate-900 dark:text-white">Recent Payments</h3>
+                        <a href="financials.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">All →</a>
                     </div>
-                    <?php if (empty($recentMaint)): ?>
-                    <p class="text-sm text-slate-400 text-center py-6">No maintenance requests yet</p>
+                    <?php if (empty($recentTransactions)): ?>
+                    <div class="empty-state pb-8">
+                        <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                        <p class="text-sm text-slate-400">No payments recorded yet</p>
+                    </div>
                     <?php else: ?>
-                    <div class="space-y-3">
-                        <?php foreach ($recentMaint as $req): ?>
-                        <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                            <span class="w-2 h-2 rounded-full shrink-0 <?php echo $req['status']=='Completed' ? 'bg-green-500' : ($req['status']=='In Progress' ? 'bg-blue-500' : 'bg-orange-500'); ?>"></span>
+                    <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                        <?php foreach ($recentTransactions as $tx): ?>
+                        <div class="flex items-center gap-3 px-6 py-3.5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
+                            <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-xs
+                                <?php echo $tx['status'] === 'Paid' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-500'; ?>">
+                                <?php echo strtoupper(substr($tx['full_name'], 0, 1)); ?>
+                            </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-sm font-bold truncate"><?php echo htmlspecialchars($req['title']); ?></p>
-                                <p class="text-[10px] text-slate-400 font-medium"><?php echo $req['status']; ?></p>
+                                <p class="text-sm font-bold truncate text-slate-900 dark:text-white"><?php echo htmlspecialchars($tx['full_name']); ?></p>
+                                <p class="text-[10px] text-slate-400 font-medium"><?php echo date('d M Y', strtotime($tx['transaction_date'])); ?> · <?php echo $tx['transaction_type'] ?? 'Payment'; ?></p>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($tx['amount']); ?></p>
+                                <span class="badge <?php echo $tx['status'] === 'Paid' ? 'badge-green' : ($tx['status'] === 'Overdue' ? 'badge-red' : 'badge-orange'); ?> text-[9px]"><?php echo $tx['status']; ?></span>
                             </div>
                         </div>
                         <?php endforeach; ?>
@@ -189,184 +327,267 @@ include __DIR__ . '/includes/sidebar.php';
                     <?php endif; ?>
                 </div>
 
-                <!-- Recent Transactions -->
-                <div class="glass-card p-6">
-                    <div class="flex justify-between items-center mb-5">
-                        <h3 class="font-black text-slate-900 dark:text-white">Recent Payments</h3>
-                        <a href="financials.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">View All →</a>
+                <!-- Recent Maintenance -->
+                <div class="glass-card">
+                    <div class="flex justify-between items-center p-6 pb-4">
+                        <h3 class="font-black text-slate-900 dark:text-white">Maintenance</h3>
+                        <a href="maintenance.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">All →</a>
                     </div>
-                    <?php if (empty($recentTransactions)): ?>
-                    <p class="text-sm text-slate-400 text-center py-6">No transactions recorded yet</p>
+                    <?php if (empty($recentMaint)): ?>
+                    <div class="empty-state pb-8">
+                        <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                        <p class="text-sm text-slate-400">No maintenance requests</p>
+                    </div>
                     <?php else: ?>
-                    <div class="space-y-3">
-                        <?php foreach ($recentTransactions as $tx): ?>
-                        <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                            <div class="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 shrink-0 font-black text-xs">K</div>
+                    <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                        <?php foreach ($recentMaint as $req): ?>
+                        <div class="flex items-start gap-3 px-6 py-3.5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
+                            <span class="w-2 h-2 rounded-full mt-2 shrink-0 <?php echo $req['status'] === 'Completed' ? 'bg-green-500' : ($req['status'] === 'In Progress' ? 'bg-blue-500' : ($req['priority'] === 'High' ? 'bg-red-500' : 'bg-orange-500')); ?>"></span>
                             <div class="flex-1 min-w-0">
-                                <p class="text-sm font-bold truncate"><?php echo htmlspecialchars($tx['full_name']); ?></p>
-                                <p class="text-[10px] text-slate-400 font-medium">KSh <?php echo number_format($tx['amount']); ?></p>
+                                <p class="text-sm font-bold text-slate-900 dark:text-white truncate"><?php echo htmlspecialchars($req['title']); ?></p>
+                                <p class="text-[10px] text-slate-400 font-medium">
+                                    <?php echo htmlspecialchars($req['tenant_name'] ?? 'Unknown'); ?>
+                                    <?php if ($req['prop_title']): ?> · <?php echo htmlspecialchars($req['prop_title']); ?><?php endif; ?>
+                                </p>
                             </div>
-                            <span class="badge badge-<?php echo $tx['status']=='Paid' ? 'green' : ($tx['status']=='Overdue' ? 'red' : 'orange'); ?>">
-                                <?php echo $tx['status']; ?>
+                            <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0
+                                <?php echo $req['status'] === 'Completed' ? 'bg-green-100 text-green-600 dark:bg-green-900/30' : ($req['status'] === 'In Progress' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30'); ?>">
+                                <?php echo $req['status']; ?>
                             </span>
                         </div>
                         <?php endforeach; ?>
                     </div>
                     <?php endif; ?>
                 </div>
-
             </div>
-        </div>
 
-        <!-- Right Column -->
+        </div><!-- end left col -->
+
+        <!-- RIGHT: Quick Actions + Expiring Leases + Stats -->
         <div class="space-y-6">
+
             <!-- Quick Actions -->
             <div class="glass-card p-6">
-                <h3 class="font-black text-slate-900 dark:text-white mb-4">Quick Actions</h3>
-                <div class="space-y-2">
-                    <button onclick="openModal('newPropertyModal')" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left">
-                        <span class="w-8 h-8 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center text-blue-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/></svg></span>
-                        Add New Property
-                    </button>
-                    <a href="tenants.php" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <span class="w-8 h-8 bg-green-50 dark:bg-green-900/30 rounded-lg flex items-center justify-center text-green-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span>
-                        Register Tenant
+                <h3 class="font-black text-slate-900 dark:text-white mb-4 text-sm">Quick Actions</h3>
+                <div class="space-y-1.5">
+                    <?php
+                    $quickActions = [
+                        ['href' => 'properties.php',          'label' => 'Add New Property',    'icon_bg' => 'bg-blue-50 dark:bg-blue-900/30 text-blue-500',   'icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg>'],
+                        ['href' => 'tenants.php?action=new',  'label' => 'Register Tenant',     'icon_bg' => 'bg-green-50 dark:bg-green-900/30 text-green-500', 'icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>'],
+                        ['href' => 'leases.php?action=new',   'label' => 'Create Lease',        'icon_bg' => 'bg-purple-50 dark:bg-purple-900/30 text-purple-500','icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'],
+                        ['href' => 'financials.php',          'label' => 'Record Payment',      'icon_bg' => 'bg-orange-50 dark:bg-orange-900/30 text-orange-500','icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'],
+                        ['href' => 'tenant_payments.php',     'label' => 'Generate Invoice',    'icon_bg' => 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600','icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>'],
+                        ['href' => 'reports.php',             'label' => 'View Reports',        'icon_bg' => 'bg-slate-100 dark:bg-slate-800 text-slate-500',    'icon' => '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>'],
+                    ];
+                    foreach ($quickActions as $qa): ?>
+                    <a href="<?php echo $qa['href']; ?>" class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-accent-green transition-all">
+                        <span class="w-8 h-8 rounded-lg <?php echo $qa['icon_bg']; ?> flex items-center justify-center shrink-0">
+                            <?php echo $qa['icon']; ?>
+                        </span>
+                        <?php echo $qa['label']; ?>
                     </a>
-                    <a href="financials.php" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <span class="w-8 h-8 bg-orange-50 dark:bg-orange-900/30 rounded-lg flex items-center justify-center text-orange-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
-                        Record Payment
-                    </a>
-                    <a href="leases.php" class="w-full flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <span class="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center text-purple-500 shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-                        Create Lease
-                    </a>
+                    <?php endforeach; ?>
                 </div>
             </div>
 
-            <!-- Promo card -->
-            <div class="glass-card p-6 relative overflow-hidden bg-slate-900 dark:bg-slate-800 border-none">
-                <div class="relative z-10">
-                    <span class="badge badge-secondary mb-3 inline-block">Enterprise</span>
-                    <h3 class="text-white font-black text-xl mb-2 leading-tight">Intelligent Payouts Are Live</h3>
-                    <p class="text-slate-400 text-xs leading-relaxed mb-4">Automate landlord distributions with precision tracking and instant digital vouchers.</p>
-                    <a href="payouts.php" class="btn-orange text-xs w-full justify-center">Setup Now</a>
+            <!-- Expiring Leases -->
+            <?php if (!empty($expiringLeases)): ?>
+            <div class="glass-card overflow-hidden">
+                <div class="flex justify-between items-center p-5 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white text-sm">Expiring Leases</h3>
+                        <p class="text-[10px] text-slate-400 font-medium">Next 60 days — <?php echo count($expiringLeases); ?> lease<?php echo count($expiringLeases) !== 1 ? 's' : ''; ?></p>
+                    </div>
+                    <a href="leases.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">All →</a>
                 </div>
-                <div class="absolute top-[-30%] right-[-10%] w-48 h-48 bg-accent-orange/15 rounded-full blur-3xl"></div>
+                <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($expiringLeases as $el):
+                        $d = (int)$el['days_left'];
+                        $urgencyClass = $d <= 14 ? 'urgency-critical' : ($d <= 30 ? 'urgency-warning' : 'urgency-normal');
+                    ?>
+                    <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
+                        <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
+                            <?php echo strtoupper(substr($el['full_name'], 0, 1)); ?>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-slate-900 dark:text-white truncate"><?php echo htmlspecialchars($el['full_name']); ?></p>
+                            <p class="text-[10px] text-slate-400">Unit <?php echo htmlspecialchars($el['unit_number']); ?> · <?php echo htmlspecialchars($el['prop_title']); ?></p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-full text-[9px] font-black border <?php echo $urgencyClass; ?> shrink-0">
+                            <?php echo $d; ?>d
+                        </span>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
-        </div>
-    </div>
+            <?php else: ?>
+            <!-- Portfolio Summary when no expiring leases -->
+            <div class="glass-card p-6 space-y-4">
+                <h3 class="font-black text-slate-900 dark:text-white text-sm">Portfolio Summary</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-500 font-medium">Total Units</span>
+                        <span class="font-black text-slate-900 dark:text-white"><?php echo $totalUnits; ?></span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-500 font-medium">Occupied</span>
+                        <span class="font-black text-green-500"><?php echo $occupiedUnits; ?></span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-500 font-medium">Vacant</span>
+                        <span class="font-black <?php echo $vacantUnits > 0 ? 'text-orange-500' : 'text-green-500'; ?>"><?php echo $vacantUnits; ?></span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-500 font-medium">Outstanding</span>
+                        <span class="font-black <?php echo $outstanding > 0 ? 'text-red-500' : 'text-green-500'; ?>"><?php echo $currency; ?> <?php echo number_format($outstanding); ?></span>
+                    </div>
+                    <hr class="border-slate-100 dark:border-slate-800">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-500 font-medium">YTD Revenue</span>
+                        <span class="font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($revYTD); ?></span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
-    <?php else: ?>
-    <!-- ===== TENANT DASHBOARD ===== -->
-    <?php include __DIR__ . '/includes/tenant_dashboard.php'; ?>
-    <?php endif; ?>
+            <!-- Portfolio Health -->
+            <div class="glass-card p-6 bg-slate-900 dark:bg-slate-800 border-none text-white">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-black text-white text-sm">Portfolio Health</h3>
+                    <span class="text-2xl font-black <?php echo $healthColor; ?>"><?php echo $healthScore; ?></span>
+                </div>
+                <div class="health-pips mb-3">
+                    <?php for ($pip = 1; $pip <= 10; $pip++):
+                        $filled = ($pip * 10) <= $healthScore;
+                        $pipClass = $filled ? ($healthScore >= 80 ? 'lit-green' : ($healthScore >= 60 ? 'lit-yellow' : 'lit-red')) : '';
+                    ?>
+                    <div class="health-pip <?php echo $pipClass; ?>"></div>
+                    <?php endfor; ?>
+                </div>
+                <p class="text-[10px] text-slate-400 font-medium leading-relaxed">
+                    <?php echo $healthLabel; ?> — Based on occupancy (<?php echo $occupancyRate; ?>%), overdue invoices (<?php echo $overdueInvoices; ?>), maintenance queue (<?php echo $pendingMaint; ?>), and collection rate.
+                </p>
+                <a href="reports.php" class="mt-4 flex items-center gap-2 text-[10px] font-black text-accent-green hover:opacity-80 transition-opacity uppercase tracking-widest">
+                    View Full Report →
+                </a>
+            </div>
+
+        </div><!-- end right col -->
+    </div><!-- end main grid -->
+
 </div>
 
-<?php if ($role !== 'tenant'): ?>
 <!-- Revenue Chart Script -->
 <script>
-const ctx = document.getElementById('revenueChart');
-if (ctx) {
+(function() {
+    const ctx = document.getElementById('revenueChart');
+    if (!ctx) return;
     const isDark = document.documentElement.classList.contains('dark');
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+    const tickColor = '#94a3b8';
+
     new Chart(ctx, {
-        type: 'line',
+        type: 'bar',
         data: {
             labels: <?php echo json_encode($chartLabels); ?>,
-            datasets: [{
-                label: 'Revenue (KSh)',
-                data: <?php echo json_encode($chartData); ?>,
-                borderColor: '#22c55e',
-                backgroundColor: 'rgba(34,197,94,0.08)',
-                fill: true,
-                tension: 0.4,
-                pointBackgroundColor: '#22c55e',
-                pointRadius: 5,
-                pointHoverRadius: 7,
-                borderWidth: 2.5
-            }]
+            datasets: [
+                {
+                    label: 'Collected',
+                    data: <?php echo json_encode($chartCollected); ?>,
+                    backgroundColor: 'rgba(34,197,94,0.85)',
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    order: 2,
+                },
+                {
+                    label: 'Invoiced',
+                    type: 'line',
+                    data: <?php echo json_encode($chartInvoiced); ?>,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59,130,246,0.05)',
+                    fill: true,
+                    tension: 0.45,
+                    borderWidth: 2,
+                    pointBackgroundColor: '#3b82f6',
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    order: 1,
+                }
+            ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { display: false },
                 tooltip: {
+                    backgroundColor: isDark ? '#0f172a' : '#fff',
+                    titleColor: isDark ? '#f8fafc' : '#0f172a',
+                    bodyColor: '#94a3b8',
+                    borderColor: isDark ? '#1e293b' : '#e2e8f0',
+                    borderWidth: 1,
+                    padding: 12,
                     callbacks: {
-                        label: ctx => 'KSh ' + ctx.raw.toLocaleString()
+                        label: c => `${c.dataset.label}: <?php echo $currency; ?> ${c.raw.toLocaleString()}`
                     }
                 }
             },
             scales: {
-                x: {
-                    grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
-                    ticks: { color: '#94a3b8', font: { size: 11, weight: '700' } }
-                },
-                y: {
-                    grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
-                    ticks: { color: '#94a3b8', font: { size: 11, weight: '700' }, callback: v => 'KSh ' + v.toLocaleString() }
-                }
+                x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11, weight: '700' } } },
+                y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 }, callback: v => '<?php echo $currency; ?> ' + v.toLocaleString() } }
             }
         }
     });
-}
+})();
 </script>
-<?php endif; ?>
 
+<!-- New Property Modal -->
 <div class="modal-overlay" id="newPropertyModal" style="display:none;">
-    <div class="modal-card max-w-2xl px-8 py-10">
-        <button onclick="closeModal('newPropertyModal')" class="absolute top-6 right-6 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all transform hover:rotate-90">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    <div class="modal-card max-w-2xl">
+        <button onclick="closeModal('newPropertyModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        
-        <h2 class="text-2xl font-black mb-8">Add New Property</h2>
-        
-        <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-6">
+        <h2 class="text-2xl font-black mb-6">Add New Property</h2>
+        <form action="actions/property_actions.php" method="POST" enctype="multipart/form-data" class="space-y-5">
             <input type="hidden" name="action" value="create">
-            
             <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Title</label>
-                <input type="text" name="title" required placeholder="E.g. Primelink Heights" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                <label class="form-label">Property Title *</label>
+                <input type="text" name="title" required placeholder="E.g. Primelink Heights" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
             </div>
-
-            <div class="grid grid-cols-2 gap-6">
+            <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Location</label>
-                    <input type="text" name="location" required placeholder="E.g. Nairobi, Kilimani" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <label class="form-label">Location *</label>
+                    <input type="text" name="location" required placeholder="E.g. Nairobi, Kilimani" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                 </div>
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Code</label>
-                    <input type="text" name="property_code" placeholder="E.g. PL-001" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <label class="form-label">Property Code</label>
+                    <input type="text" name="property_code" placeholder="E.g. PL-001" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                 </div>
             </div>
-
-            <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Description</label>
-                <textarea name="description" rows="3" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
-            </div>
-
-            <div class="grid grid-cols-2 gap-6">
+            <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Type</label>
-                    <select name="property_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        <option>Apartment</option>
-                        <option>Villa</option>
-                        <option>Office</option>
-                        <option>Commercial</option>
-                        <option>Shop</option>
+                    <label class="form-label">Type</label>
+                    <select name="property_type" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        <option>Apartment</option><option>Villa</option><option>Office</option><option>Commercial</option><option>Shop</option>
                     </select>
                 </div>
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Area (Sqm)</label>
-                    <input type="number" name="area" placeholder="E.g. 150" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <label class="form-label">Area (Sqm)</label>
+                    <input type="number" name="area" placeholder="E.g. 150" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                 </div>
             </div>
-
             <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property Images</label>
-                <input type="file" name="property_images[]" multiple class="w-full p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400 font-bold hover:border-accent-green transition-all">
+                <label class="form-label">Description</label>
+                <textarea name="description" rows="2" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none resize-none"></textarea>
             </div>
-
-            <button type="submit" class="btn-green w-full justify-center py-4 rounded-2xl shadow-xl shadow-accent-green/10 font-black italic tracking-tight">Register Property →</button>
+            <div class="space-y-2">
+                <label class="form-label">Property Images</label>
+                <input type="file" name="property_images[]" multiple class="w-full p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400 font-bold hover:border-accent-green transition-all cursor-pointer">
+            </div>
+            <button type="submit" class="btn-green w-full justify-center py-4 rounded-2xl text-sm font-black tracking-wide">
+                Register Property →
+            </button>
         </form>
     </div>
 </div>
