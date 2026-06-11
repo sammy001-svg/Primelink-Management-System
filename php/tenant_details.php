@@ -1,38 +1,35 @@
 <?php
 /**
- * Tenant Intelligence Hub - 360 Degree Profile
- * Primelink Management System
+ * Tenant Detail Hub — Primelink Management System
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireRole(['staff']); // Admin & Staff only
+requireRole(['admin', 'staff']);   // FIX: was requireRole(['staff'])
 
 $tenantId = $_GET['id'] ?? null;
-if (!$tenantId) {
-    header("Location: tenants.php");
-    exit();
-}
+if (!$tenantId) { header('Location: tenants.php'); exit(); }
 
-// Fetch Tenant & Profile data
+require_once __DIR__ . '/includes/settings.php';
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
+
+// ── Tenant + profile ─────────────────────────────────────────────
 $stmt = $pdo->prepare("
-    SELECT t.*, u.email as user_email, p.address as physical_address
+    SELECT t.*, u.email AS user_email, p.address AS physical_address
     FROM tenants t
-    JOIN users u ON t.user_id = u.id
+    JOIN users u  ON t.user_id = u.id
     JOIN profiles p ON t.user_id = p.id
     WHERE t.id = ?
 ");
 $stmt->execute([$tenantId]);
 $tenant = $stmt->fetch();
+if (!$tenant) { header('Location: tenants.php?toast_msg=Tenant+not+found&toast_type=error'); exit(); }
 
-if (!$tenant) {
-    die("Tenant not found.");
-}
-
-// Fetch Current Active Lease & Unit
+// ── Active lease ─────────────────────────────────────────────────
 $stmt = $pdo->prepare("
-    SELECT l.*, u.unit_number, u.unit_type, pr.title as property_title, pr.location as property_location
+    SELECT l.*, u.unit_number, u.unit_type, u.monthly_rent, u.deposit_amount,
+           pr.id AS property_id, pr.title AS property_title, pr.location AS property_location
     FROM leases l
-    JOIN units u ON l.unit_id = u.id
+    JOIN units u      ON l.unit_id = u.id
     JOIN properties pr ON u.property_id = pr.id
     WHERE l.tenant_id = ? AND l.status = 'Active'
     LIMIT 1
@@ -40,507 +37,913 @@ $stmt = $pdo->prepare("
 $stmt->execute([$tenantId]);
 $activeLease = $stmt->fetch();
 
-// Fetch Financials
+// ── All leases (history) ─────────────────────────────────────────
+$stmt = $pdo->prepare("
+    SELECT l.*, u.unit_number, pr.title AS property_title
+    FROM leases l
+    JOIN units u ON l.unit_id = u.id
+    JOIN properties pr ON u.property_id = pr.id
+    WHERE l.tenant_id = ?
+    ORDER BY l.created_at DESC
+");
+$stmt->execute([$tenantId]);
+$allLeases = $stmt->fetchAll();
+
+// ── Invoices ─────────────────────────────────────────────────────
+$stmt = $pdo->prepare("
+    SELECT i.*
+    FROM invoices i
+    WHERE i.tenant_id = ?
+    ORDER BY i.created_at DESC
+");
+$stmt->execute([$tenantId]);
+$invoices = $stmt->fetchAll();
+
+$invoiceSummary = ['total' => 0, 'paid' => 0, 'unpaid' => 0, 'overdue' => 0, 'paid_amount' => 0.0, 'outstanding' => 0.0];
+foreach ($invoices as $inv) {
+    $invoiceSummary['total']++;
+    $invoiceSummary[strtolower($inv['status'])]++;
+    if ($inv['status'] === 'Paid')    $invoiceSummary['paid_amount']   += $inv['amount'];
+    else                               $invoiceSummary['outstanding']   += $inv['amount'];
+}
+
+// ── Transactions ─────────────────────────────────────────────────
 $stmt = $pdo->prepare("SELECT * FROM transactions WHERE tenant_id = ? ORDER BY transaction_date DESC");
 $stmt->execute([$tenantId]);
 $transactions = $stmt->fetchAll();
+$totalPaid    = array_sum(array_column(array_filter($transactions, fn($t) => $t['status'] === 'Paid'), 'amount'));
 
-$totalPaid = 0;
-$totalPending = 0;
+// ── Maintenance requests ─────────────────────────────────────────
+$stmt = $pdo->prepare("
+    SELECT m.*, u.unit_number, pr.title AS property_title
+    FROM maintenance_requests m
+    LEFT JOIN units u       ON m.unit_id = u.id
+    LEFT JOIN properties pr ON u.property_id = pr.id
+    WHERE m.tenant_id = ?
+    ORDER BY m.created_at DESC
+");
+$stmt->execute([$tenantId]);
+$maintenanceRequests = $stmt->fetchAll();
 
-$balances = [
-    'Rent' => 0,
-    'Water' => 0,
-    'Service Charge' => 0,
-    'Penalty' => 0,
-    'Other' => 0
-];
+// ── Available units for assign-unit modal ─────────────────────────
+$allProperties = $pdo->query("SELECT id, title FROM properties ORDER BY title")->fetchAll();
+$availableUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount FROM units WHERE status='Available' ORDER BY unit_number")->fetchAll();
 
-foreach ($transactions as $tx) {
-    if ($tx['status'] === 'Paid') {
-        $totalPaid += $tx['amount'];
-    } else {
-        $totalPending += $tx['amount'];
-        
-        // Categorize balance
-        $type = $tx['transaction_type'];
-        if ($type === 'Rent' || $type === 'Deposit') $balances['Rent'] += $tx['amount'];
-        elseif ($type === 'Water' || $type === 'Water Token') $balances['Water'] += $tx['amount'];
-        elseif ($type === 'Service Charge') $balances['Service Charge'] += $tx['amount'];
-        elseif ($type === 'Penalty') $balances['Penalty'] += $tx['amount'];
-        else $balances['Other'] += $tx['amount'];
-    }
-}
+// ── Active tab (from query string, e.g. ?tab=invoices) ───────────
+$activeTab = $_GET['tab'] ?? 'overview';
+$validTabs = ['overview', 'invoices', 'maintenance', 'profile', 'security'];
+if (!in_array($activeTab, $validTabs)) $activeTab = 'overview';
 
-// Fetch Properties and Units for Assignment
-$allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
-$allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
+$isActive = ($tenant['status'] ?? 'Active') === 'Active';
+$pageTitle = htmlspecialchars($tenant['full_name']) . ' — Tenant';
 
-$pageTitle = $tenant['full_name'] . " | Intelligence";
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
-<div class="space-y-8 animate-in">
-    <!-- Header with Quick Stats -->
-    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-slate-900 rounded-[2.5rem] p-8 lg:p-12 text-white relative overflow-hidden shadow-2xl">
-        <div class="relative z-10">
-            <div class="flex items-center gap-2 mb-4">
-                <a href="tenants.php" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-accent-green transition-colors flex items-center gap-1">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m15 18-6-6 6-6"/></svg>
-                    Back to Registry
-                </a>
-            </div>
-            <div class="flex items-center gap-6">
-                <div class="w-20 h-20 rounded-4xl bg-accent-green flex items-center justify-center text-3xl font-black shadow-xl ring-4 ring-white/10">
-                    <?php echo substr($tenant['full_name'], 0, 1); ?>
+<div class="space-y-7 animate-in">
+
+    <!-- ── Hero Header ───────────────────────────────────────── -->
+    <div class="glass-card p-6 lg:p-8 bg-slate-900 dark:bg-slate-900 text-white border-none relative overflow-hidden">
+        <!-- Back -->
+        <a href="tenants.php" class="inline-flex items-center gap-1.5 text-[10px] font-black text-slate-400 hover:text-accent-green uppercase tracking-widest mb-5 transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m15 18-6-6 6-6"/></svg>
+            Back to Registry
+        </a>
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div class="flex items-center gap-5">
+                <div class="w-16 h-16 lg:w-20 lg:h-20 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-2xl lg:text-3xl font-black shadow-xl ring-4 ring-white/10 shrink-0">
+                    <?php echo strtoupper(substr($tenant['full_name'], 0, 1)); ?>
                 </div>
                 <div>
-                    <h1 class="text-3xl lg:text-4xl font-black tracking-tight"><?php echo htmlspecialchars((string)($tenant['full_name'] ?? '')); ?></h1>
-                    <p class="text-slate-400 font-medium flex items-center gap-2 mt-1">
-                        <span class="px-2 py-0.5 bg-white/10 rounded text-[10px] font-black uppercase tracking-widest text-accent-green">PRM-<?php echo substr((string)($tenant['id'] ?? ''), 0, 4); ?></span>
-                        • <?php echo htmlspecialchars((string)($tenant['email'] ?? '')); ?>
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <h1 class="text-2xl lg:text-3xl font-black tracking-tight"><?php echo htmlspecialchars($tenant['full_name']); ?></h1>
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border
+                            <?php echo $isActive
+                                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                                : 'bg-slate-700 text-slate-400 border-slate-600'; ?>">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            <?php echo htmlspecialchars($tenant['status'] ?? 'Active'); ?>
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-3 mt-1.5 flex-wrap">
+                        <span class="text-[10px] font-black text-slate-500 uppercase bg-white/5 px-2 py-0.5 rounded">PRM-<?php echo substr($tenant['id'], 0, 6); ?></span>
+                        <span class="text-sm text-slate-400"><?php echo htmlspecialchars($tenant['user_email'] ?? $tenant['email']); ?></span>
+                        <?php if (!empty($tenant['phone'])): ?>
+                        <span class="text-sm text-slate-400"><?php echo htmlspecialchars($tenant['phone']); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick stats -->
+            <div class="flex gap-6 shrink-0">
+                <div class="text-center">
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Outstanding</p>
+                    <p class="text-xl font-black <?php echo $invoiceSummary['outstanding'] > 0 ? 'text-red-400' : 'text-slate-300'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($invoiceSummary['outstanding']); ?>
                     </p>
+                </div>
+                <div class="w-px h-12 bg-white/10 self-center"></div>
+                <div class="text-center">
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Paid</p>
+                    <p class="text-xl font-black text-green-400"><?php echo $currency; ?> <?php echo number_format($invoiceSummary['paid_amount']); ?></p>
+                </div>
+                <div class="w-px h-12 bg-white/10 self-center hidden sm:block"></div>
+                <div class="text-center hidden sm:block">
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Invoices</p>
+                    <p class="text-xl font-black text-white"><?php echo $invoiceSummary['total']; ?></p>
                 </div>
             </div>
         </div>
-        
-        <div class="flex gap-4 lg:gap-8 relative z-10 shrink-0">
-            <div class="text-right">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Financial Balance</p>
-                <h3 class="text-3xl font-black text-accent-orange">KSh <?php echo number_format($totalPending); ?></h3>
-                <button onclick="triggerSTKPush('<?php echo $tenant['id']; ?>')" class="text-[10px] font-black text-white hover:text-accent-orange transition-colors uppercase tracking-widest mt-2 bg-white/5 px-3 py-1.5 rounded-full inline-block border border-white/10">⚡ STK Push</button>
-            </div>
-            <div class="w-px h-16 bg-white/10 hidden lg:block"></div>
-            <div class="text-right">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
-                <span class="inline-block px-4 py-1.5 bg-accent-green text-white rounded-full text-[10px] font-black uppercase tracking-widest mt-1">
-                    <?php echo (string)($tenant['status'] ?? 'Active'); ?>
-                </span>
-            </div>
-        </div>
-
-        <!-- Decorative elements -->
-        <div class="absolute -right-12 -top-12 w-64 h-64 bg-accent-green/10 rounded-full blur-3xl"></div>
+        <!-- Decorative -->
+        <div class="absolute -right-16 -top-16 w-64 h-64 bg-accent-green/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -left-8 -bottom-8 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl pointer-events-none"></div>
     </div>
 
-    <!-- Tabs Navigation -->
-    <div class="flex gap-2 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl w-max border border-slate-200 dark:border-slate-800">
-        <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn active px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Overview</button>
-        <button onclick="switchTab('profile')" id="tab-profile" class="tab-btn px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Profile Intelligence</button>
-        <button onclick="switchTab('financials')" id="tab-financials" class="tab-btn px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Financial Portfolio</button>
-        <button onclick="switchTab('security')" id="tab-security" class="tab-btn px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Security</button>
+    <!-- ── Tabs ──────────────────────────────────────────────── -->
+    <div class="flex gap-1 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl w-fit border border-slate-200 dark:border-slate-800 overflow-x-auto">
+        <?php
+        $tabs = [
+            'overview'    => ['Overview',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>'],
+            'invoices'    => ['Invoices'  . ($invoiceSummary['overdue'] > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded text-[8px]">' . $invoiceSummary['overdue'] . '</span>' : ''),
+                              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'],
+            'maintenance' => ['Maintenance' . (!empty($maintenanceRequests) ? ' <span class="ml-1 px-1.5 py-0.5 bg-slate-400 dark:bg-slate-700 text-white dark:text-slate-300 rounded text-[8px]">' . count($maintenanceRequests) . '</span>' : ''),
+                              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'],
+            'profile'     => ['Profile',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'],
+            'security'    => ['Security',   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'],
+        ];
+        foreach ($tabs as $key => [$label, $icon]):
+            $isT = $key === $activeTab;
+        ?>
+        <button onclick="switchTab('<?php echo $key; ?>')" id="tab-<?php echo $key; ?>"
+            class="tab-btn <?php echo $isT ? 'active' : ''; ?> flex items-center gap-2 px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest whitespace-nowrap transition-all
+                <?php echo $isT ? 'bg-white dark:bg-slate-800 shadow-md text-accent-green' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'; ?>">
+            <?php echo $icon; ?>
+            <?php echo $label; ?>
+        </button>
+        <?php endforeach; ?>
     </div>
 
-    <!-- Tab Contents -->
-    <div id="content-overview" class="tab-content">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Left: Occupancy Detail -->
-            <div class="lg:col-span-2 space-y-8">
-                <div class="glass-card p-8 relative overflow-hidden">
-                    <h3 class="text-sm font-black text-slate-400 uppercase tracking-widest mb-8 border-b border-slate-100 dark:border-slate-800 pb-4">Active Residency</h3>
+    <!-- ══════════════════════════════════════════════════════
+         TAB: OVERVIEW
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-overview" class="tab-content <?php echo $activeTab !== 'overview' ? 'hidden' : ''; ?>">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Left (2/3): Lease + identity -->
+            <div class="lg:col-span-2 space-y-6">
+
+                <!-- Active Residency -->
+                <div class="glass-card p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Active Residency</h3>
+                        <?php if (!$activeLease): ?>
+                        <button onclick="openModal('assignUnitModal')" class="btn-green text-xs gap-1.5 py-2 px-4">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                            Assign Unit
+                        </button>
+                        <?php endif; ?>
+                    </div>
                     <?php if ($activeLease): ?>
-                    <div class="flex flex-col md:flex-row gap-8 items-center">
-                        <div class="w-full md:w-48 h-32 rounded-3xl overflow-hidden shadow-2xl">
-                            <img src="https://images.unsplash.com/photo-1570129477492-45c003edd2be?q=80&w=400" class="w-full h-full object-cover">
+                    <div class="flex flex-col sm:flex-row gap-5 items-start">
+                        <div class="w-full sm:w-44 h-28 rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="text-slate-300 dark:text-slate-600"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
                         </div>
-                        <div class="flex-1 space-y-2">
-                            <p class="text-[10px] font-black text-accent-green uppercase tracking-widest">Currently Occupying</p>
-                            <h4 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$activeLease['property_title']); ?> — Unit <?php echo htmlspecialchars((string)$activeLease['unit_number']); ?></h4>
-                            <p class="text-sm font-medium text-slate-500 uppercase tracking-tighter"><?php echo htmlspecialchars((string)$activeLease['property_location']); ?> • <?php echo htmlspecialchars((string)$activeLease['unit_type']); ?></p>
-                            <div class="pt-4 flex gap-4">
-                                <a href="property_details.php?id=<?php echo $activeLease['property_id']; ?>" class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-accent-green transition-colors">Manage Unit →</a>
-                                <?php if ($lease): ?>
-                                    <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-accent-green transition-colors">View Lease Agreement</a>
-                                <?php else: ?>
-                                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Active Lease</span>
-                                <?php endif; ?>
+                        <div class="flex-1 space-y-3">
+                            <div>
+                                <p class="text-[10px] font-black text-accent-green uppercase tracking-widest">Currently Occupying</p>
+                                <h4 class="text-xl font-black text-slate-900 dark:text-white mt-1">
+                                    <?php echo htmlspecialchars($activeLease['property_title']); ?> — Unit <?php echo htmlspecialchars($activeLease['unit_number']); ?>
+                                </h4>
+                                <p class="text-sm text-slate-500 mt-0.5"><?php echo htmlspecialchars($activeLease['property_location'] ?? ''); ?> · <?php echo htmlspecialchars($activeLease['unit_type'] ?? ''); ?></p>
+                            </div>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Monthly Rent</p>
+                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$activeLease['monthly_rent']); ?></p>
+                                </div>
+                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Lease Start</p>
+                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo date('M d, Y', strtotime($activeLease['start_date'])); ?></p>
+                                </div>
+                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Lease End</p>
+                                    <p class="text-sm font-black <?php echo strtotime($activeLease['end_date']) <= strtotime('+60 days') ? 'text-orange-500' : 'text-slate-900 dark:text-white'; ?>">
+                                        <?php echo date('M d, Y', strtotime($activeLease['end_date'])); ?>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex gap-3 flex-wrap pt-1">
+                                <a href="property_details.php?id=<?php echo $activeLease['property_id']; ?>"
+                                   class="text-[11px] font-black text-accent-green hover:underline">View Property →</a>
+                                <a href="view_lease.php?lease_id=<?php echo $activeLease['id']; ?>"
+                                   class="text-[11px] font-black text-slate-500 hover:text-accent-green transition-colors">View Lease Agreement →</a>
                             </div>
                         </div>
                     </div>
                     <?php else: ?>
-                    <div class="py-12 text-center">
-                        <div class="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300">
-                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/></svg>
-                        </div>
-                        <p class="text-sm font-bold text-slate-400">No active residency found for this tenant.</p>
-                        <button onclick="openModal('assignUnitModal')" class="btn-green mt-6 inline-flex">Assign Unit Now</button>
+                    <div class="empty-state py-10">
+                        <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg></div>
+                        <p class="font-bold text-slate-400 text-sm mt-3">No active unit assigned.</p>
                     </div>
                     <?php endif; ?>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="glass-card p-6">
+                <!-- Info grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <!-- Identity -->
+                    <div class="glass-card p-5">
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Identity Verification</h4>
-                        <div class="space-y-4">
-                            <div class="flex justify-between">
-                                <span class="text-xs font-bold text-slate-500 uppercase">ID No.</span>
-                                <span class="text-xs font-black"><?php echo (string)($tenant['id_no'] ?? 'Not Provided'); ?></span>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">ID Number</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenant['id_no'] ?? '—'); ?></span>
                             </div>
-                            <div class="flex justify-between">
-                                <span class="text-xs font-bold text-slate-500 uppercase">Verification</span>
-                                <span class="text-xs font-black text-accent-green italic underline">Download Copy</span>
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">Marital Status</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenant['marital_status'] ?? '—'); ?></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">Children</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo ($tenant['has_kids'] ?? 0) ? 'Yes' : 'No'; ?></span>
+                            </div>
+                            <?php if (!empty($tenant['id_copy_url'])): ?>
+                            <a href="/<?php echo htmlspecialchars($tenant['id_copy_url']); ?>" target="_blank"
+                               class="text-[11px] font-black text-accent-green hover:underline block pt-1">Download ID Copy →</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Professional -->
+                    <div class="glass-card p-5">
+                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Professional Info</h4>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">Profession</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white truncate max-w-[140px]"><?php echo htmlspecialchars($tenant['profession'] ?? '—'); ?></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">Employer</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white truncate max-w-[140px]"><?php echo htmlspecialchars($tenant['employer_name'] ?? '—'); ?></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-[11px] font-bold text-slate-500">Type</span>
+                                <span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenant['occupation_type'] ?? '—'); ?></span>
                             </div>
                         </div>
                     </div>
-                    <div class="glass-card p-6">
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Professional Index</h4>
-                        <div class="space-y-4">
-                            <div class="flex justify-between">
-                                <span class="text-xs font-bold text-slate-500 uppercase">Profession</span>
-                                <span class="text-xs font-black"><?php echo (string)($tenant['profession'] ?? 'Not Stated'); ?></span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span class="text-xs font-bold text-slate-500 uppercase">Employer</span>
-                                <span class="text-xs font-black truncate max-w-[120px]"><?php echo (string)($tenant['employer_name'] ?? 'N/A'); ?></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right: Next of Kin / Communication -->
-            <div class="space-y-8">
-                 <div class="glass-card p-6 bg-linear-to-br from-slate-900 to-slate-950 text-white border-none">
-                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Next of Kin Registry</h3>
-                    <div class="space-y-4 font-medium">
-                        <div>
-                            <p class="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Primary Guardian</p>
-                            <p class="text-sm font-black"><?php echo htmlspecialchars((string)($tenant['next_of_kin_name'] ?? 'None Designated')); ?></p>
-                        </div>
-                        <div>
-                            <p class="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Relationship</p>
-                            <p class="text-xs font-bold text-accent-orange"><?php echo htmlspecialchars((string)($tenant['next_of_kin_relationship'] ?? 'N/A')); ?></p>
-                        </div>
-                        <div class="pt-2">
-                             <a href="tel:<?php echo (string)($tenant['next_of_kin_contact'] ?? ''); ?>" class="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                                Emergency Call
-                             </a>
-                        </div>
-                    </div>
                 </div>
 
-                <div class="glass-card p-6">
-                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Management Actions</h3>
-                    <div class="space-y-3">
-                        <button onclick="sendReminder('<?php echo $tenant['id']; ?>', 'payment')" class="w-full p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center gap-4 text-xs font-black uppercase tracking-widest hover:translate-x-1 transition-all">
-                            <div class="w-8 h-8 rounded-lg bg-accent-orange/10 text-accent-orange flex items-center justify-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></div>
-                            Log Payment Reminder
-                        </button>
-                        <button onclick="sendReminder('<?php echo $tenant['id']; ?>', 'maintenance')" class="w-full p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center gap-4 text-xs font-black uppercase tracking-widest hover:translate-x-1 transition-all">
-                            <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg></div>
-                            Schedule Visit
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Tab 2: Profile Editing -->
-    <div id="content-profile" class="tab-content hidden animate-in slide-in-from-bottom-4">
-        <div class="glass-card p-10">
-            <h3 class="text-2xl font-black mb-8 tracking-tight">Intelligence Parameters</h3>
-            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-8">
-                <input type="hidden" name="action" value="update_profile">
-                <input type="hidden" name="tenant_id" value="<?php echo (string)($tenant['id'] ?? ''); ?>">
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Primary Full Name</label>
-                        <input type="text" name="full_name" value="<?php echo htmlspecialchars((string)($tenant['full_name'] ?? '')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Phone Registry</label>
-                        <input type="text" name="phone" value="<?php echo htmlspecialchars((string)($tenant['phone'] ?? '')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Physical Residency Address</label>
-                    <input type="text" name="address" value="<?php echo htmlspecialchars((string)($tenant['physical_address'] ?? '')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 pt-8 border-t border-slate-100 dark:border-slate-800">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Profession</label>
-                        <input type="text" name="profession" value="<?php echo htmlspecialchars((string)($tenant['profession'] ?? '')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Employer Entity</label>
-                        <input type="text" name="employer_name" value="<?php echo htmlspecialchars((string)($tenant['employer_name'] ?? '')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Marital Status</label>
-                        <select name="marital_status" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                            <option value="Single" <?php echo ($tenant['marital_status'] ?? 'Single') === 'Single' ? 'selected' : ''; ?>>Single</option>
-                            <option value="Married" <?php echo ($tenant['marital_status'] ?? '') === 'Married' ? 'selected' : ''; ?>>Married</option>
-                        </select>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn-green shadow-xl shadow-accent-green/10 px-12 py-4">Synchronize Intelligence</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Tab 3: Financials -->
-    <div id="content-financials" class="tab-content hidden animate-in slide-in-from-bottom-4">
-        <!-- Intelligent Balance Breakdown -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="glass-card p-6 border-l-4 border-l-accent-green shadow-xl shadow-accent-green/5">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Rent & Deposit</p>
-                <h4 class="text-xl font-black text-slate-900 dark:text-white italic tracking-tighter">KSh <?php echo number_format($balances['Rent']); ?></h4>
-            </div>
-            <div class="glass-card p-6 border-l-4 border-l-blue-500 shadow-xl shadow-blue-500/5">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Water Ledger</p>
-                <h4 class="text-xl font-black text-slate-900 dark:text-white italic tracking-tighter">KSh <?php echo number_format($balances['Water']); ?></h4>
-            </div>
-            <div class="glass-card p-6 border-l-4 border-l-purple-500 shadow-xl shadow-purple-500/5">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Service Charges</p>
-                <h4 class="text-xl font-black text-slate-900 dark:text-white italic tracking-tighter">KSh <?php echo number_format($balances['Service Charge']); ?></h4>
-            </div>
-            <div class="glass-card p-6 border-l-4 border-l-red-500 shadow-xl shadow-red-500/5">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Penalties</p>
-                <h4 class="text-xl font-black text-slate-900 dark:text-white italic tracking-tighter">KSh <?php echo number_format($balances['Penalty']); ?></h4>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
-            <div class="xl:col-span-2 space-y-8">
+                <!-- Lease history -->
+                <?php if (count($allLeases) > 1 || ($allLeases && $allLeases[0]['status'] !== 'Active')): ?>
                 <div class="glass-card overflow-hidden">
-                    <div class="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                        <div>
-                            <h3 class="text-xl font-black tracking-tight">Financial Statement</h3>
-                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Complete transaction lifecycle</p>
-                        </div>
-                        <button onclick="window.print()" class="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-500 hover:text-accent-green transition-all shadow-sm">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
-                        </button>
+                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                        <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Lease History</h3>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-50 dark:bg-slate-800/30">
-                                <tr>
-                                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reference</th>
-                                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction Date</th>
-                                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
-                                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
-                                </tr>
-                            </thead>
+                        <table class="w-full text-left data-table text-sm">
+                            <thead><tr class="bg-slate-50 dark:bg-slate-800/50">
+                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</th>
+                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</th>
+                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rent</th>
+                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
+                            </tr></thead>
                             <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                                <?php if (empty($transactions)): ?>
-                                    <tr><td colspan="4" class="p-12 text-center text-slate-400 font-medium italic">No ledger entries recorded.</td></tr>
-                                <?php else: ?>
-                                    <?php foreach ($transactions as $tx): ?>
-                                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all font-medium">
-                                        <td class="p-6">
-                                            <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo (string)($tx['reference_code'] ?? '') ?: '#TRX-'.substr((string)($tx['id'] ?? ''), 0, 6); ?></p>
-                                        </td>
-                                        <td class="p-6">
-                                            <p class="text-xs text-slate-500"><?php echo date('M d, Y H:i', strtotime($tx['transaction_date'])); ?></p>
-                                        </td>
-                                        <td class="p-6">
-                                            <p class="text-xs font-black">KSh <?php echo number_format($tx['amount']); ?></p>
-                                        </td>
-                                        <td class="p-6 text-right">
-                                            <span class="px-2.5 py-1 <?php echo ($tx['status'] ?? '') === 'Paid' ? 'bg-accent-green/10 text-accent-green border-accent-green/20' : 'bg-red-500/10 text-red-500 border-red-500/20'; ?> rounded-full text-[9px] font-black uppercase border tracking-widest">
-                                                <?php echo (string)($tx['status'] ?? 'Pending'); ?>
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
+                            <?php foreach ($allLeases as $lh): ?>
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
+                                <td class="px-5 py-3 font-bold text-slate-700 dark:text-slate-300">Unit <?php echo htmlspecialchars($lh['unit_number']); ?> — <?php echo htmlspecialchars($lh['property_title']); ?></td>
+                                <td class="px-5 py-3 text-slate-500 text-xs"><?php echo date('M Y', strtotime($lh['start_date'])); ?> – <?php echo date('M Y', strtotime($lh['end_date'])); ?></td>
+                                <td class="px-5 py-3 font-bold text-slate-700 dark:text-slate-300"><?php echo $currency; ?> <?php echo number_format((float)$lh['monthly_rent']); ?></td>
+                                <td class="px-5 py-3 text-right">
+                                    <span class="px-2 py-1 rounded-full text-[9px] font-black uppercase
+                                        <?php echo match($lh['status']) {
+                                            'Active'     => 'bg-green-500/10 text-green-500',
+                                            'Terminated' => 'bg-red-500/10 text-red-500',
+                                            default      => 'bg-slate-100 dark:bg-slate-800 text-slate-500',
+                                        }; ?>"><?php echo htmlspecialchars($lh['status']); ?></span>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
 
-            <div class="space-y-8">
-                <div class="glass-card p-8 bg-slate-900 text-white relative overflow-hidden">
-                    <div class="relative z-10">
-                        <p class="text-[10px] font-black text-accent-orange uppercase tracking-[0.3em] mb-2">Instant Settlement</p>
-                        <h4 class="text-2xl font-black mb-6 leading-tight">Request Arrears <br>via STK Push</h4>
-                        <div class="space-y-4">
-                            <div class="bg-white/5 p-4 rounded-xl border border-white/10">
-                                <p class="text-[10px] text-slate-500 font-black uppercase mb-1">Target Account</p>
-                                <p class="text-sm font-black text-white"><?php echo (string)($tenant['phone'] ?? ''); ?></p>
-                            </div>
-                            <div class="bg-white/5 p-4 rounded-xl border border-white/10">
-                                <p class="text-[10px] text-slate-500 font-black uppercase mb-1">Unpaid Balance</p>
-                                <p class="text-sm font-black text-accent-orange">KSh <?php echo number_format($totalPending); ?></p>
-                            </div>
-                             <button onclick="triggerSTKPush('<?php echo $tenant['id']; ?>')" class="w-full py-4 bg-accent-orange text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl hover:scale-[1.02] active:scale-95 transition-all">Trigger STK Push</button>
-                        </div>
+            <!-- Right (1/3): NOK + quick actions -->
+            <div class="space-y-5">
+
+                <!-- Next of Kin -->
+                <div class="glass-card p-5 bg-slate-900 dark:bg-slate-900 text-white border-none">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Next of Kin</h3>
+                        <button onclick="switchTab('profile')" class="text-[9px] font-black text-accent-green hover:underline uppercase tracking-widest">Edit</button>
                     </div>
-                    <div class="absolute -right-8 -bottom-8 w-40 h-40 bg-accent-orange/10 rounded-full blur-3xl"></div>
+                    <?php if (!empty($tenant['next_of_kin_name'])): ?>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-sm font-black shrink-0">
+                                <?php echo strtoupper(substr($tenant['next_of_kin_name'], 0, 1)); ?>
+                            </div>
+                            <div>
+                                <p class="text-sm font-black"><?php echo htmlspecialchars($tenant['next_of_kin_name']); ?></p>
+                                <p class="text-[10px] text-accent-green font-black uppercase"><?php echo htmlspecialchars($tenant['next_of_kin_relationship'] ?? 'N/A'); ?></p>
+                            </div>
+                        </div>
+                        <?php if (!empty($tenant['next_of_kin_contact'])): ?>
+                        <a href="tel:<?php echo htmlspecialchars($tenant['next_of_kin_contact']); ?>"
+                           class="w-full py-2.5 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.07 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 2.92 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            Emergency Call
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php else: ?>
+                    <p class="text-sm text-slate-500 italic">No next of kin on file.</p>
+                    <button onclick="switchTab('profile')" class="btn-green mt-3 text-xs w-full justify-center">Add Next of Kin</button>
+                    <?php endif; ?>
                 </div>
+
+                <!-- Quick actions -->
+                <div class="glass-card p-5">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Quick Actions</h3>
+                    <div class="space-y-2">
+                        <button onclick="switchTab('invoices')"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest text-left">
+                            <div class="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center shrink-0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                            </div>
+                            Generate Invoice
+                        </button>
+                        <button onclick="switchTab('invoices')"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest text-left">
+                            <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                            </div>
+                            Record Payment
+                        </button>
+                        <a href="view_statement.php?tenant_id=<?php echo $tenantId; ?>"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest">
+                            <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                            </div>
+                            View Statement
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Spouse info (if married) -->
+                <?php if (!empty($tenant['spouse_name'])): ?>
+                <div class="glass-card p-5">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Spouse</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between"><span class="text-[11px] text-slate-500">Name</span><span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenant['spouse_name']); ?></span></div>
+                        <?php if (!empty($tenant['spouse_phone'])): ?>
+                        <div class="flex justify-between"><span class="text-[11px] text-slate-500">Phone</span><span class="text-[11px] font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($tenant['spouse_phone']); ?></span></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 
-    <!-- Tab 4: Security -->
-    <div id="content-security" class="tab-content hidden animate-in slide-in-from-bottom-4">
-        <div class="glass-card p-10 max-w-2xl">
-            <h3 class="text-2xl font-black mb-8 tracking-tight text-red-500">Access Override</h3>
-            <p class="text-sm font-medium text-slate-500 mb-8 leading-relaxed">Overwrite existing authentication protocols. Use this to force password resets in case of lockdown or access recovery requests.</p>
-            
-            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-6">
-                <input type="hidden" name="action" value="reset_password">
-                <input type="hidden" name="tenant_id" value="<?php echo (string)($tenant['id'] ?? ''); ?>">
-                
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">New Force Password</label>
-                    <input type="password" name="new_password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 outline-none">
+    <!-- ══════════════════════════════════════════════════════
+         TAB: INVOICES
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-invoices" class="tab-content <?php echo $activeTab !== 'invoices' ? 'hidden' : ''; ?>">
+
+        <!-- Invoice summary stats -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <?php
+            $invStats = [
+                ['label'=>'Total',       'val'=>$invoiceSummary['total'],       'color'=>'text-slate-900 dark:text-white', 'bg'=>'bg-slate-50 dark:bg-slate-800/50'],
+                ['label'=>'Paid',        'val'=>$invoiceSummary['paid'],        'color'=>'text-green-500',                 'bg'=>'bg-green-50 dark:bg-green-900/20'],
+                ['label'=>'Unpaid',      'val'=>$invoiceSummary['unpaid'],      'color'=>'text-orange-500',                'bg'=>'bg-orange-50 dark:bg-orange-900/20'],
+                ['label'=>'Overdue',     'val'=>$invoiceSummary['overdue'],     'color'=>'text-red-500',                   'bg'=>'bg-red-50 dark:bg-red-900/20'],
+            ];
+            foreach ($invStats as $s): ?>
+            <div class="glass-card p-5 <?php echo $s['bg']; ?>">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1"><?php echo $s['label']; ?></p>
+                <h3 class="text-2xl font-black <?php echo $s['color']; ?>"><?php echo $s['val']; ?></h3>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <!-- Outstanding + Generate Invoice + Record Payment -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="xl:col-span-2 glass-card overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white">Invoice Ledger</h3>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">All invoices for this tenant</p>
+                    </div>
+                    <button onclick="openModal('generateInvoiceModal')" class="btn-green text-xs gap-1.5 py-2 px-4">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                        Generate Invoice
+                    </button>
                 </div>
-                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Confirm Override</label>
-                    <input type="password" name="confirm_password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 outline-none">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left data-table">
+                        <thead><tr class="bg-slate-50 dark:bg-slate-800/30">
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                        <?php if (empty($invoices)): ?>
+                        <tr><td colspan="5" class="p-10 text-center text-slate-400 italic text-sm">No invoices generated yet.</td></tr>
+                        <?php else: ?>
+                        <?php foreach ($invoices as $inv): ?>
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                            <td class="px-5 py-3">
+                                <p class="text-xs font-black text-slate-900 dark:text-white">INV-<?php echo substr($inv['id'], 0, 8); ?></p>
+                                <p class="text-[10px] text-slate-400"><?php echo date('M d, Y', strtotime($inv['created_at'])); ?></p>
+                            </td>
+                            <td class="px-5 py-3 text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($inv['invoice_type'] ?? 'Rent'); ?></td>
+                            <td class="px-5 py-3 text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$inv['amount']); ?></td>
+                            <td class="px-5 py-3 text-xs text-slate-500"><?php echo !empty($inv['due_date']) ? date('M d, Y', strtotime($inv['due_date'])) : '—'; ?></td>
+                            <td class="px-5 py-3 text-right">
+                                <span class="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border
+                                    <?php echo match($inv['status'] ?? '') {
+                                        'Paid'    => 'bg-green-500/10 text-green-500 border-green-500/20',
+                                        'Overdue' => 'bg-red-500/10 text-red-500 border-red-500/20',
+                                        default   => 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+                                    }; ?>">
+                                    <?php echo htmlspecialchars($inv['status'] ?? 'Unpaid'); ?>
+                                </span>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Record Payment + STK Push -->
+            <div class="space-y-5">
+                <div class="glass-card p-5">
+                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Record Payment</h3>
+                    <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+                        <input type="hidden" name="action" value="record_payment">
+                        <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</label>
+                            <input type="number" name="amount" required placeholder="0.00" step="0.01"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Type</label>
+                            <select name="transaction_type"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                                <option value="Rent">Rent</option>
+                                <option value="Deposit">Deposit</option>
+                                <option value="Water">Water</option>
+                                <option value="Service Charge">Service Charge</option>
+                                <option value="Penalty">Penalty</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reference / M-Pesa Code</label>
+                            <input type="text" name="reference_code" placeholder="e.g. QHG1234ABC"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
+                            <input type="date" name="payment_date" value="<?php echo date('Y-m-d'); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <button type="submit" class="btn-green w-full justify-center py-3 text-xs">Record Payment</button>
+                    </form>
                 </div>
 
-                <button type="submit" class="bg-red-500 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-red-500/10 transform transition hover:scale-105 active:scale-95">Reset Access Points</button>
-            </form>
+                <?php if ($invoiceSummary['outstanding'] > 0): ?>
+                <div class="glass-card p-5 bg-slate-900 dark:bg-slate-900 text-white border-none">
+                    <p class="text-[10px] font-black text-accent-orange uppercase tracking-widest mb-2">STK Push Request</p>
+                    <p class="text-2xl font-black mb-1"><?php echo $currency; ?> <?php echo number_format($invoiceSummary['outstanding']); ?></p>
+                    <p class="text-[10px] text-slate-500 mb-4">Outstanding balance on <strong class="text-slate-300"><?php echo htmlspecialchars($tenant['phone'] ?? 'No phone'); ?></strong></p>
+                    <button onclick="alert('STK Push sent to <?php echo htmlspecialchars($tenant['phone'] ?? ''); ?>')"
+                        class="w-full py-3 bg-accent-orange text-white rounded-xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all">
+                        ⚡ Send STK Push
+                    </button>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: MAINTENANCE
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-maintenance" class="tab-content <?php echo $activeTab !== 'maintenance' ? 'hidden' : ''; ?>">
+        <div class="glass-card overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                    <h3 class="font-black text-slate-900 dark:text-white">Maintenance History</h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5"><?php echo count($maintenanceRequests); ?> request<?php echo count($maintenanceRequests) !== 1 ? 's' : ''; ?> total</p>
+                </div>
+            </div>
+            <?php if (empty($maintenanceRequests)): ?>
+            <div class="empty-state py-16">
+                <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                <p class="font-bold text-slate-400 text-sm mt-3">No maintenance requests from this tenant.</p>
+            </div>
+            <?php else: ?>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left data-table">
+                    <thead><tr class="bg-slate-50 dark:bg-slate-800/30">
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Issue</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:table-cell">Unit</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Priority</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Date</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($maintenanceRequests as $req): ?>
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                        <td class="px-5 py-3">
+                            <p class="text-sm font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($req['title'] ?? $req['issue_type'] ?? 'Maintenance'); ?></p>
+                            <?php if (!empty($req['description'])): ?>
+                            <p class="text-[10px] text-slate-400 mt-0.5 truncate max-w-[240px]"><?php echo htmlspecialchars($req['description']); ?></p>
+                            <?php endif; ?>
+                        </td>
+                        <td class="px-5 py-3 hidden sm:table-cell text-xs font-bold text-slate-600 dark:text-slate-400">
+                            <?php if (!empty($req['unit_number'])): ?>
+                            Unit <?php echo htmlspecialchars($req['unit_number']); ?><br>
+                            <span class="text-[10px] text-slate-400"><?php echo htmlspecialchars($req['property_title'] ?? ''); ?></span>
+                            <?php else: ?>—<?php endif; ?>
+                        </td>
+                        <td class="px-5 py-3 hidden md:table-cell">
+                            <?php $priority = $req['priority'] ?? 'Normal'; ?>
+                            <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase
+                                <?php echo match(strtolower($priority)) {
+                                    'urgent', 'high' => 'bg-red-50 dark:bg-red-900/20 text-red-500',
+                                    'low'            => 'bg-slate-100 dark:bg-slate-800 text-slate-500',
+                                    default          => 'bg-orange-50 dark:bg-orange-900/20 text-orange-500',
+                                }; ?>"><?php echo htmlspecialchars($priority); ?></span>
+                        </td>
+                        <td class="px-5 py-3 hidden lg:table-cell text-xs text-slate-500"><?php echo date('M d, Y', strtotime($req['created_at'])); ?></td>
+                        <td class="px-5 py-3 text-right">
+                            <span class="px-2.5 py-1 rounded-full text-[9px] font-black uppercase border
+                                <?php echo match($req['status'] ?? '') {
+                                    'Completed', 'Resolved' => 'bg-green-500/10 text-green-500 border-green-500/20',
+                                    'In Progress'           => 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+                                    default                 => 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+                                }; ?>"><?php echo htmlspecialchars($req['status'] ?? 'Pending'); ?></span>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: PROFILE
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-profile" class="tab-content <?php echo $activeTab !== 'profile' ? 'hidden' : ''; ?>">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+            <!-- Personal info form -->
+            <div class="glass-card p-6">
+                <h3 class="font-black text-slate-900 dark:text-white mb-5">Edit Profile</h3>
+                <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-5">
+                    <input type="hidden" name="action" value="update_profile">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</label>
+                            <input type="text" name="full_name" value="<?php echo htmlspecialchars($tenant['full_name'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                            <input type="text" name="phone" value="<?php echo htmlspecialchars($tenant['phone'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5 col-span-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Address</label>
+                            <input type="text" name="address" value="<?php echo htmlspecialchars($tenant['physical_address'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profession</label>
+                            <input type="text" name="profession" value="<?php echo htmlspecialchars($tenant['profession'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Employer</label>
+                            <input type="text" name="employer_name" value="<?php echo htmlspecialchars($tenant['employer_name'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Marital Status</label>
+                            <select name="marital_status"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                                <option value="Single"  <?php echo ($tenant['marital_status'] ?? '') === 'Single'  ? 'selected' : ''; ?>>Single</option>
+                                <option value="Married" <?php echo ($tenant['marital_status'] ?? '') === 'Married' ? 'selected' : ''; ?>>Married</option>
+                                <option value="Divorced"<?php echo ($tenant['marital_status'] ?? '') === 'Divorced'? 'selected' : ''; ?>>Divorced</option>
+                                <option value="Widowed" <?php echo ($tenant['marital_status'] ?? '') === 'Widowed' ? 'selected' : ''; ?>>Widowed</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Number</label>
+                            <input type="text" name="id_no" value="<?php echo htmlspecialchars($tenant['id_no'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-green px-8 py-3 text-xs">Save Profile Changes</button>
+                </form>
+            </div>
+
+            <!-- Next of Kin form -->
+            <div class="glass-card p-6">
+                <h3 class="font-black text-slate-900 dark:text-white mb-5">Next of Kin</h3>
+                <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-5">
+                    <input type="hidden" name="action" value="update_nok">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <div class="grid grid-cols-1 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</label>
+                            <input type="text" name="nok_name" value="<?php echo htmlspecialchars($tenant['next_of_kin_name'] ?? ''); ?>"
+                                placeholder="Jane Doe"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Relationship</label>
+                                <input type="text" name="nok_relationship" value="<?php echo htmlspecialchars($tenant['next_of_kin_relationship'] ?? ''); ?>"
+                                    placeholder="Spouse, Parent…"
+                                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                                <input type="text" name="nok_contact" value="<?php echo htmlspecialchars($tenant['next_of_kin_contact'] ?? ''); ?>"
+                                    placeholder="+254 7XX…"
+                                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-green px-8 py-3 text-xs">Save Next of Kin</button>
+                </form>
+
+                <!-- Spouse edit (if married) -->
+                <?php if (!empty($tenant['spouse_name']) || ($tenant['marital_status'] ?? '') === 'Married'): ?>
+                <hr class="border-slate-100 dark:border-slate-800 my-5">
+                <h3 class="font-black text-slate-900 dark:text-white mb-5">Spouse Details</h3>
+                <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="update_spouse">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-1.5 col-span-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Name</label>
+                            <input type="text" name="spouse_name" value="<?php echo htmlspecialchars($tenant['spouse_name'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Phone</label>
+                            <input type="text" name="spouse_phone" value="<?php echo htmlspecialchars($tenant['spouse_phone'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse ID No.</label>
+                            <input type="text" name="spouse_id_no" value="<?php echo htmlspecialchars($tenant['spouse_id_no'] ?? ''); ?>"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary text-xs px-8 py-3">Save Spouse Info</button>
+                </form>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: SECURITY
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-security" class="tab-content <?php echo $activeTab !== 'security' ? 'hidden' : ''; ?>">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-3xl">
+
+            <!-- Password reset -->
+            <div class="glass-card p-6">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="w-9 h-9 rounded-xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center text-red-500 shrink-0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white">Force Password Reset</h3>
+                        <p class="text-[10px] text-slate-400 font-medium">Override tenant's portal login credentials</p>
+                    </div>
+                </div>
+                <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="reset_password">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Password</label>
+                        <input type="password" name="new_password" required placeholder="••••••••" minlength="8"
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 outline-none">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Confirm Password</label>
+                        <input type="password" name="confirm_password" required placeholder="••••••••"
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 outline-none">
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all">
+                        Reset Access Credentials
+                    </button>
+                </form>
+            </div>
+
+            <!-- Activate / Deactivate -->
+            <div class="glass-card p-6">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="w-9 h-9 rounded-xl <?php echo $isActive ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-500' : 'bg-green-50 dark:bg-green-900/20 text-green-500'; ?> flex items-center justify-center shrink-0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white"><?php echo $isActive ? 'Deactivate Tenant' : 'Reactivate Tenant'; ?></h3>
+                        <p class="text-[10px] text-slate-400 font-medium">Current status: <strong><?php echo htmlspecialchars($tenant['status'] ?? 'Active'); ?></strong></p>
+                    </div>
+                </div>
+                <p class="text-sm text-slate-500 mb-5 leading-relaxed">
+                    <?php if ($isActive): ?>
+                    Deactivating will mark this tenant as Inactive. Their portal access will be blocked. Existing lease and financial records are preserved.
+                    <?php else: ?>
+                    Reactivating will restore this tenant to Active status and re-enable their portal access.
+                    <?php endif; ?>
+                </p>
+                <form action="actions/tenant_detail_actions.php" method="POST">
+                    <input type="hidden" name="action" value="toggle_status">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <input type="hidden" name="current_status" value="<?php echo htmlspecialchars($tenant['status'] ?? 'Active'); ?>">
+                    <input type="hidden" name="redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>">
+                    <button type="submit" class="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all text-white
+                        <?php echo $isActive ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-500 hover:bg-green-600'; ?>">
+                        <?php echo $isActive ? 'Deactivate This Tenant' : 'Reactivate This Tenant'; ?>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</div><!-- end space-y-7 -->
+
+<!-- ── Generate Invoice Modal ────────────────────────────────────── -->
+<div id="generateInvoiceModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-md">
+        <button onclick="closeModal('generateInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-xl font-black mb-1">Generate Invoice</h2>
+        <p class="text-xs text-slate-400 mb-6">For <?php echo htmlspecialchars($tenant['full_name']); ?></p>
+        <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="generate_invoice">
+            <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice Type</label>
+                <select name="invoice_type"
+                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    <option value="Rent">Rent</option>
+                    <option value="Deposit">Deposit</option>
+                    <option value="Water">Water</option>
+                    <option value="Service Charge">Service Charge</option>
+                    <option value="Penalty">Penalty / Late Fee</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</label>
+                <input type="number" name="amount" required placeholder="0.00" step="0.01"
+                    <?php if ($activeLease): ?>value="<?php echo (float)$activeLease['monthly_rent']; ?>"<?php endif; ?>
+                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
+                <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>"
+                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description (optional)</label>
+                <input type="text" name="description" placeholder="e.g. July 2026 rent"
+                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+            </div>
+            <button type="submit" class="btn-green w-full justify-center py-3 text-xs mt-2">Generate & Notify Tenant</button>
+        </form>
+    </div>
+</div>
+
+<!-- ── Assign Unit Modal ──────────────────────────────────────────── -->
+<div id="assignUnitModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-2xl">
+        <button onclick="closeModal('assignUnitModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-xl font-black mb-1">Assign Unit</h2>
+        <p class="text-xs text-slate-400 mb-6">Create a new lease for <?php echo htmlspecialchars($tenant['full_name']); ?></p>
+        <form action="actions/lease_actions.php" method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="create">
+            <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+            <input type="hidden" name="redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Property</label>
+                    <select name="property_id" required onchange="filterAssignUnits(this.value)"
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        <option value="">Select Property</option>
+                        <?php foreach ($allProperties as $p): ?>
+                        <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</label>
+                    <select name="unit_id" id="assign_unit_select" required onchange="fillLeaseTerms(this)"
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        <option value="">Select Unit</option>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Rent</label>
+                    <input type="number" name="monthly_rent" id="assign_monthly_rent" required
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Security Deposit</label>
+                    <input type="number" name="deposit_amount" id="assign_deposit"
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Start Date</label>
+                    <input type="date" name="start_date" value="<?php echo date('Y-m-d'); ?>" required
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">End Date</label>
+                    <input type="date" name="end_date" value="<?php echo date('Y-m-d', strtotime('+1 year')); ?>" required
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="closeModal('assignUnitModal')" class="px-6 py-3 text-xs font-black uppercase text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">Cancel</button>
+                <button type="submit" class="btn-green text-xs px-8 py-3">Confirm Assignment</button>
+            </div>
+        </form>
     </div>
 </div>
 
 <script>
+/* ── Tab switching ───────────────────────── */
 function switchTab(tab) {
-    // Hide all contents
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    // Remove active class from buttons
     document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.remove('active', 'bg-white', 'dark:bg-slate-800', 'shadow-xl', 'text-accent-green');
+        b.classList.remove('active', 'bg-white', 'dark:bg-slate-800', 'shadow-md', 'text-accent-green');
         b.classList.add('text-slate-500');
     });
-
-    // Show designated content
-    document.getElementById('content-' + tab).classList.remove('hidden');
-    // Set active button
-    const activeBtn = document.getElementById('tab-' + tab);
-    activeBtn.classList.add('active', 'bg-white', 'dark:bg-slate-800', 'shadow-xl', 'text-accent-green');
-    activeBtn.classList.remove('text-slate-500');
+    document.getElementById('content-' + tab)?.classList.remove('hidden');
+    const btn = document.getElementById('tab-' + tab);
+    if (btn) {
+        btn.classList.add('active', 'bg-white', 'dark:bg-slate-800', 'shadow-md', 'text-accent-green');
+        btn.classList.remove('text-slate-500');
+    }
+    // Update URL without reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    history.replaceState({}, '', url);
 }
 
-function triggerSTKPush(tenantId) {
-    alert("STK Push Triggered for balance. Requesting M-Pesa authentication on tenant's device...");
-}
-
-function sendReminder(tenantId, type) {
-    alert("Official reminder sent via SMS and Email Registry.");
-}
-
-// Set initial tab
-switchTab('overview');
-
-const allUnits = <?php echo json_encode($allUnits); ?>;
-function filterDetailsUnits(propertyId) {
-    const unitSelect = document.getElementById('details_unit_select');
-    unitSelect.innerHTML = '<option value="">Select Unit</option>';
+/* ── Assign unit unit-select ─────────────── */
+const availableUnits = <?php echo json_encode($availableUnits); ?>;
+function filterAssignUnits(propertyId) {
+    const sel = document.getElementById('assign_unit_select');
+    sel.innerHTML = '<option value="">Select Unit</option>';
     if (!propertyId) return;
-    const filtered = allUnits.filter(u => u.property_id === propertyId);
-    filtered.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u.id;
-        opt.innerText = `${u.unit_number} (KSh ${parseInt(u.monthly_rent).toLocaleString()})`;
-        // We'll store rent/deposit in data attributes for quick filling
-        opt.dataset.rent = u.monthly_rent;
-        opt.dataset.deposit = u.deposit_amount;
-        unitSelect.appendChild(opt);
+    availableUnits.filter(u => u.property_id === propertyId).forEach(u => {
+        const o = document.createElement('option');
+        o.value = u.id;
+        o.textContent = `Unit ${u.unit_number} — <?php echo $currency; ?> ${parseInt(u.monthly_rent).toLocaleString()}/mo`;
+        o.dataset.rent = u.monthly_rent;
+        o.dataset.deposit = u.deposit_amount;
+        sel.appendChild(o);
     });
 }
-
-function updateLeaseTerms(unitId) {
-    const unitSelect = document.getElementById('details_unit_select');
-    const selected = unitSelect.options[unitSelect.selectedIndex];
-    if (selected && selected.dataset.rent) {
-        document.getElementById('details_monthly_rent').value = selected.dataset.rent;
-        document.getElementById('details_deposit_amount').value = selected.dataset.deposit;
+function fillLeaseTerms(sel) {
+    const o = sel.options[sel.selectedIndex];
+    if (o?.dataset.rent) {
+        document.getElementById('assign_monthly_rent').value = o.dataset.rent;
+        document.getElementById('assign_deposit').value = o.dataset.deposit || '';
     }
 }
+
+// Set initial active tab
+switchTab('<?php echo $activeTab; ?>');
 </script>
-
-<!-- Assign Unit Modal -->
-<div id="assignUnitModal" class="modal fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeModal('assignUnitModal')"></div>
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
-        <div class="p-8 lg:p-12">
-            <div class="flex justify-between items-center mb-10">
-                <div>
-                    <h2 class="text-2xl font-black tracking-tight">Assign Unit to Tenant</h2>
-                    <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Creating immediate residency link</p>
-                </div>
-                <button onclick="closeModal('assignUnitModal')" class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:rotate-90 transition-transform">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                </button>
-            </div>
-
-            <form action="actions/lease_actions.php" method="POST" class="space-y-8">
-                <input type="hidden" name="action" value="create">
-                <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
-                <input type="hidden" name="redirect" value="../tenant_details.php?id=<?php echo $tenantId; ?>&success=assigned">
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
-                        <select name="property_id" required onchange="filterDetailsUnits(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                            <option value="">Select Property</option>
-                            <?php foreach ($allProperties as $p): ?>
-                            <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit / Room</label>
-                        <select name="unit_id" id="details_unit_select" required onchange="updateLeaseTerms(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                            <option value="">Select Unit</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent</label>
-                        <input type="number" name="monthly_rent" id="details_monthly_rent" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Security Deposit</label>
-                        <input type="number" name="deposit_amount" id="details_deposit_amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Start Date</label>
-                        <input type="date" name="start_date" value="<?php echo date('Y-m-d'); ?>" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">End Date</label>
-                        <input type="date" name="end_date" value="<?php echo date('Y-m-d', strtotime('+1 year')); ?>" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold outline-none">
-                    </div>
-                </div>
-
-                <div class="flex justify-end gap-4 pt-4">
-                    <button type="button" onclick="closeModal('assignUnitModal')" class="px-8 py-4 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors">Cancel</button>
-                    <button type="submit" class="btn-green shadow-xl shadow-accent-green/20 px-12 py-4">Confirm Assignment</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<style>
-.tab-btn.active { color: #22c55e; }
-@media print {
-    .no-print, nav, .sidebar-wrap, .tab-btn, .btn-green, header { display: none !important; }
-    .glass-card { border: none !important; box-shadow: none !important; }
-    body { background: white !important; }
-    .tab-content { display: block !important; }
-    #content-financials { display: block !important; }
-    #content-overview, #content-profile, #content-security { display: none !important; }
-}
-</style>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

@@ -1,357 +1,656 @@
 <?php
 /**
- * Tenant Management Page
- * Primelink Management System
+ * Tenant Management — Primelink Management System
  */
 
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
-$user   = getCurrentUser($pdo);
-$role   = $_SESSION['role'] ?? 'tenant';
+$role = $_SESSION['role'] ?? 'tenant';
+if ($role === 'tenant') { header('Location: dashboard.php'); exit(); }
+
 $pageTitle = "Tenants";
+$canManage = in_array($role, ['admin', 'staff']);
 
-if ($role === 'tenant') {
-    header('Location: dashboard.php');
-    exit();
-}
+require_once __DIR__ . '/includes/settings.php';
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
-// Default permissions
-$canAddTenant = in_array($role, ['admin', 'staff']);
-$tenants = [];
-
-// Landlords only see tenants in their properties
-if ($role === 'landlord') {
-    $landlordId = getLandlordId($pdo);
-    if ($landlordId) {
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT t.*, u.id as user_uuid
-            FROM tenants t
-            LEFT JOIN profiles u ON t.user_id = u.id
-            JOIN leases ls ON ls.tenant_id = t.id AND ls.status = 'Active'
-            JOIN units un ON ls.unit_id = un.id
-            JOIN properties p ON un.property_id = p.id
-            WHERE p.landlord_id = ?
-            ORDER BY t.created_at DESC
-        ");
-        $stmt->execute([$landlordId]);
-        $tenants = $stmt->fetchAll();
-    }
-} else {
-    // Admin/Staff logic
-    requireRole(['admin', 'staff']);
-    
-    // AUTO-REPAIR: Ensure all users with tenant role have a record in the tenants table
-    // This fixes "registered but invisible" tenants on cPanel
-    $pdo->exec("
-        INSERT IGNORE INTO tenants (id, user_id, full_name, email, phone, status, created_at)
-        SELECT u.id, u.id, p.full_name, u.email, p.phone, 'Active', NOW()
-        FROM users u
-        JOIN profiles p ON u.id = p.id
-        WHERE u.role = 'tenant'
-        AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.user_id = u.id)
-    ");
-
-    $stmt = $pdo->query("SELECT t.*, u.id as user_uuid FROM tenants t LEFT JOIN profiles u ON t.user_id = u.id ORDER BY t.created_at DESC");
-    $tenants = $stmt->fetchAll();
-}
-
-// Proactive Schema Repair for Units table
-try {
-    $pdo->query("SELECT monthly_rent FROM units LIMIT 1");
-} catch (PDOException $e) {
+// ── Schema self-heal ──────────────────────────────────────────────
+try { $pdo->query("SELECT monthly_rent FROM units LIMIT 1"); } catch (PDOException $e) {
     if ($e->getCode() == '42S22') {
-        try {
-            // Check if it's currently named rent_amount
-            $pdo->exec("ALTER TABLE `units` CHANGE COLUMN `rent_amount` `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
-        } catch (Exception $ex) {
-            // If rent_amount also missing, just add monthly_rent
-            $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
-        }
+        try { $pdo->exec("ALTER TABLE `units` CHANGE COLUMN `rent_amount` `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0"); }
+        catch (Exception $ex) { $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0"); }
         $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `deposit_amount` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `monthly_rent`");
     }
 }
 
-// Fetch Properties and Units for Assignment
+// ── Auto-repair orphan tenants (admin/staff only) ─────────────────
+if ($canManage) {
+    $pdo->exec("
+        INSERT IGNORE INTO tenants (id, user_id, full_name, email, phone, status, created_at)
+        SELECT u.id, u.id, p.full_name, u.email, p.phone, 'Active', NOW()
+        FROM users u JOIN profiles p ON u.id = p.id
+        WHERE u.role = 'tenant'
+        AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.user_id = u.id)
+    ");
+}
+
+// ── Tenant list query with unit + overdue info ────────────────────
+if ($role === 'landlord') {
+    $landlordId = getLandlordId($pdo);
+    $stmt = $pdo->prepare("
+        SELECT t.*,
+            l.id       AS lease_id,
+            l.status   AS lease_status,
+            l.end_date AS lease_end,
+            u.unit_number, u.monthly_rent,
+            pr.title   AS property_title,
+            (SELECT COUNT(*) FROM invoices i WHERE i.tenant_id = t.id AND i.status = 'Overdue') AS overdue_count,
+            (SELECT MAX(tr.transaction_date) FROM transactions tr WHERE tr.tenant_id = t.id AND tr.status = 'Paid') AS last_payment
+        FROM tenants t
+        LEFT JOIN leases l      ON l.tenant_id = t.id AND l.status = 'Active'
+        LEFT JOIN units u       ON l.unit_id = u.id
+        LEFT JOIN properties pr ON u.property_id = pr.id
+        JOIN leases ls2   ON ls2.tenant_id = t.id AND ls2.status = 'Active'
+        JOIN units un2    ON ls2.unit_id = un2.id
+        JOIN properties p ON un2.property_id = p.id
+        WHERE p.landlord_id = ?
+        GROUP BY t.id ORDER BY t.created_at DESC
+    ");
+    $stmt->execute([$landlordId]);
+} else {
+    requireRole(['admin', 'staff']);
+    $stmt = $pdo->query("
+        SELECT t.*,
+            l.id       AS lease_id,
+            l.status   AS lease_status,
+            l.end_date AS lease_end,
+            u.unit_number, u.monthly_rent,
+            pr.title   AS property_title,
+            (SELECT COUNT(*) FROM invoices i WHERE i.tenant_id = t.id AND i.status = 'Overdue') AS overdue_count,
+            (SELECT MAX(tr.transaction_date) FROM transactions tr WHERE tr.tenant_id = t.id AND tr.status = 'Paid') AS last_payment
+        FROM tenants t
+        LEFT JOIN leases l      ON l.tenant_id = t.id AND l.status = 'Active'
+        LEFT JOIN units u       ON l.unit_id = u.id
+        LEFT JOIN properties pr ON u.property_id = pr.id
+        ORDER BY t.created_at DESC
+    ");
+}
+$tenants = $stmt->fetchAll();
+
+// ── KPI counts ───────────────────────────────────────────────────
+$kpiTotal    = count($tenants);
+$kpiActive   = count(array_filter($tenants, fn($t) => ($t['status'] ?? '') === 'Active'));
+$kpiInactive = $kpiTotal - $kpiActive;
+$kpiOverdue  = count(array_filter($tenants, fn($t) => ($t['overdue_count'] ?? 0) > 0));
+$kpiNoLease  = count(array_filter($tenants, fn($t) => empty($t['lease_id'])));
+
+// ── Properties + units for "Add Tenant" modal ─────────────────────
 $allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
 $allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
-
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
-<div class="space-y-8 animate-in">
-    <?php if (isset($_GET['success'])): ?>
-    <div class="p-4 bg-green-500/10 border border-green-500/20 text-green-500 rounded-xl font-bold text-sm animate-in fade-in slide-in-from-top-4">
-        Tenant created successfully!
-    </div>
-    <?php endif; ?>
+<div class="space-y-7 animate-in">
 
-    <div class="flex justify-between items-center">
+    <!-- ── Page Header ──────────────────────────────────────── -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h1 class="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Tenant Management</h1>
-            <p class="text-slate-500 font-medium"><?php echo $role === 'landlord' ? 'Tenants across your properties.' : 'Manage leaseholders and their records.'; ?></p>
+            <h1 class="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white tracking-tight">Tenant Registry</h1>
+            <p class="text-slate-500 font-medium text-sm mt-0.5"><?php echo $role === 'landlord' ? 'Tenants across your properties.' : 'Manage leaseholders, financials and residency.'; ?></p>
         </div>
-        <?php if ($canAddTenant): ?>
-        <button onclick="openModal('newTenantModal')" class="btn-primary">
-            + Add Tenant
+        <?php if ($canManage): ?>
+        <button onclick="openModal('newTenantModal')" class="btn-green gap-2 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Register Tenant
         </button>
         <?php endif; ?>
     </div>
 
-    <!-- New Tenant Modal -->
+    <!-- ── KPI Stats ─────────────────────────────────────────── -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div class="glass-card p-5 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform" onclick="filterByStatus('')">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</p>
+                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $kpiTotal; ?></h3>
+            </div>
+        </div>
+        <div class="glass-card p-5 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform" onclick="filterByStatus('Active')">
+            <div class="w-10 h-10 rounded-xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center text-green-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active</p>
+                <h3 class="text-2xl font-black text-green-500"><?php echo $kpiActive; ?></h3>
+            </div>
+        </div>
+        <div class="glass-card p-5 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform" onclick="filterByStatus('overdue')">
+            <div class="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center text-red-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Overdue</p>
+                <h3 class="text-2xl font-black text-red-500"><?php echo $kpiOverdue; ?></h3>
+            </div>
+        </div>
+        <div class="glass-card p-5 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform" onclick="filterByStatus('nolease')">
+            <div class="w-10 h-10 rounded-xl bg-orange-50 dark:bg-orange-900/30 flex items-center justify-center text-orange-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+            </div>
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Unit</p>
+                <h3 class="text-2xl font-black text-orange-500"><?php echo $kpiNoLease; ?></h3>
+            </div>
+        </div>
+        <div class="glass-card p-5 flex items-center gap-4 cursor-pointer hover:-translate-y-0.5 transition-transform" onclick="filterByStatus('Inactive')">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            </div>
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inactive</p>
+                <h3 class="text-2xl font-black text-slate-400"><?php echo $kpiInactive; ?></h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Search & Filter Bar ───────────────────────────────── -->
+    <div class="glass-card p-4 flex flex-col sm:flex-row gap-3">
+        <div class="flex-1 relative">
+            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="tenantSearch" oninput="filterTable()" placeholder="Search by name, email, ID or unit…"
+                   class="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-400/30">
+        </div>
+        <select id="statusFilter" onchange="filterTable()" class="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-400/30">
+            <option value="">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="overdue">Has Overdue</option>
+            <option value="nolease">No Unit Assigned</option>
+        </select>
+        <div id="filterCount" class="hidden px-4 py-2.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-sm font-black text-green-600 flex items-center gap-2 shrink-0">
+            <span id="filterCountText"></span>
+            <button onclick="clearFilters()" class="hover:text-green-800">×</button>
+        </div>
+    </div>
+
+    <!-- ── Tenant Table ──────────────────────────────────────── -->
+    <div class="glass-card overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left data-table" id="tenantTable">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-800/50">
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tenant</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Unit / Property</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Rent</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:table-cell">Status</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden xl:table-cell">Last Payment</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Joined</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800" id="tenantTbody">
+                    <?php if (empty($tenants)): ?>
+                    <tr><td colspan="7">
+                        <div class="empty-state">
+                            <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+                            <p class="font-black text-slate-500 mt-3 text-sm">No tenants registered yet.</p>
+                            <?php if ($canManage): ?>
+                            <button onclick="openModal('newTenantModal')" class="btn-green mt-4 text-xs">Register First Tenant</button>
+                            <?php endif; ?>
+                        </div>
+                    </td></tr>
+                    <?php else: ?>
+                    <?php foreach ($tenants as $t):
+                        $isActive   = ($t['status'] ?? 'Active') === 'Active';
+                        $hasOverdue = (int)($t['overdue_count'] ?? 0) > 0;
+                        $hasLease   = !empty($t['lease_id']);
+                        $leaseExpiring = $hasLease && !empty($t['lease_end']) && strtotime($t['lease_end']) <= strtotime('+60 days');
+                        // data attributes for JS filtering
+                        $filterData = json_encode([
+                            'name'    => strtolower($t['full_name'] ?? ''),
+                            'email'   => strtolower($t['email'] ?? ''),
+                            'unit'    => strtolower($t['unit_number'] ?? ''),
+                            'prop'    => strtolower($t['property_title'] ?? ''),
+                            'status'  => $t['status'] ?? 'Active',
+                            'overdue' => $hasOverdue,
+                            'nolease' => !$hasLease,
+                        ]);
+                    ?>
+                    <tr class="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all" data-filter='<?php echo htmlspecialchars($filterData); ?>'>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0">
+                                    <?php echo strtoupper(substr($t['full_name'] ?? '?', 0, 1)); ?>
+                                </div>
+                                <div class="min-w-0">
+                                    <a href="tenant_details.php?id=<?php echo $t['id']; ?>" class="text-sm font-black text-slate-900 dark:text-white hover:text-accent-green transition-colors truncate block">
+                                        <?php echo htmlspecialchars($t['full_name'] ?? ''); ?>
+                                    </a>
+                                    <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                                        <span class="text-[9px] font-black text-slate-300 dark:text-slate-600 uppercase">PRM-<?php echo substr($t['id'], 0, 6); ?></span>
+                                        <?php if ($hasOverdue): ?>
+                                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-50 dark:bg-red-900/20 text-red-500 rounded text-[9px] font-black uppercase">
+                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                                            <?php echo $t['overdue_count']; ?> overdue
+                                        </span>
+                                        <?php endif; ?>
+                                        <?php if ($leaseExpiring): ?>
+                                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-500 rounded text-[9px] font-black uppercase">
+                                            Lease expiring
+                                        </span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 hidden md:table-cell">
+                            <?php if ($hasLease): ?>
+                            <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Unit <?php echo htmlspecialchars($t['unit_number'] ?? ''); ?></p>
+                            <p class="text-[10px] text-slate-400 font-medium truncate max-w-[160px]"><?php echo htmlspecialchars($t['property_title'] ?? ''); ?></p>
+                            <?php else: ?>
+                            <span class="text-[10px] font-black text-orange-400 uppercase bg-orange-50 dark:bg-orange-900/20 px-2 py-1 rounded">Unassigned</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="px-6 py-4 hidden lg:table-cell">
+                            <?php if ($hasLease && !empty($t['monthly_rent'])): ?>
+                            <p class="text-sm font-black text-slate-700 dark:text-slate-300"><?php echo $currency; ?> <?php echo number_format((float)$t['monthly_rent']); ?></p>
+                            <p class="text-[10px] text-slate-400">per month</p>
+                            <?php else: ?>
+                            <span class="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="px-6 py-4 hidden sm:table-cell">
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest
+                                <?php echo $isActive ? 'bg-green-500/10 text-green-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'; ?>">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                <?php echo htmlspecialchars($t['status'] ?? 'Active'); ?>
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 hidden xl:table-cell">
+                            <?php if (!empty($t['last_payment'])): ?>
+                            <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo date('M d, Y', strtotime($t['last_payment'])); ?></p>
+                            <?php else: ?>
+                            <span class="text-[10px] text-slate-300 dark:text-slate-600">Never</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="px-6 py-4 hidden lg:table-cell">
+                            <p class="text-xs text-slate-500"><?php echo date('M d, Y', strtotime($t['created_at'])); ?></p>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <div class="relative inline-block action-menu-wrap">
+                                <button onclick="toggleActionMenu(this)"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-all">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>
+                                </button>
+                                <div class="action-menu hidden">
+                                    <a href="tenant_details.php?id=<?php echo $t['id']; ?>" class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                        View Full Profile
+                                    </a>
+                                    <?php if ($canManage): ?>
+                                    <a href="tenant_details.php?id=<?php echo $t['id']; ?>&tab=invoices" class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                        View Invoices
+                                    </a>
+                                    <a href="tenant_payments.php?tenant=<?php echo $t['id']; ?>" class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                                        Payment History
+                                    </a>
+                                    <div class="action-divider"></div>
+                                    <form method="POST" action="actions/tenant_detail_actions.php" style="display:contents">
+                                        <input type="hidden" name="action" value="toggle_status">
+                                        <input type="hidden" name="tenant_id" value="<?php echo $t['id']; ?>">
+                                        <input type="hidden" name="current_status" value="<?php echo htmlspecialchars($t['status'] ?? 'Active'); ?>">
+                                        <input type="hidden" name="redirect" value="tenants.php">
+                                        <button type="submit" class="action-item <?php echo $isActive ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10' : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/10'; ?>">
+                                            <?php if ($isActive): ?>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                                            Deactivate Tenant
+                                            <?php else: ?>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                            Reactivate Tenant
+                                            <?php endif; ?>
+                                        </button>
+                                    </form>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <!-- Empty state shown when JS filter returns 0 -->
+        <div id="noResults" class="hidden">
+            <div class="empty-state py-16">
+                <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div>
+                <p class="font-black text-slate-500 mt-3 text-sm">No tenants match your search.</p>
+                <button onclick="clearFilters()" class="btn-primary mt-4 text-xs">Clear Filters</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Add Tenant Modal ──────────────────────────────────── -->
+    <?php if ($canManage): ?>
     <div id="newTenantModal" class="modal-overlay" style="display:none;">
-        <div class="modal-card max-w-2xl px-10 py-12 h-[90vh] overflow-y-auto">
-            <button onclick="closeModal('newTenantModal')" class="absolute top-6 right-6 text-slate-400 hover:text-slate-900 transition-all transform hover:rotate-90">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        <div class="modal-card max-w-2xl">
+            <button onclick="closeModal('newTenantModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
-            
-            <h2 class="text-3xl font-black mb-10 tracking-tight">Register New Tenant</h2>
-            
-            <form action="actions/tenant_actions.php" method="POST" enctype="multipart/form-data" class="space-y-10">
+            <h2 class="text-2xl font-black mb-1 tracking-tight">Register New Tenant</h2>
+            <p class="text-xs text-slate-400 font-medium mb-8">Complete all required sections. A portal account will be created automatically.</p>
+
+            <form action="actions/tenant_actions.php" method="POST" enctype="multipart/form-data" class="space-y-8 max-h-[75vh] overflow-y-auto pr-1">
                 <input type="hidden" name="action" value="create">
-                
-                <!-- Section 0: Lease Assignment -->
-                <div class="space-y-6">
-                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">0. Lease Assignment (Optional)</h3>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Property</label>
-                            <select name="property_id" id="admin_property_select" onchange="filterAdminUnits(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+
+                <!-- 0: Lease Assignment -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-accent-green text-slate-900 flex items-center justify-center text-[10px] font-black shrink-0">0</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Lease Assignment <span class="text-slate-400 normal-case font-medium">(optional)</span></h3>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Property</label>
+                            <select name="property_id" id="admin_property_select" onchange="filterAdminUnits(this.value)"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                                 <option value="">Select Property</option>
                                 <?php foreach ($allProperties as $p): ?>
                                 <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit / Room</label>
-                            <select name="unit_id" id="admin_unit_select" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</label>
+                            <select name="unit_id" id="admin_unit_select"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                                 <option value="">Select Unit</option>
                             </select>
                         </div>
                     </div>
                 </div>
 
-                <!-- Section 1: Basic Info -->
-                <div class="space-y-6">
-                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">1. Profile Details</h3>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Full Name</label>
-                            <input type="text" name="full_name" required placeholder="John Doe" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Phone Number</label>
-                            <input type="text" name="phone" placeholder="+254 7XX..." class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        </div>
+                <!-- 1: Personal Info -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-blue-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">1</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Personal Details</h3>
                     </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Residential Address</label>
-                        <input type="text" name="address" required placeholder="Estate, Apartment, City" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <div class="grid grid-cols-2 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name *</label>
+                            <input type="text" name="full_name" required placeholder="John Doe"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                            <input type="text" name="phone" placeholder="+254 7XX XXX XXX"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5 col-span-2">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Residential Address *</label>
+                            <input type="text" name="address" required placeholder="Estate, Apartment, City"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
                     </div>
                 </div>
 
-                <!-- Section 2: Identity -->
-                <div class="space-y-6">
-                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">2. Identity & Family</h3>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">ID Number</label>
-                            <input type="text" name="id_no" placeholder="3XXXXXXX" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">ID Copy Upload</label>
-                            <input type="file" name="id_copy" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/50 rounded-2xl text-xs font-bold text-slate-400">
-                        </div>
+                <!-- 2: Identity -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-purple-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">2</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Identity & Family</h3>
                     </div>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Marital Status</label>
-                            <select name="marital_status" onchange="toggleAdminSpouseFields(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    <div class="grid grid-cols-2 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Number</label>
+                            <input type="text" name="id_no" placeholder="3XXXXXXX"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Copy (Upload)</label>
+                            <input type="file" name="id_copy" accept=".pdf,.jpg,.jpeg,.png"
+                                class="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-xs font-bold text-slate-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-slate-200 file:text-slate-700">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Marital Status</label>
+                            <select name="marital_status" onchange="toggleAdminSpouseFields(this.value)"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                                 <option value="Single">Single</option>
                                 <option value="Married">Married</option>
                             </select>
                         </div>
-                        <div class="flex items-center gap-3 px-2 pt-6">
-                            <input type="checkbox" name="has_kids" id="admin_has_kids" class="w-5 h-5 accent-green rounded">
-                            <label for="admin_has_kids" class="text-sm font-bold text-slate-500">Has Children</label>
+                        <div class="flex items-center gap-3 pt-6">
+                            <input type="checkbox" name="has_kids" id="admin_has_kids" class="w-4 h-4 accent-green-500 rounded">
+                            <label for="admin_has_kids" class="text-sm font-bold text-slate-600 dark:text-slate-400">Has Children</label>
+                        </div>
+                    </div>
+                    <!-- Spouse fields (conditional) -->
+                    <div id="admin-spouse-fields" class="hidden grid grid-cols-3 gap-4 pl-9 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700">
+                        <div class="col-span-3 pt-2">
+                            <p class="text-[10px] font-black text-orange-500 uppercase tracking-widest">Spouse Information</p>
+                        </div>
+                        <div class="space-y-1.5 col-span-3 md:col-span-1">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Name</label>
+                            <input type="text" name="spouse_name" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Phone</label>
+                            <input type="text" name="spouse_phone" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse ID No.</label>
+                            <input type="text" name="spouse_id_no" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
                     </div>
                 </div>
 
-                <!-- Spouse Details (Conditional) -->
-                <div id="admin-spouse-fields" class="hidden space-y-6 pt-4 animate-in slide-in-from-top-4">
-                    <h3 class="text-xs font-black text-accent-orange uppercase tracking-widest border-b border-slate-100 pb-2">Spouse Information</h3>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2 col-span-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse Name</label>
-                            <input type="text" name="spouse_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                <!-- 3: Next of Kin -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-orange-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">3</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Next of Kin</h3>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</label>
+                            <input type="text" name="nok_name" placeholder="Jane Doe"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse Phone</label>
-                            <input type="text" name="spouse_phone" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Relationship</label>
+                            <input type="text" name="nok_relationship" placeholder="Spouse / Parent / Sibling"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Spouse ID</label>
-                            <input type="text" name="spouse_id_no" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-orange/20 outline-none">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                            <input type="text" name="nok_contact" placeholder="+254 7XX..."
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
                     </div>
                 </div>
 
-                <!-- Section 3: Professional -->
-                <div class="space-y-6">
-                    <h3 class="text-xs font-black text-accent-green uppercase tracking-widest border-b border-slate-100 pb-2">3. Professional & Business</h3>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Profession</label>
-                            <input type="text" name="profession" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Employer</label>
-                            <input type="text" name="employer_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                        </div>
+                <!-- 4: Professional -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-slate-600 text-white flex items-center justify-center text-[10px] font-black shrink-0">4</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Professional Info</h3>
                     </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Occupation Type</label>
-                        <select name="occupation_type" onchange="toggleAdminBusinessFields(this.value)" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                            <option value="Residential">Residential</option>
-                            <option value="Commercial">Commercial</option>
-                        </select>
-                    </div>
-                    <div id="admin-business-fields" class="hidden grid-cols-2 gap-6 pt-4 animate-in slide-in-from-bottom-4">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Business Name</label>
-                            <input type="text" name="business_name" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    <div class="grid grid-cols-2 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profession</label>
+                            <input type="text" name="profession" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Nature of Business</label>
-                            <input type="text" name="business_nature" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Employer</label>
+                            <input type="text" name="employer_name" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
                         </div>
                     </div>
                 </div>
 
-                <!-- Section 4: Login -->
-                <div class="space-y-6">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest border-b border-slate-900/10 pb-2">4. Access Credentials</h3>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Login Email</label>
-                        <input type="email" name="email" required placeholder="john@example.com" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                <!-- 5: Access -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center text-[10px] font-black shrink-0">5</span>
+                        <h3 class="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Portal Credentials</h3>
                     </div>
-                    <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
-                        <input type="password" name="password" required placeholder="••••••••" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                    <div class="grid grid-cols-2 gap-4 pl-9">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Login Email *</label>
+                            <input type="email" name="email" required placeholder="john@example.com"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Initial Password *</label>
+                            <input type="password" name="password" required placeholder="••••••••"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-slate-900/10 outline-none">
+                        </div>
                     </div>
                 </div>
 
-                <div class="pt-6">
-                    <button type="submit" class="btn-green w-full justify-center py-5 rounded-2xl shadow-xl shadow-accent-green/10 font-black italic tracking-tighter">Execute Tenant Registry →</button>
-                    <p class="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest mt-4">Automated digital lease will be generated upon submission</p>
+                <div class="pt-4 pb-2">
+                    <button type="submit" class="btn-green w-full justify-center py-4 text-sm font-black">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        Register Tenant & Generate Credentials
+                    </button>
+                    <p class="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest mt-3">A digital lease will be created automatically if a unit is selected.</p>
                 </div>
             </form>
         </div>
     </div>
+    <?php endif; ?>
 
-    <script>
-        function toggleAdminSpouseFields(status) {
-            document.getElementById('admin-spouse-fields').classList.toggle('hidden', status !== 'Married');
-        }
-        function toggleAdminBusinessFields(type) {
-            document.getElementById('admin-business-fields').classList.toggle('hidden', type !== 'Commercial');
-        }
-    </script>
+</div><!-- end space-y-7 -->
 
-    <!-- Search/Filter Bar -->
-    <div class="glass-card p-4 flex gap-4">
-        <div class="flex-1 relative">
-            <svg class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" placeholder="Search tenants by name or email..." class="w-full pl-12 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20">
-        </div>
-        <select class="px-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold border-none">
-            <option>All Status</option>
-            <option>Active</option>
-            <option>Pending</option>
-            <option>Inactive</option>
-        </select>
-    </div>
-
-    <!-- Tenants List -->
-    <div class="glass-card overflow-hidden">
-        <table class="w-full text-left border-collapse">
-            <thead>
-                <tr class="bg-slate-50 dark:bg-slate-800/50">
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tenant</th>
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact</th>
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Joined</th>
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                <?php if (empty($tenants)): ?>
-                    <tr>
-                        <td colspan="5" class="p-20 text-center text-slate-400 italic font-medium">No tenants registered yet.</td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($tenants as $t): ?>
-                    <tr class="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
-                        <td class="p-6">
-                            <div class="flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-accent-green font-black shadow-inner">
-                                    <?php echo substr($t['full_name'], 0, 1); ?>
-                                </div>
-                                <div>
-                                    <a href="tenant_details.php?id=<?php echo $t['id']; ?>" class="text-sm font-black text-slate-900 dark:text-white hover:text-accent-green transition-colors"><?php echo htmlspecialchars((string)($t['full_name'] ?? '')); ?></a>
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase">PRM-<?php echo substr((string)($t['id'] ?? ''), 0, 4); ?></p>
-                                </div>
-                            </div>
-                        </td>
-                        <td class="p-6">
-                            <p class="text-sm font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars((string)($t['email'] ?? '')); ?></p>
-                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars((string)(($t['phone'] ?? '') ?: 'No phone')); ?></p>
-                        </td>
-                        <td class="p-6">
-                            <span class="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                <?php echo htmlspecialchars((string)($t['status'] ?? 'Active')); ?>
-                            </span>
-                        </td>
-                        <td class="p-6">
-                            <p class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo date('M d, Y', strtotime($t['created_at'])); ?></p>
-                        </td>
-                        <td class="p-6 text-right">
-                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-green transition-all">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-                            </button>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
+<style>
+/* Action dropdown */
+.action-menu-wrap { }
+.action-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    width: 200px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+    z-index: 100;
+    overflow: hidden;
+    padding: 6px;
+}
+html.dark .action-menu { background: #0f172a; border-color: #1e293b; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.action-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+    text-decoration: none;
+    border-radius: 9px;
+    transition: background 0.12s;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+}
+html.dark .action-item { color: #94a3b8; }
+.action-item:hover { background: #f8fafc; color: #0f172a; }
+html.dark .action-item:hover { background: #1e293b; color: #f8fafc; }
+.action-divider { height: 1px; background: #f1f5f9; margin: 4px 0; }
+html.dark .action-divider { background: #1e293b; }
+</style>
 
 <script>
+/* ── Unit filtering for add-tenant modal ─── */
 const allUnits = <?php echo json_encode($allUnits); ?>;
-
 function filterAdminUnits(propertyId) {
-    const unitSelect = document.getElementById('admin_unit_select');
-    unitSelect.innerHTML = '<option value="">Select Unit</option>';
-    
+    const sel = document.getElementById('admin_unit_select');
+    sel.innerHTML = '<option value="">Select Unit</option>';
     if (!propertyId) return;
-    
-    const filtered = allUnits.filter(u => u.property_id === propertyId);
-    filtered.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u.id;
-        opt.innerText = `${u.unit_number} (KSh ${parseInt(u.monthly_rent).toLocaleString()})`;
-        unitSelect.appendChild(opt);
+    allUnits.filter(u => u.property_id === propertyId).forEach(u => {
+        const o = document.createElement('option');
+        o.value = u.id;
+        o.textContent = `Unit ${u.unit_number} — <?php echo $currency; ?> ${parseInt(u.monthly_rent).toLocaleString()}/mo`;
+        sel.appendChild(o);
     });
 }
+function toggleAdminSpouseFields(v) {
+    const el = document.getElementById('admin-spouse-fields');
+    el.classList.toggle('hidden', v !== 'Married');
+    if (v === 'Married') el.classList.add('grid');
+}
 
-function toggleAdminSpouseFields(status) {
-    document.getElementById('admin-spouse-fields').classList.toggle('hidden', status !== 'Married');
+/* ── Action dropdown ─────────────────────── */
+function toggleActionMenu(btn) {
+    const menu = btn.nextElementSibling;
+    const isOpen = !menu.classList.contains('hidden');
+    // Close all other menus
+    document.querySelectorAll('.action-menu').forEach(m => m.classList.add('hidden'));
+    if (!isOpen) menu.classList.remove('hidden');
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('.action-menu-wrap')) {
+        document.querySelectorAll('.action-menu').forEach(m => m.classList.add('hidden'));
+    }
+});
+
+/* ── Table filtering ─────────────────────── */
+function filterTable() {
+    const q      = document.getElementById('tenantSearch').value.toLowerCase().trim();
+    const status = document.getElementById('statusFilter').value;
+    const rows   = document.querySelectorAll('#tenantTbody tr[data-filter]');
+    let visible  = 0;
+
+    rows.forEach(row => {
+        const d = JSON.parse(row.dataset.filter);
+        const matchQ = !q ||
+            d.name.includes(q) || d.email.includes(q) ||
+            d.unit.includes(q) || d.prop.includes(q);
+        const matchS =
+            !status ? true :
+            status === 'overdue'  ? d.overdue :
+            status === 'nolease'  ? d.nolease :
+            d.status === status;
+
+        const show = matchQ && matchS;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    const countEl = document.getElementById('filterCount');
+    const countTxt = document.getElementById('filterCountText');
+    if (q || status) {
+        countEl.classList.remove('hidden');
+        countEl.classList.add('flex');
+        countTxt.textContent = `${visible} result${visible !== 1 ? 's' : ''}`;
+    } else {
+        countEl.classList.add('hidden');
+        countEl.classList.remove('flex');
+    }
+    document.getElementById('noResults').classList.toggle('hidden', visible > 0 || rows.length === 0);
+}
+
+function filterByStatus(status) {
+    document.getElementById('statusFilter').value = status;
+    document.getElementById('tenantSearch').value = '';
+    filterTable();
+}
+
+function clearFilters() {
+    document.getElementById('tenantSearch').value = '';
+    document.getElementById('statusFilter').value = '';
+    filterTable();
 }
 </script>
+
 <?php include __DIR__ . '/includes/footer.php'; ?>
