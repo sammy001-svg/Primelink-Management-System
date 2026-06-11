@@ -72,25 +72,28 @@ function toggleSidebar() {
 <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
     <!-- Top Bar -->
-    <header class="topbar gap-3">
-        <!-- Sidebar collapse (desktop) -->
-        <button onclick="toggleSidebar()" class="hidden lg:flex w-9 h-9 items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all tooltip-wrap" aria-label="Toggle sidebar">
-            <span class="tooltip">Toggle sidebar</span>
-            <svg id="sidebarCollapseIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
-        </button>
+    <header class="topbar">
+        <!-- LEFT GROUP: toggle + search -->
+        <div class="topbar-left">
 
-        <!-- Hamburger (mobile) -->
-        <button onclick="openMobileDrawer()" class="lg:hidden p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-500" aria-label="Open menu">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
-        </button>
+            <!-- Sidebar collapse (desktop) -->
+            <button onclick="toggleSidebar()" class="hidden lg:flex w-9 h-9 shrink-0 items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all tooltip-wrap" aria-label="Toggle sidebar">
+                <span class="tooltip">Toggle sidebar</span>
+                <svg id="sidebarCollapseIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
+            </button>
 
-        <!-- Page Title (mobile only) -->
-        <div class="lg:hidden flex-1 min-w-0">
-            <h2 class="text-base font-black text-slate-900 dark:text-white truncate"><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) : 'Dashboard'; ?></h2>
-        </div>
+            <!-- Hamburger (mobile) -->
+            <button onclick="openMobileDrawer()" class="lg:hidden w-9 h-9 shrink-0 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-500" aria-label="Open menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+            </button>
 
-        <!-- Search (desktop) -->
-        <div class="hidden lg:flex flex-1 max-w-md relative" id="global-search-wrap">
+            <!-- Page title (mobile) -->
+            <div class="lg:hidden flex-1 min-w-0">
+                <h2 class="text-base font-black text-slate-900 dark:text-white truncate"><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) : 'Dashboard'; ?></h2>
+            </div>
+
+            <!-- Search (desktop) -->
+            <div class="hidden lg:flex flex-1 max-w-lg relative" id="global-search-wrap">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input type="text" id="global-search-input" placeholder="Search tenants, properties… (Ctrl+K)"
                    autocomplete="off"
@@ -125,8 +128,10 @@ function toggleSidebar() {
         })();
         </script>
 
+        </div><!-- end topbar-left -->
+
         <!-- Right Actions -->
-        <div class="flex items-center gap-1.5">
+        <div class="topbar-right">
             <!-- Dark mode toggle -->
             <button onclick="toggleDarkMode()" class="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all tooltip-wrap" aria-label="Toggle theme">
                 <span class="tooltip">Toggle theme</span>

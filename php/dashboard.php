@@ -485,6 +485,9 @@ include __DIR__ . '/includes/sidebar.php';
     const isDark = document.documentElement.classList.contains('dark');
     const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
     const tickColor = '#94a3b8';
+    const allData = [...<?php echo json_encode($chartCollected); ?>, ...<?php echo json_encode($chartInvoiced); ?>];
+    const dataMax = Math.max(...allData, 0);
+    const suggestedMax = dataMax > 0 ? undefined : 10000;
 
     new Chart(ctx, {
         type: 'bar',
@@ -535,7 +538,22 @@ include __DIR__ . '/includes/sidebar.php';
             },
             scales: {
                 x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11, weight: '700' } } },
-                y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 }, callback: v => '<?php echo $currency; ?> ' + v.toLocaleString() } }
+                y: {
+                    beginAtZero: true,
+                    min: 0,
+                    suggestedMax: suggestedMax,
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: tickColor,
+                        font: { size: 11 },
+                        callback: v => {
+                            if (v === 0) return '<?php echo $currency; ?> 0';
+                            if (v >= 1000000) return '<?php echo $currency; ?> ' + (v/1000000).toFixed(1) + 'M';
+                            if (v >= 1000) return '<?php echo $currency; ?> ' + (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'K';
+                            return '<?php echo $currency; ?> ' + v.toLocaleString();
+                        }
+                    }
+                }
             }
         }
     });
