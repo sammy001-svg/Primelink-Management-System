@@ -88,14 +88,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'assign_agent' && $user_role != 'tenant') {
-        $id = $_POST['id'] ?? '';
+        $id       = $_POST['id'] ?? '';
         $staff_id = $_POST['staff_id'] ?? null;
+        $redirect = $_POST['redirect'] ?? '../maintenance.php';
 
         try {
             $stmt = $pdo->prepare("UPDATE maintenance_requests SET assigned_staff_id = ?, status = 'In Progress' WHERE id = ?");
             $stmt->execute([$staff_id, $id]);
             logAction($pdo, 'maintenance_assigned', 'Maintenance', $id, "Assigned to staff ID {$staff_id}");
-            header("Location: ../maintenance.php?success=assigned");
+            $sep = strpos($redirect, '?') !== false ? '&' : '?';
+            header("Location: {$redirect}{$sep}success=assigned");
             exit();
         } catch (PDOException $e) {
             die("Error assigning agent: " . $e->getMessage());

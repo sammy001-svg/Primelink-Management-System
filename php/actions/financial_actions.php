@@ -147,6 +147,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("Error generating invoice: " . $e->getMessage());
         }
     }
+    if ($action === 'send_reminder') {
+        requireLogin(['admin', 'staff']);
+        require_once __DIR__ . '/../includes/mailer.php';
+
+        $tenantId = $_POST['tenant_id'] ?? '';
+        if (!$tenantId) {
+            header("Location: ../command_center.php");
+            exit();
+        }
+
+        // Fetch tenant + user info
+        $tStmt = $pdo->prepare("
+            SELECT t.full_name, t.email, u.id as user_id
+            FROM tenants t JOIN users u ON t.user_id = u.id
+            WHERE t.id = ?
+        ");
+        $tStmt->execute([$tenantId]);
+        $tenant = $tStmt->fetch();
+
+        if ($tenant) {
+            // Sum overdue
+            $ovStmt = $pdo->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total FROM invoices WHERE tenant_id = ? AND status = 'Overdue'");
+            $ovStmt->execute([$tenantId]);
+            $ov = $ovStmt->fetch();
+            $cnt   = (int)$ov['cnt'];
+            $total = number_format((float)$ov['total']);
+            $name  = $tenant['full_name'];
+
+            // In-app notification
+            createNotification(
+                $pdo, $tenant['user_id'],
+                'Overdue Payment Reminder',
+                "You have {$cnt} overdue invoice(s) totalling KSh {$total}. Please settle your balance to avoid penalties.",
+                'warning'
+            );
+
+            // Email reminder
+            $htmlBody = "
+                <p>Dear {$name},</p>
+                <p>This is a reminder that you have <strong>{$cnt} overdue invoice(s)</strong> with a total balance of <strong>KSh {$total}</strong>.</p>
+                <p>Please log in to your tenant portal to view and settle your invoices at your earliest convenience.</p>
+                <p>If you believe this is an error, please contact our office immediately.</p>
+                <p>Thank you for your prompt attention.</p>
+            ";
+            sendSystemEmail($pdo, $tenant['email'], 'Overdue Payment Reminder — Action Required', $htmlBody, $name);
+
+            logAction($pdo, 'reminder_sent', 'Financials', $tenantId, "Overdue reminder sent to {$name} ({$cnt} invoice(s), KSh {$total})");
+        }
+
+        header("Location: ../command_center.php?success=reminded");
+        exit();
+    }
 } else {
     header("Location: ../tenant_payments.php");
     exit();

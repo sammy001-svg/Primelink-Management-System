@@ -30,6 +30,7 @@ $_breadcrumbMap = [
     'profile.php'            => ['My Profile',          'Dashboard',       'dashboard.php'],
     'notifications.php'      => ['Notifications',       'Dashboard',       'dashboard.php'],
     'vacancies.php'          => ['Vacancy Forecasting',  'Leases',          'leases.php'],
+    'command_center.php'     => ['Command Center',       'Dashboard',       'dashboard.php'],
     'view_statement.php'     => ['Tenant Statement',    'Financials',      'financials.php'],
     'landlord_statement.php' => ['My Statement',        'Dashboard',       'dashboard.php'],
     'landlord_tenants.php'   => ['My Tenants',          'Dashboard',       'dashboard.php'],
