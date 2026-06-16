@@ -35,8 +35,10 @@ if ($role === 'tenant') {
 // ── Admin / Staff only ──────────────────────────────────────────
 require_once __DIR__ . '/includes/automated_billing.php';
 require_once __DIR__ . '/includes/overdue_billing.php';
+require_once __DIR__ . '/includes/lease_reminders.php';
 runAutomatedBilling($pdo);
 runOverdueBilling($pdo);
+runLeaseReminders($pdo);
 
 require_once __DIR__ . '/includes/settings.php';
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
@@ -76,14 +78,15 @@ for ($i = 5; $i >= 0; $i--) {
 
 // ── Expiring Leases (next 60 days) ─────────────────────────────
 $expiringLeases = $pdo->query("
-    SELECT l.id, l.end_date, t.full_name, p.title as prop_title, u.unit_number,
+    SELECT l.id, l.end_date, l.renewal_status, t.full_name, t.id AS tenant_id,
+           p.title as prop_title, p.id as prop_id, u.unit_number,
            DATEDIFF(l.end_date, CURDATE()) as days_left
     FROM leases l
     JOIN tenants t ON l.tenant_id = t.id
     JOIN units u ON l.unit_id = u.id
     JOIN properties p ON u.property_id = p.id
     WHERE l.status='Active' AND l.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)
-    ORDER BY l.end_date ASC LIMIT 6
+    ORDER BY l.end_date ASC LIMIT 8
 ")->fetchAll();
 
 // ── Recent Activity ─────────────────────────────────────────────
@@ -390,65 +393,63 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
             </div>
 
-            <!-- Expiring Leases -->
-            <?php if (!empty($expiringLeases)): ?>
+            <!-- Expiring Leases / Vacancy Forecast -->
             <div class="glass-card overflow-hidden">
                 <div class="flex justify-between items-center p-5 border-b border-slate-100 dark:border-slate-800">
                     <div>
                         <h3 class="font-black text-slate-900 dark:text-white text-sm">Expiring Leases</h3>
-                        <p class="text-[10px] text-slate-400 font-medium">Next 60 days — <?php echo count($expiringLeases); ?> lease<?php echo count($expiringLeases) !== 1 ? 's' : ''; ?></p>
+                        <p class="text-[10px] text-slate-400 font-medium">Next 60 days
+                            <?php if (!empty($expiringLeases)): ?>
+                            — <span class="<?php echo count(array_filter($expiringLeases, fn($e) => (int)$e['days_left'] <= 14)) > 0 ? 'text-red-500 font-black' : 'text-slate-400'; ?>"><?php echo count($expiringLeases); ?> lease<?php echo count($expiringLeases) !== 1 ? 's' : ''; ?></span>
+                            <?php endif; ?>
+                        </p>
                     </div>
-                    <a href="leases.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green transition-colors uppercase tracking-widest">All →</a>
+                    <a href="vacancies.php" class="text-[10px] font-black text-accent-green hover:opacity-70 transition-opacity uppercase tracking-widest">Full Forecast →</a>
                 </div>
+                <?php if (!empty($expiringLeases)): ?>
                 <div class="divide-y divide-slate-100 dark:divide-slate-800">
                     <?php foreach ($expiringLeases as $el):
                         $d = (int)$el['days_left'];
                         $urgencyClass = $d <= 14 ? 'urgency-critical' : ($d <= 30 ? 'urgency-warning' : 'urgency-normal');
+                        $rs = $el['renewal_status'] ?? null;
                     ?>
                     <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
                         <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
                             <?php echo strtoupper(substr($el['full_name'], 0, 1)); ?>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-xs font-bold text-slate-900 dark:text-white truncate"><?php echo htmlspecialchars($el['full_name']); ?></p>
-                            <p class="text-[10px] text-slate-400">Unit <?php echo htmlspecialchars($el['unit_number']); ?> · <?php echo htmlspecialchars($el['prop_title']); ?></p>
+                            <a href="tenant_details.php?id=<?php echo $el['tenant_id']; ?>" class="text-xs font-bold text-slate-900 dark:text-white truncate hover:text-accent-green transition-colors"><?php echo htmlspecialchars($el['full_name']); ?></a>
+                            <p class="text-[10px] text-slate-400 truncate">Unit <?php echo htmlspecialchars($el['unit_number']); ?> · <?php echo htmlspecialchars($el['prop_title']); ?></p>
                         </div>
-                        <span class="px-2 py-0.5 rounded-full text-[9px] font-black border <?php echo $urgencyClass; ?> shrink-0">
-                            <?php echo $d; ?>d
-                        </span>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <?php if ($rs === 'Offered'): ?>
+                            <span class="px-1.5 py-0.5 rounded text-[8px] font-black bg-blue-100 text-blue-600 dark:bg-blue-900/30 uppercase">Offered</span>
+                            <?php elseif ($rs === 'Accepted'): ?>
+                            <span class="px-1.5 py-0.5 rounded text-[8px] font-black bg-green-100 text-green-600 dark:bg-green-900/30 uppercase">Accepted</span>
+                            <?php elseif ($rs === 'Declined'): ?>
+                            <span class="px-1.5 py-0.5 rounded text-[8px] font-black bg-red-100 text-red-500 dark:bg-red-900/30 uppercase">Declined</span>
+                            <?php endif; ?>
+                            <span class="px-2 py-0.5 rounded-full text-[9px] font-black border <?php echo $urgencyClass; ?>">
+                                <?php echo $d; ?>d
+                            </span>
+                        </div>
                     </div>
                     <?php endforeach; ?>
                 </div>
-            </div>
-            <?php else: ?>
-            <!-- Portfolio Summary when no expiring leases -->
-            <div class="glass-card p-6 space-y-4">
-                <h3 class="font-black text-slate-900 dark:text-white text-sm">Portfolio Summary</h3>
-                <div class="space-y-3">
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Total Units</span>
-                        <span class="font-black text-slate-900 dark:text-white"><?php echo $totalUnits; ?></span>
-                    </div>
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Occupied</span>
-                        <span class="font-black text-green-500"><?php echo $occupiedUnits; ?></span>
-                    </div>
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Vacant</span>
-                        <span class="font-black <?php echo $vacantUnits > 0 ? 'text-orange-500' : 'text-green-500'; ?>"><?php echo $vacantUnits; ?></span>
-                    </div>
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Outstanding</span>
-                        <span class="font-black <?php echo $outstanding > 0 ? 'text-red-500' : 'text-green-500'; ?>"><?php echo $currency; ?> <?php echo number_format($outstanding); ?></span>
-                    </div>
-                    <hr class="border-slate-100 dark:border-slate-800">
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">YTD Revenue</span>
-                        <span class="font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($revYTD); ?></span>
-                    </div>
+                <div class="p-3 border-t border-slate-100 dark:border-slate-800">
+                    <a href="vacancies.php" class="flex items-center justify-center gap-2 w-full py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-[11px] font-black text-slate-500 hover:text-accent-green hover:bg-slate-100 dark:hover:bg-slate-800 transition-all uppercase tracking-widest">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg>
+                        View Vacancy Forecast
+                    </a>
                 </div>
+                <?php else: ?>
+                <div class="p-6 text-center">
+                    <svg class="mx-auto text-green-200 dark:text-green-900 mb-2" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <p class="text-slate-400 font-bold text-xs">No leases expiring in the next 60 days.</p>
+                    <a href="vacancies.php" class="mt-3 inline-block text-[11px] font-black text-accent-green hover:opacity-70 uppercase tracking-widest">Vacancy Forecast →</a>
+                </div>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
 
             <!-- Portfolio Health -->
             <div class="glass-card p-6 bg-slate-900 dark:bg-slate-800 border-none text-white">

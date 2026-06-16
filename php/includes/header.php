@@ -29,10 +29,10 @@ $_breadcrumbMap = [
     'hr.php'                 => ['HR & Personnel',      'Dashboard',       'dashboard.php'],
     'profile.php'            => ['My Profile',          'Dashboard',       'dashboard.php'],
     'notifications.php'      => ['Notifications',       'Dashboard',       'dashboard.php'],
+    'vacancies.php'          => ['Vacancy Forecasting',  'Leases',          'leases.php'],
     'view_statement.php'     => ['Tenant Statement',    'Financials',      'financials.php'],
     'landlord_statement.php' => ['My Statement',        'Dashboard',       'dashboard.php'],
     'landlord_tenants.php'   => ['My Tenants',          'Dashboard',       'dashboard.php'],
-    'landlord_payouts.php'   => ['Payouts',             'Dashboard',       'dashboard.php'],
 ];
 $_curPage   = basename($_SERVER['PHP_SELF']);
 $_crumb     = $_breadcrumbMap[$_curPage] ?? [isset($pageTitle) ? $pageTitle : ucfirst(str_replace(['.php','_'], ['',' '], $_curPage)), null, null];

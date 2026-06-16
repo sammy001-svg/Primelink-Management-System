@@ -86,6 +86,23 @@ if ($role === 'tenant' && $tenantId) {
 }
 $totalBalance = array_sum($balancesBreakdown);
 
+// ── Fetch invoices for tenant invoice list ─────────────────────────────
+$tenantInvoices = [];
+if ($role === 'tenant' && !empty($tenantId)) {
+    $invStmt = $pdo->prepare("
+        SELECT i.*, l.start_date as lease_start
+        FROM invoices i
+        LEFT JOIN leases l ON i.lease_id = l.id
+        WHERE i.tenant_id = ?
+        ORDER BY
+            FIELD(i.status, 'Overdue', 'Unpaid', 'Paid'),
+            i.due_date ASC
+        LIMIT 60
+    ");
+    $invStmt->execute([$tenantId]);
+    $tenantInvoices = $invStmt->fetchAll();
+}
+
 // Calculate summary stats (Current Month)
 $currentMonth = date('Y-m');
 $totalReceived = 0;
@@ -384,6 +401,100 @@ if ($role === 'landlord') {
             </form>
         </div>
     </div>
+
+    <?php if ($role === 'tenant' && !empty($tenantInvoices)): ?>
+    <!-- ── My Invoices (Tenant View) ───────────────────────────────── -->
+    <div class="glass-card overflow-hidden">
+        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <h3 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">My Invoices</h3>
+                <p class="text-[11px] text-slate-400 font-medium mt-0.5">All charges issued to your account — click to view or print any invoice.</p>
+            </div>
+            <a href="view_statement.php" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-xl text-[11px] font-black uppercase tracking-widest hover:opacity-80 transition-opacity shrink-0">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Full Statement
+            </a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                        <th class="text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    $invPrefix = getSetting($pdo, 'invoice_prefix', 'INV');
+                    foreach ($tenantInvoices as $inv):
+                        $isPaid     = $inv['status'] === 'Paid';
+                        $isOverdue  = $inv['status'] === 'Overdue';
+                        $isUnpaid   = $inv['status'] === 'Unpaid';
+                        $statusBadge = $isPaid ? 'badge-green' : ($isOverdue ? 'badge-red' : 'badge-orange');
+                        $isPastDue   = !$isPaid && strtotime($inv['due_date']) < time();
+                    ?>
+                    <tr class="<?php echo $isOverdue ? 'bg-red-50/30 dark:bg-red-900/5' : ''; ?>">
+                        <td>
+                            <div class="font-black text-slate-900 dark:text-white text-sm">
+                                <?php echo $invPrefix; ?>-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?>
+                            </div>
+                            <div class="text-[10px] text-slate-400">Issued <?php echo date('M j, Y', strtotime($inv['created_at'])); ?></div>
+                        </td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <?php
+                                $typeColors = [
+                                    'Rent'          => 'bg-blue-50 dark:bg-blue-900/20 text-blue-500',
+                                    'Water'         => 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-500',
+                                    'Garbage'       => 'bg-orange-50 dark:bg-orange-900/20 text-orange-500',
+                                    'Electricity'   => 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600',
+                                    'Deposit'       => 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500',
+                                    'Service Charge'=> 'bg-purple-50 dark:bg-purple-900/20 text-purple-500',
+                                ];
+                                $tc = $typeColors[$inv['invoice_type']] ?? 'bg-slate-50 dark:bg-slate-800 text-slate-500';
+                                ?>
+                                <span class="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase <?php echo $tc; ?>">
+                                    <?php echo htmlspecialchars($inv['invoice_type']); ?>
+                                </span>
+                            </div>
+                        </td>
+                        <td class="font-black text-slate-900 dark:text-white">
+                            KSh <?php echo number_format($inv['amount']); ?>
+                        </td>
+                        <td>
+                            <div class="text-sm font-bold <?php echo $isPastDue && !$isPaid ? 'text-red-500' : 'text-slate-600 dark:text-slate-400'; ?>">
+                                <?php echo date('M j, Y', strtotime($inv['due_date'])); ?>
+                            </div>
+                            <?php if ($isPastDue && !$isPaid): ?>
+                            <div class="text-[10px] text-red-500 font-black">
+                                <?php echo (int)ceil((time() - strtotime($inv['due_date'])) / 86400); ?>d overdue
+                            </div>
+                            <?php endif; ?>
+                        </td>
+                        <td><span class="badge <?php echo $statusBadge; ?>"><?php echo $inv['status']; ?></span></td>
+                        <td class="text-right">
+                            <a href="view_invoice.php?id=<?php echo $inv['id']; ?>" target="_blank"
+                               class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-white hover:text-white dark:hover:text-slate-900 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php if (count($tenantInvoices) >= 60): ?>
+        <div class="p-4 text-center border-t border-slate-100 dark:border-slate-800">
+            <a href="view_statement.php" class="text-[11px] font-black text-accent-green hover:opacity-70 uppercase tracking-widest">View full statement for all invoices →</a>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Transaction Table -->
     <div class="glass-card overflow-hidden">

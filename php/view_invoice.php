@@ -6,19 +6,30 @@ require_once __DIR__ . '/includes/settings.php';
 
 $id = $_GET['id'] ?? '';
 $stmt = $pdo->prepare("
-    SELECT i.*, t.full_name as tenant_name, t.email as tenant_email, t.phone as tenant_phone,
+    SELECT i.*, t.full_name as tenant_name, t.email as tenant_email, t.phone as tenant_phone, t.id as tenant_db_id,
            p.title as property_title, u.unit_number
     FROM invoices i
     JOIN tenants t ON i.tenant_id = t.id
-    JOIN leases l ON i.lease_id = l.id
-    JOIN units u ON l.unit_id = u.id
-    JOIN properties p ON u.property_id = p.id
+    LEFT JOIN leases l ON i.lease_id = l.id
+    LEFT JOIN units u ON l.unit_id = u.id
+    LEFT JOIN properties p ON u.property_id = p.id
     WHERE i.id = ?
 ");
 $stmt->execute([$id]);
 $invoice = $stmt->fetch();
 
 if (!$invoice) die("Invoice not found.");
+
+// Security: tenants can only view their own invoices
+if (($_SESSION['role'] ?? '') === 'tenant') {
+    $myStmt = $pdo->prepare("SELECT id FROM tenants WHERE user_id = ?");
+    $myStmt->execute([$_SESSION['user_id']]);
+    $myTenant = $myStmt->fetch();
+    if (!$myTenant || $myTenant['id'] !== $invoice['tenant_db_id']) {
+        http_response_code(403);
+        die("Access denied.");
+    }
+}
 
 $companyName    = getSetting($pdo, 'company_name',    'Primelink Management System');
 $companyAddress = getSetting($pdo, 'company_address', 'Nairobi, Kenya');
@@ -50,7 +61,13 @@ $mpesaShortcode = getSetting($pdo, 'mpesa_shortcode', '—');
     <div class="max-w-3xl mx-auto bg-white p-8 md:p-12 shadow-2xl rounded-3xl print-border relative">
         <div class="no-print absolute top-5 right-5 flex gap-2">
             <button onclick="window.print()" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:opacity-90">Print Invoice</button>
-            <a href="tenant_payments.php" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200">Back</a>
+            <?php
+            $backUrl = match($_SESSION['role'] ?? '') {
+                'tenant' => 'financials.php',
+                default  => 'tenant_payments.php',
+            };
+            ?>
+            <a href="<?php echo $backUrl; ?>" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200">Back</a>
         </div>
 
         <div class="flex justify-between items-start border-b pb-10 mb-10">

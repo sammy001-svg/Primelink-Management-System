@@ -7,14 +7,15 @@ $myPayments = [];
 $myRequests = [];
 
 if (!empty($tenantId)) {
-    // Lease info
+    // Lease info (including renewal_status for expiry alert)
     $leaseStmt = $pdo->prepare("
-        SELECT l.*, p.title as property_title, p.location, 
-               u.unit_number, u.electricity_meter, u.water_meter, u.deposit_amount as unit_deposit
-        FROM leases l 
-        JOIN properties p ON l.property_id = p.id 
+        SELECT l.*, p.title as property_title, p.location,
+               u.unit_number, u.electricity_meter, u.water_meter, u.deposit_amount as unit_deposit,
+               COALESCE(l.renewal_status, NULL) as renewal_status
+        FROM leases l
+        JOIN properties p ON l.property_id = p.id
         JOIN units u ON l.unit_id = u.id
-        WHERE l.tenant_id = ? 
+        WHERE l.tenant_id = ? AND l.status = 'Active'
         ORDER BY l.created_at DESC LIMIT 1
     ");
     $leaseStmt->execute([$tenantId]);
@@ -66,6 +67,40 @@ if (!empty($tenantId)) {
 }
 ?>
 <div class="space-y-6">
+
+    <!-- Lease Renewal Alert — shown when active lease expires within 60 days -->
+    <?php if (!empty($tenantLease)):
+        $daysToExpiry = (int)floor((strtotime($tenantLease['end_date']) - time()) / 86400);
+        $renewalStatus = $tenantLease['renewal_status'] ?? null;
+        if ($daysToExpiry >= 0 && $daysToExpiry <= 60):
+            $isUrgent = $daysToExpiry <= 14;
+            $alertBg  = $isUrgent ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30' : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800/30';
+            $iconBg   = $isUrgent ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-500';
+            $titleClr = $isUrgent ? 'text-red-700 dark:text-red-400' : 'text-orange-700 dark:text-orange-400';
+            $subClr   = $isUrgent ? 'text-red-500' : 'text-orange-500';
+    ?>
+    <div class="p-4 <?php echo $alertBg; ?> border rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 <?php echo $iconBg; ?> rounded-xl flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-black <?php echo $titleClr; ?>">
+                    <?php echo $isUrgent ? 'Lease Expiring Critically Soon' : 'Lease Renewal Reminder'; ?>
+                    — <?php echo $daysToExpiry; ?> day<?php echo $daysToExpiry !== 1 ? 's' : ''; ?> left
+                </p>
+                <p class="text-[10px] <?php echo $subClr; ?> font-medium mt-0.5">
+                    <?php echo htmlspecialchars($tenantLease['property_title']); ?> &middot; Unit <?php echo htmlspecialchars($tenantLease['unit_number']); ?> &middot; Expires <?php echo date('M d, Y', strtotime($tenantLease['end_date'])); ?>
+                    <?php if ($renewalStatus === 'Offered'): ?>&middot; <span class="font-black text-blue-500">Renewal Offered ✓</span><?php endif; ?>
+                    <?php if ($renewalStatus === 'Accepted'): ?>&middot; <span class="font-black text-green-500">Renewal Accepted ✓</span><?php endif; ?>
+                </p>
+            </div>
+        </div>
+        <a href="leases.php" class="px-5 py-2.5 <?php echo $isUrgent ? 'bg-red-500 hover:bg-red-600' : 'bg-orange-500 hover:bg-orange-600'; ?> text-white rounded-xl text-xs font-black whitespace-nowrap transition-colors self-start sm:self-auto">
+            View Lease →
+        </a>
+    </div>
+    <?php endif; endif; ?>
 
     <!-- Overdue alert — only shown when the tenant has overdue invoices -->
     <?php if (!empty($stats['overdue_invoices']) && $stats['overdue_invoices'] > 0): ?>
@@ -273,8 +308,9 @@ if (!empty($tenantId)) {
 
     <!-- Payment History -->
     <div class="glass-card overflow-hidden">
-        <div class="p-6 border-b border-slate-100 dark:border-slate-800">
+        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <h3 class="font-black text-slate-900 dark:text-white">Payment History</h3>
+            <a href="financials.php" class="text-[10px] font-black text-slate-400 hover:text-accent-green uppercase tracking-widest transition-colors">All Transactions →</a>
         </div>
         <?php if (empty($myPayments)): ?>
         <p class="text-center text-slate-400 text-sm py-8">No payments recorded yet.</p>
@@ -282,7 +318,7 @@ if (!empty($tenantId)) {
         <div class="overflow-x-auto">
             <table class="data-table">
                 <thead><tr>
-                    <th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th>
+                    <th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th class="text-right">Receipt</th>
                 </tr></thead>
                 <tbody>
                 <?php foreach ($myPayments as $p): ?>
@@ -292,6 +328,17 @@ if (!empty($tenantId)) {
                     <td class="font-black">KSh <?php echo number_format($p['amount']); ?></td>
                     <td class="text-slate-500"><?php echo htmlspecialchars($p['payment_method'] ?? 'M-Pesa'); ?></td>
                     <td><span class="badge badge-<?php echo $p['status']=='Paid' ? 'green' : ($p['status']=='Overdue' ? 'red' : 'orange'); ?>"><?php echo $p['status']; ?></span></td>
+                    <td class="text-right">
+                        <?php if ($p['status'] === 'Paid'): ?>
+                        <a href="receipt.php?id=<?php echo $p['id']; ?>" target="_blank"
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-white hover:text-white dark:hover:text-slate-900 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+                            Receipt
+                        </a>
+                        <?php else: ?>
+                        <span class="text-slate-200 dark:text-slate-700 text-[10px]">—</span>
+                        <?php endif; ?>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
                 </tbody>

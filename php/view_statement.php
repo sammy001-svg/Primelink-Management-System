@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * Tenant Statement of Account
  * Primelink Management System
@@ -432,9 +432,9 @@ include __DIR__ . '/includes/sidebar.php';
             <!-- Print (opens standalone doc in new tab) -->
             <a href="view_statement.php?tenant_id=<?php echo urlencode((string)$tenantId); ?>&print=1&period=<?php echo urlencode($period); ?>&from=<?php echo urlencode($customFrom); ?>&to=<?php echo urlencode($customTo); ?>"
                target="_blank"
-               class="px-5 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
-                Print Statement
+               class="px-6 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+                Print / Save PDF
             </a>
         </div>
     </div>

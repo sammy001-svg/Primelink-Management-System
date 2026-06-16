@@ -65,8 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $newId = generateUUID();
                 $rent = $new_rent ?: $old['monthly_rent'];
-                $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit_amount'], "Renewal of lease " . $lease_id]);
+                // Try inserting with parent_lease_id (self-healing if column missing)
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms, parent_lease_id) VALUES (?,?,?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit_amount'], "Renewal of lease " . $lease_id, $lease_id]);
+                } catch (PDOException $e) {
+                    // Fall back without parent_lease_id
+                    $stmt = $pdo->prepare("INSERT INTO leases (id, tenant_id, property_id, unit_id, start_date, end_date, monthly_rent, deposit_amount, terms) VALUES (?,?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$newId, $old['tenant_id'], $old['property_id'], $old['unit_id'], $old['end_date'], $new_end_date, $rent, $old['deposit_amount'], "Renewal of lease " . $lease_id]);
+                }
             }
             if ($old) {
                 logAction($pdo, 'lease_renewed', 'Leases', $newId, "Renewed from lease {$lease_id} — new end: {$new_end_date}");
@@ -104,6 +111,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit();
             }
             die("Error terminating lease: " . $e->getMessage());
+        }
+    }
+
+    else if ($action === 'mark_renewal_status') {
+        $lease_id       = $_POST['lease_id'] ?? '';
+        $renewal_status = $_POST['renewal_status'] ?? '';
+        $allowed        = ['Offered', 'Accepted', 'Declined'];
+        $redirect       = $_POST['redirect'] ?? '../leases.php';
+
+        if (!in_array($renewal_status, $allowed) || !$lease_id) {
+            header("Location: ../leases.php?error=invalid");
+            exit();
+        }
+
+        try {
+            $pdo->prepare("UPDATE leases SET renewal_status = ? WHERE id = ?")
+                ->execute([$renewal_status, $lease_id]);
+
+            logAction($pdo, 'lease_renewal_' . strtolower($renewal_status), 'Leases', $lease_id,
+                "Renewal status set to {$renewal_status}");
+
+            // Notify tenant
+            $row = $pdo->prepare("
+                SELECT t.user_id, t.full_name, p.title, u.unit_number
+                FROM leases l
+                JOIN tenants t ON l.tenant_id = t.id
+                JOIN units u ON l.unit_id = u.id
+                JOIN properties p ON u.property_id = p.id
+                WHERE l.id = ?
+            ");
+            $row->execute([$lease_id]);
+            $info = $row->fetch();
+
+            if ($info) {
+                $msgs = [
+                    'Offered'  => "Your lease renewal offer for {$info['title']} Unit {$info['unit_number']} has been submitted. Please respond at your earliest convenience.",
+                    'Accepted' => "Great news! Your lease renewal for {$info['title']} Unit {$info['unit_number']} has been accepted. We will process the new agreement shortly.",
+                    'Declined' => "Your lease renewal for {$info['title']} Unit {$info['unit_number']} has been marked as declined. Please contact us if you have questions.",
+                ];
+                $notifType = $renewal_status === 'Accepted' ? 'success' : ($renewal_status === 'Declined' ? 'warning' : 'info');
+                createNotification($pdo, $info['user_id'],
+                    "Lease Renewal: {$renewal_status}",
+                    $msgs[$renewal_status],
+                    $notifType
+                );
+            }
+
+            $slug = strtolower($renewal_status);
+            $sep  = str_contains($redirect, '?') ? '&' : '?';
+            header("Location: {$redirect}{$sep}success={$slug}");
+            exit();
+        } catch (PDOException $e) {
+            die("Error updating renewal status: " . $e->getMessage());
         }
     }
 

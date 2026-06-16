@@ -13,12 +13,14 @@ $pageTitle = "Leases";
 
 // Proactive Self-Healing for schema drift
 try {
-    $pdo->query("SELECT signed_lease_url, termination_date FROM leases LIMIT 1");
+    $pdo->query("SELECT signed_lease_url, termination_date, renewal_status, parent_lease_id FROM leases LIMIT 1");
 } catch (PDOException $e) {
     if ($e->getCode() == '42S22') {
         $pdo->exec("ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `signed_lease_url` VARCHAR(255) NULL AFTER `status` ");
         $pdo->exec("ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `termination_date` DATE NULL AFTER `signed_lease_url` ");
         $pdo->exec("ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `termination_reason` TEXT NULL AFTER `termination_date` ");
+        try { $pdo->exec("ALTER TABLE `leases` ADD COLUMN `renewal_status` ENUM('Offered','Accepted','Declined') NULL AFTER `status`"); } catch (PDOException $e2) {}
+        try { $pdo->exec("ALTER TABLE `leases` ADD COLUMN `parent_lease_id` VARCHAR(36) NULL AFTER `renewal_status`"); } catch (PDOException $e2) {}
     }
 }
 
@@ -27,7 +29,8 @@ if ($role === 'landlord') {
     $landlordId = getLandlordId($pdo);
     $leases = $pdo->prepare("
         SELECT l.*, t.full_name as tenant_name, t.email as tenant_email,
-               p.title as property_title, p.location as property_location
+               p.title as property_title, p.location as property_location,
+               l.renewal_status
         FROM leases l
         JOIN tenants t ON l.tenant_id = t.id
         JOIN properties p ON l.property_id = p.id
@@ -60,7 +63,8 @@ if ($role === 'landlord') {
     requireRole(['staff']);
     $leases = $pdo->query("
         SELECT l.*, t.full_name as tenant_name, t.email as tenant_email,
-               p.title as property_title, p.location as property_location
+               p.title as property_title, p.location as property_location,
+               l.renewal_status
         FROM leases l
         JOIN tenants t ON l.tenant_id = t.id
         JOIN properties p ON l.property_id = p.id
@@ -78,8 +82,20 @@ include __DIR__ . '/includes/sidebar.php';
 
 <div class="space-y-8 animate-in">
     <?php if (isset($_GET['success'])): ?>
-    <div class="success-toast p-4 bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 rounded-2xl font-bold text-sm">
-        Lease <?php echo $_GET['success'] == 'created' ? 'created' : 'updated'; ?> successfully!
+    <?php
+    $toastMsg = match($_GET['success']) {
+        'created'   => 'Lease created successfully!',
+        'renewed'   => 'Lease renewed successfully — new period activated.',
+        'terminated'=> 'Lease terminated.',
+        'uploaded'  => 'Signed lease document uploaded.',
+        'offered'   => 'Renewal offer marked — tenant will be notified.',
+        'accepted'  => 'Renewal offer marked as accepted.',
+        'declined'  => 'Renewal declined. Consider relisting the unit.',
+        default     => 'Action completed successfully.',
+    };
+    ?>
+    <div class="p-4 bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 rounded-2xl font-bold text-sm">
+        <?php echo $toastMsg; ?>
     </div>
     <?php endif; ?>
 
@@ -120,7 +136,7 @@ include __DIR__ . '/includes/sidebar.php';
                         <th>Property & Unit</th>
                         <th>Period</th>
                         <th>Monthly Rent</th>
-                        <th>Renewal Date</th>
+                        <th>Renewal</th>
                         <th>Document</th>
                         <th>Status</th>
                         <th class="text-right">Actions</th>
@@ -135,8 +151,12 @@ include __DIR__ . '/includes/sidebar.php';
                         $statusBadge = $isTerminated ? 'badge-red' : ($isExpired ? 'badge-red' : ($isExpiring ? 'badge-orange' : 'badge-green'));
                         $statusText  = $isTerminated ? 'Terminated' : ($isExpired ? 'Expired' : ($isExpiring ? 'Expiring Soon' : 'Active'));
                         
-                        // Calculate renewal date (End date + 1 day)
-                        $renewalDate = date('M j, Y', strtotime($lease['end_date'] . ' +1 day'));
+                        // Renewal status
+                        $rs = $lease['renewal_status'] ?? null;
+                        if ($rs === 'Offered')       { $rsBadge = 'badge-blue';   $rsLabel = 'Offered'; }
+                        elseif ($rs === 'Accepted')  { $rsBadge = 'badge-green';  $rsLabel = 'Accepted'; }
+                        elseif ($rs === 'Declined')  { $rsBadge = 'badge-red';    $rsLabel = 'Declined'; }
+                        else                         { $rsBadge = ''; $rsLabel = ''; }
                     ?>
                     <tr class="<?php echo $isTerminated ? 'opacity-60 grayscale-[0.5]' : ''; ?>">
                         <?php if ($role !== 'tenant'): ?>
@@ -154,7 +174,22 @@ include __DIR__ . '/includes/sidebar.php';
                             <div class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter">Expires <?php echo date('M j, Y', strtotime($lease['end_date'])); ?></div>
                         </td>
                         <td class="font-black text-slate-900 dark:text-white text-xs">KSh <?php echo number_format($lease['monthly_rent']); ?></td>
-                        <td class="text-xs font-bold text-blue-500"><?php echo $renewalDate; ?></td>
+                        <td>
+                            <?php if ($rsLabel): ?>
+                                <span class="badge <?php echo $rsBadge; ?>"><?php echo $rsLabel; ?></span>
+                            <?php elseif ($canCreateLease && !$isTerminated && !$isExpired): ?>
+                                <form action="actions/lease_actions.php" method="POST" class="inline">
+                                    <input type="hidden" name="action" value="mark_renewal_status">
+                                    <input type="hidden" name="lease_id" value="<?php echo $lease['id']; ?>">
+                                    <input type="hidden" name="renewal_status" value="Offered">
+                                    <button type="submit" class="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-500 hover:bg-blue-100 rounded-lg text-[10px] font-black uppercase transition-colors whitespace-nowrap">
+                                        Mark Offered
+                                    </button>
+                                </form>
+                            <?php else: ?>
+                                <span class="text-[10px] text-slate-300">—</span>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <?php if (!empty($lease['signed_lease_url'])): ?>
                                 <a href="<?php echo htmlspecialchars($lease['signed_lease_url']); ?>" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 bg-accent-green/10 text-accent-green rounded-lg text-[10px] font-black uppercase hover:bg-accent-green hover:text-white transition-all">
