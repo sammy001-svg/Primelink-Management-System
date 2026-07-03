@@ -41,8 +41,9 @@ switch ($action) {
 
             // Create landlord record
             $landlordId = generateUUID();
-            $pdo->prepare("INSERT INTO landlords (id, full_name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)")
-                ->execute([$landlordId, $fullName, $email, $phone, $userId]);
+            $mgmtFee    = min(100, max(0, (float)($_POST['management_fee'] ?? 10)));
+            $pdo->prepare("INSERT INTO landlords (id, full_name, email, phone, user_id, management_fee) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([$landlordId, $fullName, $email, $phone, $userId, $mgmtFee]);
 
             header('Location: ../landlords.php?success=Landlord+account+created+successfully');
         } catch (PDOException $e) {

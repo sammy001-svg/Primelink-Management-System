@@ -1,170 +1,388 @@
 <?php
 /**
- * Payout Management Dashboard
+ * Landlord Auto-Payout Calculator
  * Primelink Management System
+ *
+ * Calculates per-landlord net payout for a selected period:
+ *   Gross Rent Collected
+ *   – Management Fee %
+ *   – Maintenance Costs (cost_status = 'Paid' in period)
+ *   – Property Expenses (in period)
+ *   – Outstanding Advances (approved, not yet deducted)
+ *   = Net Payout
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireRole('staff');
+requireLogin(['admin', 'staff']);
 
-$pageTitle = "Intelligent Payouts";
+require_once __DIR__ . '/includes/settings.php';
 
-// Fetch landlords and their pending income (simulated calculation)
-// In a real system, this would sum collected rent since last payout
-$landlords = $pdo->query("
-    SELECT l.*, 
-    (SELECT COALESCE(SUM(tr.amount), 0) 
-     FROM transactions tr 
-     JOIN tenants t ON tr.tenant_id = t.id
-     JOIN leases ls ON t.id = ls.tenant_id
-     JOIN units un ON ls.unit_id = un.id
-     JOIN properties p ON un.property_id = p.id
-     WHERE p.landlord_id = l.id AND tr.status = 'Paid'
-    ) as total_collected
-    FROM landlords l
-    ORDER BY l.full_name
-")->fetchAll();
+$pageTitle = "Payout Calculator";
+$currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 
+// ── Schema self-heal ──────────────────────────────────────────────────
+foreach ([
+    "ALTER TABLE landlords ADD COLUMN management_fee DECIMAL(5,2) NOT NULL DEFAULT 10.00",
+    "ALTER TABLE landlord_payouts ADD COLUMN gross_amount DECIMAL(15,2) NULL",
+    "ALTER TABLE landlord_payouts ADD COLUMN maintenance_deduction DECIMAL(15,2) NULL DEFAULT 0",
+    "ALTER TABLE landlord_payouts ADD COLUMN expense_deduction DECIMAL(15,2) NULL DEFAULT 0",
+    "ALTER TABLE landlord_payouts ADD COLUMN advance_deduction DECIMAL(15,2) NULL DEFAULT 0",
+    "ALTER TABLE landlord_payouts ADD COLUMN period_month TINYINT(2) NULL",
+    "ALTER TABLE landlord_payouts ADD COLUMN period_year SMALLINT(4) NULL",
+    "ALTER TABLE landlord_payouts ADD COLUMN payment_method VARCHAR(50) NULL",
+] as $ddl) {
+    try { $pdo->exec($ddl); } catch (PDOException $e) {}
+}
+
+// ── Period filter ─────────────────────────────────────────────────────
+$selMonth = str_pad($_GET['month'] ?? date('m'), 2, '0', STR_PAD_LEFT);
+$selYear  = (int)($_GET['year']   ?? date('Y'));
+
+$monthNames = ['01'=>'January','02'=>'February','03'=>'March','04'=>'April',
+               '05'=>'May','06'=>'June','07'=>'July','08'=>'August',
+               '09'=>'September','10'=>'October','11'=>'November','12'=>'December'];
+
+// ── Result banner ─────────────────────────────────────────────────────
+$doneRef = $_GET['ref'] ?? '';
+$success = $_GET['success'] ?? '';
+
+// ── Fetch all landlords ───────────────────────────────────────────────
+$landlordRows = $pdo->query("SELECT id, full_name, email, phone, management_fee FROM landlords ORDER BY full_name")->fetchAll();
+
+// ── Per-landlord calculations ─────────────────────────────────────────
+$calcStmtRent = $pdo->prepare("
+    SELECT COALESCE(SUM(tr.amount), 0)
+    FROM transactions tr
+    JOIN tenants ten ON tr.tenant_id = ten.id
+    JOIN leases ls   ON ten.id = ls.tenant_id
+    JOIN units u     ON ls.unit_id = u.id
+    JOIN properties p ON u.property_id = p.id
+    WHERE p.landlord_id = ?
+      AND tr.status = 'Paid'
+      AND MONTH(tr.transaction_date) = ?
+      AND YEAR(tr.transaction_date)  = ?
+");
+
+$calcStmtMaint = $pdo->prepare("
+    SELECT COALESCE(SUM(m.actual_cost), 0)
+    FROM maintenance_requests m
+    JOIN properties p ON m.property_id = p.id
+    WHERE p.landlord_id = ?
+      AND m.cost_status = 'Paid'
+      AND MONTH(COALESCE(m.updated_at, m.created_at)) = ?
+      AND YEAR(COALESCE(m.updated_at,  m.created_at)) = ?
+");
+
+$calcStmtExp = $pdo->prepare("
+    SELECT COALESCE(SUM(e.amount), 0)
+    FROM expenses e
+    WHERE e.property_id IN (SELECT id FROM properties WHERE landlord_id = ?)
+      AND MONTH(e.expense_date) = ?
+      AND YEAR(e.expense_date)  = ?
+");
+
+$calcStmtAdv = $pdo->prepare("
+    SELECT COALESCE(SUM(a.amount), 0)
+    FROM landlord_advances a
+    WHERE a.landlord_id = ?
+      AND a.status = 'Approved'
+      AND (a.is_deducted = 0 OR a.is_deducted IS NULL)
+");
+
+$calcs = [];
+foreach ($landlordRows as $ll) {
+    $calcStmtRent->execute([$ll['id'], $selMonth, $selYear]);
+    $gross = (float)$calcStmtRent->fetchColumn();
+
+    $calcStmtMaint->execute([$ll['id'], $selMonth, $selYear]);
+    $maintDed = (float)$calcStmtMaint->fetchColumn();
+
+    $calcStmtExp->execute([$ll['id'], $selMonth, $selYear]);
+    $expDed = (float)$calcStmtExp->fetchColumn();
+
+    $calcStmtAdv->execute([$ll['id']]);
+    $advDed = (float)$calcStmtAdv->fetchColumn();
+
+    $feeRate  = (float)($ll['management_fee'] ?? 10.0);
+    $feeDed   = round($gross * $feeRate / 100, 2);
+    $net      = max(0, $gross - $feeDed - $maintDed - $expDed - $advDed);
+
+    // Has this landlord already been paid for this period?
+    $paidStmt = $pdo->prepare("SELECT COUNT(*) FROM landlord_payouts WHERE landlord_id = ? AND period_month = ? AND period_year = ?");
+    $paidStmt->execute([$ll['id'], (int)$selMonth, $selYear]);
+    $alreadyPaid = (int)$paidStmt->fetchColumn() > 0;
+
+    $calcs[$ll['id']] = compact('gross','feeDed','feeRate','maintDed','expDed','advDed','net','alreadyPaid');
+}
+
+// ── Payout history ────────────────────────────────────────────────────
 $payouts = $pdo->query("
-    SELECT p.*, l.full_name as landlord_name 
-    FROM landlord_payouts p 
-    JOIN landlords l ON p.landlord_id = l.id 
+    SELECT p.*, l.full_name as landlord_name
+    FROM landlord_payouts p
+    JOIN landlords l ON p.landlord_id = l.id
     ORDER BY p.payout_date DESC
+    LIMIT 50
 ")->fetchAll();
+
+$totalReleased = array_sum(array_column($payouts, 'amount'));
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
 <div class="space-y-8 animate-in">
-    <div class="flex justify-between items-center">
+
+    <!-- Page header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-            <h1 class="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Intelligent Payouts</h1>
-            <p class="text-slate-500 font-medium">Manage and automate landlord income distributions.</p>
+            <h1 class="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Payout Calculator</h1>
+            <p class="text-slate-500 dark:text-slate-400 font-medium text-sm mt-0.5">Calculate and disburse landlord payouts with automatic deductions.</p>
         </div>
-        <div class="flex gap-3">
-            <div class="bg-accent-green/10 text-accent-green px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <span class="w-2 h-2 bg-accent-green rounded-full animate-pulse"></span>
-                System Auto-Sync Active
-            </div>
-        </div>
+        <a href="landlord_payouts.php" class="text-[10px] font-black text-slate-400 hover:text-slate-900 dark:hover:text-white uppercase tracking-widest transition-colors">Advances & Loans →</a>
     </div>
 
-    <!-- Payout Cards -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div class="lg:col-span-2 space-y-6">
-            <div class="glass-card overflow-hidden">
-                <div class="p-6 border-b border-slate-100 dark:border-slate-800">
-                    <h2 class="text-lg font-black">Distributions Queue</h2>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="bg-slate-50 dark:bg-slate-800/50">
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Landlord</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross Collected</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Management Fee (10%)</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Payout</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            <?php foreach ($landlords as $landlord): ?>
-                            <?php if ($landlord['total_collected'] > 0): ?>
-                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                                <td class="px-6 py-4">
-                                    <p class="font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($landlord['full_name']); ?></p>
-                                    <p class="text-[10px] text-slate-500 font-medium"><?php echo htmlspecialchars($landlord['email']); ?></p>
-                                </td>
-                                <td class="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">KSh <?php echo number_format($landlord['total_collected']); ?></td>
-                                <td class="px-6 py-4 font-bold text-orange-500">- KSh <?php echo number_format($landlord['total_collected'] * 0.1); ?></td>
-                                <td class="px-6 py-4 font-black text-accent-green">KSh <?php echo number_format($landlord['total_collected'] * 0.9); ?></td>
-                                <td class="px-6 py-4 text-right">
-                                    <form action="actions/payout_actions.php" method="POST">
-                                        <input type="hidden" name="action" value="process_payout">
-                                        <input type="hidden" name="landlord_id" value="<?php echo $landlord['id']; ?>">
-                                        <input type="hidden" name="amount" value="<?php echo $landlord['total_collected']; ?>">
-                                        <button type="submit" class="btn-green text-[10px] py-2 px-4 rounded-lg shadow-lg shadow-accent-green/10">Execute Payout</button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endif; ?>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <?php if ($success === 'processed' && $doneRef): ?>
+    <div class="p-5 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-2xl flex items-start gap-4">
+        <div class="w-9 h-9 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-accent-green"><path d="M20 6 9 17l-5-5"/></svg>
+        </div>
+        <div>
+            <p class="font-black text-slate-900 dark:text-white">Payout Processed</p>
+            <p class="text-sm text-slate-500 font-medium mt-0.5">
+                Reference: <span class="font-mono font-black"><?php echo htmlspecialchars($doneRef); ?></span>
+                &nbsp;—&nbsp;
+                <a href="view_voucher.php?ref=<?php echo urlencode($doneRef); ?>" target="_blank" class="text-accent-green font-black hover:underline">View Remittance Statement →</a>
+            </p>
+        </div>
+    </div>
+    <?php endif; ?>
 
-            <!-- History -->
-            <div class="glass-card overflow-hidden">
-                <div class="p-6 border-b border-slate-100 dark:border-slate-800">
-                    <h2 class="text-lg font-black">Payout History</h2>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="bg-slate-50 dark:bg-slate-800/50">
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Landlord</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reference</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Amount</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Receipt</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            <?php foreach ($payouts as $payout): ?>
-                            <tr>
-                                <td class="px-6 py-4 text-sm font-medium text-slate-500"><?php echo date('M d, Y', strtotime($payout['payout_date'])); ?></td>
-                                <td class="px-6 py-4 font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($payout['landlord_name']); ?></td>
-                                <td class="px-6 py-4"><span class="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[10px] text-slate-600 dark:text-slate-400 font-bold"><?php echo $payout['reference_code']; ?></span></td>
-                                <td class="px-6 py-4 font-black ">KSh <?php echo number_format($payout['amount']); ?></td>
-                                <td class="px-6 py-4 text-right">
-                                    <a href="view_voucher.php?ref=<?php echo $payout['reference_code']; ?>" target="_blank" class="text-accent-orange font-black text-[10px] uppercase hover:underline">View Voucher →</a>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+    <!-- Period selector -->
+    <form method="GET" class="glass-card p-5 flex flex-wrap items-end gap-4">
+        <div class="space-y-1.5 flex-1 min-w-[140px]">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Month</label>
+            <select name="month" class="form-input w-full">
+                <?php foreach ($monthNames as $val => $label): ?>
+                <option value="<?php echo $val; ?>" <?php echo $selMonth === $val ? 'selected' : ''; ?>><?php echo $label; ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="space-y-1.5 w-28">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Year</label>
+            <input type="number" name="year" value="<?php echo $selYear; ?>" min="2020" max="2035" class="form-input w-full">
+        </div>
+        <button type="submit" class="btn-primary">Recalculate</button>
+    </form>
+
+    <!-- ── Per-Landlord Breakdown ─────────────────────────────────── -->
+    <div class="glass-card overflow-hidden">
+        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div>
+                <h2 class="font-black text-slate-900 dark:text-white">Payout Breakdown — <?php echo $monthNames[$selMonth]; ?> <?php echo $selYear; ?></h2>
+                <p class="text-[11px] text-slate-400 font-medium mt-0.5">Gross rent collected minus management fee, maintenance, expenses, and pending advances.</p>
             </div>
         </div>
 
-        <div class="space-y-6">
-            <div class="glass-card p-6 bg-slate-900 text-white border-none relative overflow-hidden">
-                <div class="relative z-10">
-                    <p class="text-accent-orange font-black text-[10px] uppercase tracking-widest mb-1">Fee Management</p>
-                    <h3 class="text-2xl font-black mb-4">Management Fees</h3>
-                    <div class="space-y-4">
-                        <div class="p-4 bg-white/5 rounded-xl border border-white/10">
-                            <p class="text-xs text-slate-400 font-medium">Standard Management Fee</p>
-                            <p class="text-xl font-black text-accent-green">10.0% <span class="text-[10px] font-medium text-slate-500 uppercase tracking-widest ml-1">Flat Rate</span></p>
-                        </div>
-                        <p class="text-xs text-slate-500 leading-relaxed">
-                            Fees are automatically calculated and deducted during the payout execution. Digital vouchers will reflect the specific breakdown for landlord transparency.
-                        </p>
-                    </div>
-                </div>
-                <div class="absolute bottom-[-10%] right-[-10%] w-32 h-32 bg-accent-green/10 rounded-full blur-3xl"></div>
+        <?php if (empty($landlordRows)): ?>
+        <p class="text-center text-slate-400 font-medium py-12">No landlords registered yet.</p>
+        <?php else: ?>
+        <div class="overflow-x-auto">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Landlord</th>
+                    <th class="text-right">Gross Rent</th>
+                    <th class="text-right">Mgmt Fee</th>
+                    <th class="text-right">Maintenance</th>
+                    <th class="text-right">Expenses</th>
+                    <th class="text-right">Advances</th>
+                    <th class="text-right">Net Payout</th>
+                    <th class="text-right">Action</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($landlordRows as $ll):
+                    $c = $calcs[$ll['id']];
+                    $hasActivity = $c['gross'] > 0 || $c['maintDed'] > 0 || $c['expDed'] > 0;
+                ?>
+                <tr class="<?php echo !$hasActivity ? 'opacity-40' : ''; ?>">
+                    <td>
+                        <p class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($ll['full_name']); ?></p>
+                        <p class="text-[11px] text-slate-400"><?php echo $c['feeRate']; ?>% mgmt fee</p>
+                    </td>
+                    <td class="text-right font-black text-slate-900 dark:text-white">
+                        <?php echo $c['gross'] > 0 ? $currency . ' ' . number_format($c['gross']) : '—'; ?>
+                    </td>
+                    <td class="text-right font-bold text-orange-500">
+                        <?php echo $c['feeDed'] > 0 ? '– ' . $currency . ' ' . number_format($c['feeDed']) : '—'; ?>
+                    </td>
+                    <td class="text-right font-bold text-red-400">
+                        <?php echo $c['maintDed'] > 0 ? '– ' . $currency . ' ' . number_format($c['maintDed']) : '—'; ?>
+                    </td>
+                    <td class="text-right font-bold text-red-400">
+                        <?php echo $c['expDed'] > 0 ? '– ' . $currency . ' ' . number_format($c['expDed']) : '—'; ?>
+                    </td>
+                    <td class="text-right font-bold text-purple-500">
+                        <?php echo $c['advDed'] > 0 ? '– ' . $currency . ' ' . number_format($c['advDed']) : '—'; ?>
+                    </td>
+                    <td class="text-right font-black <?php echo $c['net'] > 0 ? 'text-accent-green' : 'text-slate-400'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($c['net']); ?>
+                    </td>
+                    <td class="text-right">
+                        <?php if ($c['alreadyPaid']): ?>
+                        <span class="badge badge-green">Paid</span>
+                        <?php elseif ($c['net'] > 0): ?>
+                        <button onclick="openPayoutModal(<?php echo htmlspecialchars(json_encode([
+                            'id'      => $ll['id'],
+                            'name'    => $ll['full_name'],
+                            'gross'   => $c['gross'],
+                            'feeDed'  => $c['feeDed'],
+                            'feeRate' => $c['feeRate'],
+                            'maint'   => $c['maintDed'],
+                            'exp'     => $c['expDed'],
+                            'adv'     => $c['advDed'],
+                            'net'     => $c['net'],
+                            'month'   => $selMonth,
+                            'year'    => $selYear,
+                        ])); ?>)"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent-green text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-md shadow-accent-green/20">
+                            Process
+                        </button>
+                        <?php else: ?>
+                        <span class="text-slate-300 dark:text-slate-700 text-[11px] font-bold">No income</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- ── Payout History ──────────────────────────────────────────── -->
+    <div class="glass-card overflow-hidden">
+        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <h2 class="font-black text-slate-900 dark:text-white">Payout History</h2>
+            <span class="text-[11px] font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($totalReleased); ?> total released</span>
+        </div>
+        <?php if (empty($payouts)): ?>
+        <p class="text-center text-slate-400 font-medium text-sm py-10">No payouts recorded yet.</p>
+        <?php else: ?>
+        <div class="overflow-x-auto">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Date</th>
+                    <th>Landlord</th>
+                    <th>Period</th>
+                    <th>Reference</th>
+                    <th class="text-right">Net Amount</th>
+                    <th class="text-right">Voucher</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($payouts as $po): ?>
+                <tr>
+                    <td class="text-slate-500 font-medium text-sm"><?php echo date('d M Y', strtotime($po['payout_date'])); ?></td>
+                    <td class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($po['landlord_name']); ?></td>
+                    <td class="text-slate-500 text-sm font-medium">
+                        <?php if (!empty($po['period_month']) && !empty($po['period_year'])): ?>
+                        <?php echo $monthNames[str_pad($po['period_month'], 2, '0', STR_PAD_LEFT)] ?? ''; ?> <?php echo $po['period_year']; ?>
+                        <?php else: ?>—<?php endif; ?>
+                    </td>
+                    <td><span class="font-mono text-[11px] font-black px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg"><?php echo htmlspecialchars($po['reference_code']); ?></span></td>
+                    <td class="text-right font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($po['amount']); ?></td>
+                    <td class="text-right">
+                        <a href="view_voucher.php?ref=<?php echo urlencode($po['reference_code']); ?>" target="_blank"
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-white hover:text-white dark:hover:text-slate-900 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            Voucher
+                        </a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+    </div>
+
+</div><!-- /animate-in -->
+
+<!-- ── Process Payout Modal ───────────────────────────────────────── -->
+<div id="payoutModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-lg">
+        <button onclick="closeModal('payoutModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-1">Process Payout</h2>
+        <p id="payoutModalName" class="text-slate-500 font-medium text-sm mb-6"></p>
+
+        <!-- Breakdown summary -->
+        <div id="payoutBreakdown" class="mb-6 space-y-2 p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl text-sm font-bold"></div>
+
+        <form action="actions/payout_actions.php" method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="process_payout">
+            <input type="hidden" name="landlord_id" id="pModalLandlordId">
+            <input type="hidden" name="gross_amount" id="pModalGross">
+            <input type="hidden" name="fee_deducted" id="pModalFee">
+            <input type="hidden" name="maintenance_deduction" id="pModalMaint">
+            <input type="hidden" name="expense_deduction" id="pModalExp">
+            <input type="hidden" name="advance_deduction" id="pModalAdv">
+            <input type="hidden" name="net_amount" id="pModalNet">
+            <input type="hidden" name="period_month" id="pModalMonth">
+            <input type="hidden" name="period_year" id="pModalYear">
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Method</label>
+                <select name="method" class="form-input w-full">
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="M-Pesa">M-Pesa</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Cash">Cash</option>
+                </select>
             </div>
 
-            <div class="glass-card p-6">
-                <h3 class="text-lg font-black mb-4Caps">Payout Summary</h3>
-                <div class="space-y-3">
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Total Payouts Done</span>
-                        <span class="font-black"><?php echo count($payouts); ?></span>
-                    </div>
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-slate-500 font-medium">Total Value Released</span>
-                        <span class="font-black text-accent-green">KSh <?php 
-                        $totalReleased = array_sum(array_column($payouts, 'amount'));
-                        echo number_format($totalReleased); 
-                        ?></span>
-                    </div>
-                </div>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Notes (optional)</label>
+                <textarea name="notes" rows="2" placeholder="Any remittance note..." class="form-input w-full resize-none"></textarea>
             </div>
-        </div>
+
+            <button type="submit" class="btn-green w-full justify-center py-4">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                Confirm & Process
+            </button>
+        </form>
     </div>
 </div>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
+
+<script>
+function openPayoutModal(data) {
+    const cur = '<?php echo addslashes($currency); ?>';
+    document.getElementById('payoutModalName').textContent  = data.name;
+    document.getElementById('pModalLandlordId').value = data.id;
+    document.getElementById('pModalGross').value      = data.gross;
+    document.getElementById('pModalFee').value        = data.feeDed;
+    document.getElementById('pModalMaint').value      = data.maint;
+    document.getElementById('pModalExp').value        = data.exp;
+    document.getElementById('pModalAdv').value        = data.adv;
+    document.getElementById('pModalNet').value        = data.net;
+    document.getElementById('pModalMonth').value      = data.month;
+    document.getElementById('pModalYear').value       = data.year;
+
+    const fmt = n => cur + ' ' + n.toLocaleString('en-KE', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    const rows = [
+        ['Gross Rent Collected', fmt(data.gross), 'text-slate-900 dark:text-white'],
+        ['Management Fee (' + data.feeRate + '%)', '– ' + fmt(data.feeDed), 'text-orange-500'],
+    ];
+    if (data.maint > 0) rows.push(['Maintenance Costs', '– ' + fmt(data.maint), 'text-red-400']);
+    if (data.exp > 0)   rows.push(['Property Expenses', '– ' + fmt(data.exp),   'text-red-400']);
+    if (data.adv > 0)   rows.push(['Pending Advances',  '– ' + fmt(data.adv),   'text-purple-500']);
+    rows.push(['Net Payout', fmt(data.net), 'text-accent-green font-black text-base border-t border-slate-200 dark:border-slate-700 pt-2 mt-1']);
+
+    document.getElementById('payoutBreakdown').innerHTML = rows.map(([label, val, cls]) =>
+        `<div class="flex justify-between items-center ${cls}"><span class="text-slate-500 font-medium">${label}</span><span class="${cls}">${val}</span></div>`
+    ).join('');
+
+    openModal('payoutModal');
+}
+</script>

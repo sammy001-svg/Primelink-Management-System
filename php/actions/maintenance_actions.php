@@ -143,5 +143,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("Error recording landlord decision: " . $e->getMessage());
         }
     }
+
+    if ($action === 'update_cost' && in_array($user_role, ['admin', 'staff'])) {
+        $id           = $_POST['id']           ?? '';
+        $vendorName   = trim($_POST['vendor_name']   ?? '');
+        $quotedAmount = $_POST['quoted_amount'] !== '' ? (float)$_POST['quoted_amount'] : null;
+        $actualCost   = $_POST['actual_cost']   !== '' ? (float)$_POST['actual_cost']   : null;
+        $costStatus   = $_POST['cost_status']   !== '' ? $_POST['cost_status']           : null;
+        $vendorNotes  = trim($_POST['vendor_notes']  ?? '');
+
+        $validStatuses = ['Pending', 'Approved', 'Paid'];
+        if ($costStatus !== null && !in_array($costStatus, $validStatuses, true)) $costStatus = null;
+
+        try {
+            $stmt = $pdo->prepare("
+                UPDATE maintenance_requests
+                SET vendor_name    = ?,
+                    quoted_amount  = ?,
+                    actual_cost    = ?,
+                    cost_status    = ?,
+                    vendor_notes   = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$vendorName ?: null, $quotedAmount, $actualCost, $costStatus, $vendorNotes ?: null, $id]);
+
+            $detail = '';
+            if ($actualCost !== null) $detail .= "Actual: KSh " . number_format($actualCost);
+            if ($costStatus)          $detail .= " [{$costStatus}]";
+            logAction($pdo, 'maintenance_cost_updated', 'Maintenance', $id, $detail ?: 'Cost details updated');
+
+            header("Location: ../maintenance.php?success=cost_updated");
+            exit();
+        } catch (PDOException $e) {
+            die("Error saving cost: " . $e->getMessage());
+        }
+    }
 }
 ?>

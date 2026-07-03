@@ -58,6 +58,22 @@ if (!empty($tenantId)) {
         $categoryBalances[$b['invoice_type']] = (float)$b['balance'];
     }
 
+    // Announcements (last 14 days, all-audience or matching this tenant's property)
+    $myPropertyId = $tenantLease['property_id'] ?? null;
+    try { $pdo->exec("CREATE TABLE IF NOT EXISTS announcements (id VARCHAR(36) NOT NULL PRIMARY KEY, title VARCHAR(255) NOT NULL, message TEXT NOT NULL, audience VARCHAR(20) NOT NULL DEFAULT 'all', property_id VARCHAR(36) DEFAULT NULL, urgency VARCHAR(20) NOT NULL DEFAULT 'Info', sent_by VARCHAR(36) NOT NULL, recipient_count INT NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"); } catch (PDOException $e) {}
+    $annStmt = $pdo->prepare("
+        SELECT a.*, p.title AS property_title
+        FROM   announcements a
+        LEFT JOIN properties p ON a.property_id = p.id
+        WHERE  a.created_at >= NOW() - INTERVAL 14 DAY
+          AND  (a.audience = 'all'
+                OR (a.audience = 'property' AND a.property_id = ?))
+        ORDER  BY a.created_at DESC
+        LIMIT  5
+    ");
+    $annStmt->execute([$myPropertyId]);
+    $recentAnnouncements = $annStmt->fetchAll();
+
     // Tenant Specific Stats for cards
     $stats = [];
     $stats['my_requests']      = $pdo->query("SELECT COUNT(*) FROM maintenance_requests WHERE tenant_id = '$tenantId'")->fetchColumn();
@@ -67,6 +83,50 @@ if (!empty($tenantId)) {
 }
 ?>
 <div class="space-y-6">
+
+    <!-- Announcements from management (last 14 days) -->
+    <?php if (!empty($recentAnnouncements)): ?>
+    <div class="space-y-3">
+        <?php foreach ($recentAnnouncements as $ann):
+            $annBg = match($ann['urgency']) {
+                'Urgent'    => 'bg-red-50 dark:bg-red-900/10 border-red-300 dark:border-red-700/40',
+                'Important' => 'bg-orange-50 dark:bg-orange-900/10 border-orange-300 dark:border-orange-700/40',
+                default     => 'bg-blue-50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-700/40',
+            };
+            $annIcon = match($ann['urgency']) {
+                'Urgent'    => 'bg-red-100 dark:bg-red-900/30 text-red-500',
+                'Important' => 'bg-orange-100 dark:bg-orange-900/30 text-orange-500',
+                default     => 'bg-blue-100 dark:bg-blue-900/30 text-blue-500',
+            };
+            $annTitle = match($ann['urgency']) {
+                'Urgent'    => 'text-red-700 dark:text-red-400',
+                'Important' => 'text-orange-700 dark:text-orange-400',
+                default     => 'text-blue-700 dark:text-blue-400',
+            };
+        ?>
+        <div class="p-4 <?php echo $annBg; ?> border rounded-2xl flex items-start gap-3">
+            <div class="w-9 h-9 <?php echo $annIcon; ?> rounded-xl flex items-center justify-center shrink-0 mt-0.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.77a16 16 0 0 0 6.29 6.29l.77-.86a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16.92z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <span class="text-[9px] font-black uppercase tracking-widest <?php echo $annTitle; ?>"><?php echo $ann['urgency']; ?></span>
+                    <span class="text-[9px] text-slate-400 font-bold"><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></span>
+                    <?php if ($ann['audience'] === 'property' && $ann['property_title']): ?>
+                    <span class="text-[9px] text-slate-400 font-bold">&middot; <?php echo htmlspecialchars($ann['property_title']); ?></span>
+                    <?php endif; ?>
+                </div>
+                <p class="font-black text-sm text-slate-900 dark:text-white leading-snug">
+                    <?php echo htmlspecialchars($ann['title']); ?>
+                </p>
+                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                    <?php echo nl2br(htmlspecialchars($ann['message'])); ?>
+                </p>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Lease Renewal Alert — shown when active lease expires within 60 days -->
     <?php if (!empty($tenantLease)):

@@ -74,25 +74,69 @@ if ($_SESSION['role'] === 'landlord') {
             </div>
             <div class="text-right">
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payout Method</p>
-                <p class="text-lg font-black text-slate-900"><?php echo $payout['method']; ?></p>
+                <p class="text-lg font-black text-slate-900"><?php echo htmlspecialchars($payout['payment_method'] ?? $payout['method'] ?? 'Bank Transfer'); ?></p>
                 <p class="text-xs font-bold text-accent-green uppercase mt-1">Transaction Completed</p>
             </div>
         </div>
 
+        <?php
+        // Detect whether this payout has enriched breakdown columns
+        $hasBreakdown = !empty($payout['gross_amount']) && (float)$payout['gross_amount'] > 0;
+        $gross     = $hasBreakdown ? (float)$payout['gross_amount']            : ((float)$payout['amount'] + (float)$payout['fee_deducted']);
+        $feeDed    = (float)$payout['fee_deducted'];
+        $maintDed  = (float)($payout['maintenance_deduction'] ?? 0);
+        $expDed    = (float)($payout['expense_deduction']     ?? 0);
+        $advDed    = (float)($payout['advance_deduction']     ?? 0);
+        $net       = (float)$payout['amount'];
+        // Recalculate fee % for display
+        $feeRate   = $gross > 0 ? round($feeDed / $gross * 100, 1) : 10.0;
+
+        // Period label
+        $monthNames = ['1'=>'January','2'=>'February','3'=>'March','4'=>'April',
+                       '5'=>'May','6'=>'June','7'=>'July','8'=>'August',
+                       '9'=>'September','10'=>'October','11'=>'November','12'=>'December'];
+        $periodLabel = '';
+        if (!empty($payout['period_month']) && !empty($payout['period_year'])) {
+            $periodLabel = ($monthNames[$payout['period_month']] ?? '') . ' ' . $payout['period_year'];
+        }
+        ?>
         <div class="bg-slate-50 rounded-3xl p-8 mb-12 border border-slate-100">
-            <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Financial Breakdown</h3>
-            <div class="space-y-4">
+            <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-200">
+                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest">Remittance Breakdown</h3>
+                <?php if ($periodLabel): ?>
+                <span class="text-[10px] font-black text-accent-green uppercase tracking-widest"><?php echo $periodLabel; ?></span>
+                <?php endif; ?>
+            </div>
+            <div class="space-y-3">
                 <div class="flex justify-between items-center">
-                    <span class="text-sm font-bold text-slate-600">Gross Collection Amount</span>
-                    <span class="text-sm font-black text-slate-900">KSh <?php echo number_format($payout['amount'] + $payout['fee_deducted']); ?></span>
+                    <span class="text-sm font-bold text-slate-600">Gross Rent Collected</span>
+                    <span class="text-sm font-black text-slate-900">KSh <?php echo number_format($gross); ?></span>
                 </div>
                 <div class="flex justify-between items-center">
-                    <span class="text-sm font-bold text-slate-600">Management Fee (10.0%)</span>
-                    <span class="text-sm font-black text-orange-500">- KSh <?php echo number_format($payout['fee_deducted']); ?></span>
+                    <span class="text-sm font-bold text-slate-600">Management Fee (<?php echo $feeRate; ?>%)</span>
+                    <span class="text-sm font-black text-orange-500">– KSh <?php echo number_format($feeDed); ?></span>
                 </div>
-                <div class="pt-4 border-t border-slate-200 flex justify-between items-center text-xl">
-                    <span class="font-black text-slate-900">Net Payout Amount</span>
-                    <span class="font-black text-accent-green">KSh <?php echo number_format($payout['amount']); ?></span>
+                <?php if ($maintDed > 0): ?>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm font-bold text-slate-600">Maintenance Costs</span>
+                    <span class="text-sm font-black text-red-500">– KSh <?php echo number_format($maintDed); ?></span>
+                </div>
+                <?php endif; ?>
+                <?php if ($expDed > 0): ?>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm font-bold text-slate-600">Property Expenses</span>
+                    <span class="text-sm font-black text-red-500">– KSh <?php echo number_format($expDed); ?></span>
+                </div>
+                <?php endif; ?>
+                <?php if ($advDed > 0): ?>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm font-bold text-slate-600">Advance Recovery</span>
+                    <span class="text-sm font-black text-purple-500">– KSh <?php echo number_format($advDed); ?></span>
+                </div>
+                <?php endif; ?>
+                <div class="pt-4 border-t border-slate-200 flex justify-between items-center">
+                    <span class="text-xl font-black text-slate-900">Net Payout Amount</span>
+                    <span class="text-xl font-black text-accent-green">KSh <?php echo number_format($net); ?></span>
                 </div>
             </div>
         </div>

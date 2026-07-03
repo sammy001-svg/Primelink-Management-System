@@ -82,6 +82,7 @@ include __DIR__ . '/includes/sidebar.php';
                     <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact</th>
                     <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Properties</th>
                     <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Tenants</th>
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Mgmt Fee</th>
                     <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
                 </tr>
             </thead>
@@ -113,6 +114,10 @@ include __DIR__ . '/includes/sidebar.php';
                     </td>
                     <td class="p-5">
                         <span class="text-sm font-bold"><?php echo $ll['tenant_count']; ?></span>
+                    </td>
+                    <td class="p-5">
+                        <span class="text-sm font-black text-orange-500"><?php echo number_format($ll['management_fee'] ?? 10, 1); ?>%</span>
+                        <p class="text-[10px] text-slate-400">Mgmt fee</p>
                     </td>
                     <td class="p-5 text-right">
                         <button onclick="openAssignModal('<?php echo $ll['id']; ?>','<?php echo htmlspecialchars($ll['full_name']); ?>')" 
@@ -203,6 +208,11 @@ include __DIR__ . '/includes/sidebar.php';
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Initial Password</label>
                 <input type="password" name="password" required placeholder="••••••••" class="form-input">
+            </div>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Management Fee (%)</label>
+                <input type="number" name="management_fee" value="10" min="0" max="100" step="0.5" placeholder="10" class="form-input">
+                <p class="text-[10px] text-slate-400 px-1">Percentage deducted from gross collected rent at payout.</p>
             </div>
             <button type="submit" class="btn-green w-full justify-center py-4">Create Landlord Account</button>
         </form>
