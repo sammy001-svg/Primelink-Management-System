@@ -19,6 +19,7 @@ $pageTitle = 'Vacancy Forecasting';
 // ── Schema self-heal ─────────────────────────────────────────────────
 try { $pdo->exec("ALTER TABLE `leases` ADD COLUMN `renewal_status` ENUM('Offered','Accepted','Declined') NULL AFTER `status`"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE `leases` ADD COLUMN `parent_lease_id` VARCHAR(36) NULL AFTER `renewal_status`"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE `units` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch (PDOException $e) {}
 
 // ── 1. Currently Vacant Units ─────────────────────────────────────────
 $vacantUnits = $pdo->query("

@@ -81,7 +81,7 @@ $vacantStmt = $pdo->query("
 $vacantRows = $vacantStmt->fetchAll();
 
 // ── 5. Employees list (for maint quick-assign dropdown) ──────────────
-$employees = $pdo->query("SELECT id, full_name, role_title FROM employees ORDER BY full_name")->fetchAll();
+$employees = $pdo->query("SELECT id, full_name, role FROM employees ORDER BY full_name")->fetchAll();
 
 // ── KPI totals ───────────────────────────────────────────────────────
 $kpiOverdueAmt     = array_sum(array_column($overdueRows, 'total_amount'));

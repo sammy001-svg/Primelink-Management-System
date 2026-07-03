@@ -5,9 +5,24 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin']);
+requireRole(['admin']);
 
 $pageTitle = "Audit Log";
+
+// Self-heal: create audit_logs if it doesn't exist yet
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS audit_logs (
+        id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+        user_id     VARCHAR(36)  DEFAULT NULL,
+        user_name   VARCHAR(120) DEFAULT NULL,
+        action      VARCHAR(100) NOT NULL,
+        module      VARCHAR(60)  DEFAULT NULL,
+        record_id   VARCHAR(36)  DEFAULT NULL,
+        description TEXT         DEFAULT NULL,
+        ip_address  VARCHAR(45)  DEFAULT NULL,
+        created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+} catch (PDOException $e) {}
 
 $perPage  = 30;
 $page     = max(1, (int)($_GET['page'] ?? 1));

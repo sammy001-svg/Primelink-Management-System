@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin']);
+requireRole(['admin']);
 
 require_once __DIR__ . '/includes/settings.php';
 
@@ -19,6 +19,7 @@ $s = getSettings($pdo, [
     'mail_driver', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
     'smtp_from_name', 'smtp_from_email',
     'notify_on_payment', 'notify_on_maintenance', 'notify_on_lease',
+    'penalty_enabled', 'penalty_grace_days', 'penalty_type', 'penalty_amount', 'penalty_percentage',
 ]);
 
 // Defaults for anything not yet seeded
@@ -49,6 +50,11 @@ $defaults = [
     'notify_on_payment'     => '1',
     'notify_on_maintenance' => '1',
     'notify_on_lease'       => '1',
+    'penalty_enabled'       => '0',
+    'penalty_grace_days'    => '5',
+    'penalty_type'          => 'fixed',
+    'penalty_amount'        => '500',
+    'penalty_percentage'    => '5',
 ];
 
 foreach ($defaults as $key => $def) {
@@ -78,6 +84,7 @@ include __DIR__ . '/includes/sidebar.php';
         <button onclick="switchTab('mpesa')"     class="tab-btn"        data-tab="mpesa">M-Pesa</button>
         <button onclick="switchTab('email')"     class="tab-btn"        data-tab="email">Email & Notifications</button>
         <button onclick="switchTab('system')"    class="tab-btn"        data-tab="system">System</button>
+        <button onclick="switchTab('penalties')" class="tab-btn"        data-tab="penalties">Penalties</button>
     </div>
 
     <!-- Toast -->
@@ -411,6 +418,99 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
     </div>
 
+    <!-- ===== TAB: PENALTIES ===== -->
+    <div id="tab-penalties" class="tab-panel hidden">
+        <form id="form-penalties" class="glass-card p-8 space-y-6">
+            <input type="hidden" name="action" value="save_penalties">
+            <h2 class="text-lg font-black text-slate-900 dark:text-white">Late Payment Penalties</h2>
+            <p class="text-xs text-slate-400 font-medium -mt-3">Automatically charge a penalty fee on overdue invoices that exceed the grace period.</p>
+
+            <!-- Enable toggle -->
+            <div class="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div>
+                    <p class="font-black text-sm text-slate-900 dark:text-white">Enable Late Payment Penalties</p>
+                    <p class="text-xs text-slate-400 mt-0.5">When enabled, overdue invoices past the grace period will appear in the Penalty Manager.</p>
+                </div>
+                <label class="relative cursor-pointer shrink-0">
+                    <input type="checkbox" name="penalty_enabled" value="1" id="penalty_enabled_toggle"
+                           <?php echo $s['penalty_enabled'] === '1' ? 'checked' : ''; ?>
+                           class="sr-only peer">
+                    <div class="w-12 h-6 bg-slate-200 dark:bg-slate-700 rounded-full peer-checked:bg-accent-green transition-colors"></div>
+                    <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-6"></div>
+                </label>
+            </div>
+
+            <!-- Grace period -->
+            <div class="space-y-2">
+                <label class="field-label">Grace Period (days after due date)</label>
+                <input type="number" name="penalty_grace_days"
+                       value="<?php echo (int)$s['penalty_grace_days']; ?>"
+                       min="0" max="90" class="field-input" placeholder="5">
+                <p class="text-[10px] text-slate-400 px-2">
+                    Invoices must be overdue for at least this many days before a penalty can be applied.
+                    Set to 0 for no grace period.
+                </p>
+            </div>
+
+            <!-- Penalty type -->
+            <div class="space-y-3">
+                <label class="field-label">Penalty Type</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="relative cursor-pointer">
+                        <input type="radio" name="penalty_type" value="fixed" class="peer sr-only"
+                               <?php echo $s['penalty_type'] !== 'percentage' ? 'checked' : ''; ?>
+                               onchange="document.getElementById('pen-fixed').classList.remove('hidden'); document.getElementById('pen-pct').classList.add('hidden');">
+                        <div class="p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-center transition-all peer-checked:border-accent-green peer-checked:bg-green-50 dark:peer-checked:bg-green-900/20 hover:border-slate-400 dark:hover:border-slate-500">
+                            <p class="font-black text-sm">Fixed Amount</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Same penalty regardless of invoice amount</p>
+                        </div>
+                    </label>
+                    <label class="relative cursor-pointer">
+                        <input type="radio" name="penalty_type" value="percentage" class="peer sr-only"
+                               <?php echo $s['penalty_type'] === 'percentage' ? 'checked' : ''; ?>
+                               onchange="document.getElementById('pen-pct').classList.remove('hidden'); document.getElementById('pen-fixed').classList.add('hidden');">
+                        <div class="p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-center transition-all peer-checked:border-accent-green peer-checked:bg-green-50 dark:peer-checked:bg-green-900/20 hover:border-slate-400 dark:hover:border-slate-500">
+                            <p class="font-black text-sm">Percentage (%)</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Proportional to the overdue invoice amount</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Fixed amount field -->
+            <div id="pen-fixed" class="space-y-2 <?php echo $s['penalty_type'] === 'percentage' ? 'hidden' : ''; ?>">
+                <label class="field-label">Penalty Amount (<?php echo htmlspecialchars($s['currency_symbol'] ?: 'KSh'); ?>)</label>
+                <input type="number" name="penalty_amount"
+                       value="<?php echo number_format((float)$s['penalty_amount'], 2, '.', ''); ?>"
+                       min="0" step="0.01" class="field-input" placeholder="500">
+            </div>
+
+            <!-- Percentage field -->
+            <div id="pen-pct" class="space-y-2 <?php echo $s['penalty_type'] !== 'percentage' ? 'hidden' : ''; ?>">
+                <label class="field-label">Penalty Percentage (%)</label>
+                <input type="number" name="penalty_percentage"
+                       value="<?php echo number_format((float)$s['penalty_percentage'], 2, '.', ''); ?>"
+                       min="0" max="100" step="0.1" class="field-input" placeholder="5">
+                <p class="text-[10px] text-slate-400 px-2">E.g. 5 means 5% of the original overdue invoice amount.</p>
+            </div>
+
+            <!-- Info box -->
+            <div class="p-4 bg-blue-50 dark:bg-blue-900/15 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                <p class="text-[10px] font-black text-blue-700 dark:text-blue-400 uppercase tracking-widest mb-1">How it works</p>
+                <p class="text-xs text-blue-600 dark:text-blue-400 leading-relaxed">
+                    Penalties are <strong>not applied automatically</strong>. Go to
+                    <a href="late_penalties.php" class="font-black underline">Financials → Late Penalties</a>
+                    to preview eligible invoices and apply penalties in bulk or individually.
+                    Each penalty is created as a separate invoice of type <em>Penalty</em>, visible in the tenant's portal.
+                </p>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button type="submit" class="btn-green px-8 py-3 font-black">Save Penalty Settings</button>
+            </div>
+        </form>
+    </div>
+
 </div>
 
 <style>
@@ -509,7 +609,7 @@ async function sendTestEmail() {
     showToast(data2.message, data2.success);
 }
 
-['company', 'invoice', 'mpesa', 'email'].forEach(name => {
+['company', 'invoice', 'mpesa', 'email', 'penalties'].forEach(name => {
     const form = document.getElementById('form-' + name);
     if (!form) return;
     form.addEventListener('submit', async e => {

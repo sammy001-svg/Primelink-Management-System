@@ -5,9 +5,12 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin']);
+requireRole(['admin']);
 
 $pageTitle = "User Management";
+
+// Self-heal: add status column if missing
+try { $pdo->exec("ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Active'"); } catch (PDOException $e) {}
 
 $success = $_GET['success'] ?? '';
 $error   = $_GET['error']   ?? '';

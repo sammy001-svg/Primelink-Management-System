@@ -89,4 +89,17 @@ if ($action === 'test_email') {
     exit;
 }
 
+if ($action === 'save_penalties') {
+    $type = in_array($_POST['penalty_type'] ?? '', ['fixed', 'percentage']) ? $_POST['penalty_type'] : 'fixed';
+    setSettings($pdo, [
+        'penalty_enabled'    => isset($_POST['penalty_enabled']) ? '1' : '0',
+        'penalty_grace_days' => (string)max(0, min(90, (int)($_POST['penalty_grace_days'] ?? 5))),
+        'penalty_type'       => $type,
+        'penalty_amount'     => (string)max(0, (float)($_POST['penalty_amount']     ?? 500)),
+        'penalty_percentage' => (string)max(0, min(100, (float)($_POST['penalty_percentage'] ?? 5))),
+    ]);
+    echo json_encode(['success' => true, 'message' => 'Penalty settings saved.']);
+    exit;
+}
+
 echo json_encode(['success' => false, 'message' => 'Unknown action.']);

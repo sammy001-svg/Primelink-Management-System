@@ -4,7 +4,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/mailer.php';

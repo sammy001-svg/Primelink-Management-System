@@ -32,6 +32,7 @@ $_breadcrumbMap = [
     'vacancies.php'          => ['Vacancy Forecasting',  'Leases',          'leases.php'],
     'command_center.php'     => ['Command Center',       'Dashboard',       'dashboard.php'],
     'announcements.php'      => ['Announcements',         'Dashboard',       'dashboard.php'],
+    'late_penalties.php'     => ['Late Penalties',        'Tenant Payments', 'tenant_payments.php'],
     'bulk_invoices.php'      => ['Bulk Invoice Generator','Tenant Payments', 'tenant_payments.php'],
     'view_statement.php'     => ['Tenant Statement',    'Financials',      'financials.php'],
     'landlord_statement.php' => ['My Statement',        'Dashboard',       'dashboard.php'],
