@@ -166,5 +166,100 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("Error creating tenant: " . $e->getMessage());
         }
     }
+
+    // ── assign_unit: create a new lease for an existing tenant ────────
+    if ($action === 'assign_unit') {
+        $tenantId    = trim($_POST['tenant_id']      ?? '');
+        $unitId      = trim($_POST['unit_id']         ?? '');
+        $propertyId  = trim($_POST['property_id']     ?? '');
+        $startDate   = $_POST['start_date']            ?? date('Y-m-d');
+        $endDate     = !empty($_POST['end_date']) ? $_POST['end_date'] : null;
+        $monthlyRent = (float)($_POST['monthly_rent']    ?? 0);
+        $depositAmt  = (float)($_POST['deposit_amount']  ?? 0);
+
+        if (!$tenantId || !$unitId || !$propertyId || $monthlyRent <= 0) {
+            header('Location: ../tenants.php?error=' . urlencode('Missing required fields.'));
+            exit();
+        }
+
+        // Resolve property_id from unit if blank
+        if (!$propertyId) {
+            $r = $pdo->prepare("SELECT property_id FROM units WHERE id = ?");
+            $r->execute([$unitId]);
+            $propertyId = $r->fetchColumn() ?: '';
+        }
+
+        // Block if tenant already has an active lease
+        $dup = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND status = 'Active'");
+        $dup->execute([$tenantId]);
+        if ((int)$dup->fetchColumn() > 0) {
+            header('Location: ../tenants.php?error=' . urlencode('Tenant already has an active lease. End the current lease first.'));
+            exit();
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $leaseId = generateUUID();
+            $pdo->prepare("
+                INSERT INTO leases (id, tenant_id, unit_id, property_id, start_date, end_date, monthly_rent, deposit_amount, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')
+            ")->execute([$leaseId, $tenantId, $unitId, $propertyId, $startDate, $endDate, $monthlyRent, $depositAmt]);
+
+            $pdo->prepare("UPDATE units   SET status = 'Occupied' WHERE id = ?")->execute([$unitId]);
+            $pdo->prepare("UPDATE tenants SET status = 'Active'   WHERE id = ?")->execute([$tenantId]);
+            $pdo->commit();
+
+            require_once __DIR__ . '/../includes/audit.php';
+            logAction($pdo, 'unit_assigned', 'Tenants', $tenantId, "Lease {$leaseId} created, unit {$unitId}");
+
+            header('Location: ../tenants.php?success=unit_assigned');
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            header('Location: ../tenants.php?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── delete: permanently remove tenant with no lease history ───────
+    if ($action === 'delete') {
+        $tenantId = trim($_POST['tenant_id'] ?? '');
+        if (!$tenantId) { header('Location: ../tenants.php'); exit(); }
+
+        // Block delete if tenant has any lease (active or historical)
+        $leaseCheck = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ?");
+        $leaseCheck->execute([$tenantId]);
+        if ((int)$leaseCheck->fetchColumn() > 0) {
+            header('Location: ../tenants.php?error=has_lease');
+            exit();
+        }
+
+        $row = $pdo->prepare("SELECT user_id, full_name FROM tenants WHERE id = ?");
+        $row->execute([$tenantId]);
+        $tenant = $row->fetch();
+        if (!$tenant) { header('Location: ../tenants.php?error=not_found'); exit(); }
+
+        try {
+            $pdo->beginTransaction();
+            // Clean up related records first
+            $pdo->prepare("DELETE FROM maintenance_requests WHERE tenant_id = ?")->execute([$tenantId]);
+            $pdo->prepare("DELETE FROM invoices            WHERE tenant_id = ?")->execute([$tenantId]);
+            $pdo->prepare("DELETE FROM tenants             WHERE id        = ?")->execute([$tenantId]);
+            if ($tenant['user_id']) {
+                $pdo->prepare("DELETE FROM notifications WHERE user_id = ?")->execute([$tenant['user_id']]);
+                $pdo->prepare("DELETE FROM profiles      WHERE id      = ?")->execute([$tenant['user_id']]);
+                $pdo->prepare("DELETE FROM users         WHERE id      = ?")->execute([$tenant['user_id']]);
+            }
+            $pdo->commit();
+
+            require_once __DIR__ . '/../includes/audit.php';
+            logAction($pdo, 'tenant_deleted', 'Tenants', $tenantId, "Deleted: {$tenant['full_name']}");
+
+            header('Location: ../tenants.php?success=tenant_deleted');
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            header('Location: ../tenants.php?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+    }
 }
 ?>

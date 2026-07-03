@@ -89,11 +89,36 @@ $kpiNoLease  = count(array_filter($tenants, fn($t) => empty($t['lease_id'])));
 $allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
 $allUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount, status FROM units WHERE status = 'Available' ORDER BY unit_number")->fetchAll();
 
+$success = $_GET['success'] ?? '';
+$error   = $_GET['error']   ?? '';
+
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
 <div class="space-y-7 animate-in">
+
+<?php
+$toastMsg = match($success) {
+    'created'         => 'Tenant registered successfully.',
+    'profile_updated' => 'Tenant details updated.',
+    'unit_assigned'   => 'Unit assigned and lease created.',
+    'tenant_deleted'  => 'Tenant deleted permanently.',
+    'password_reset'  => 'Password reset successfully.',
+    default           => ''
+};
+$errorMsg = match($error) {
+    'has_lease'         => 'Cannot delete: tenant has lease history. Terminate the lease first.',
+    'not_found'         => 'Tenant record not found.',
+    'passwords_mismatch'=> 'Passwords do not match.',
+    default             => $error ? htmlspecialchars($error) : ''
+};
+?>
+<?php if ($toastMsg): ?>
+<div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl text-green-700 dark:text-green-400 text-sm font-bold"><?php echo $toastMsg; ?></div>
+<?php elseif ($errorMsg): ?>
+<div class="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl text-red-700 dark:text-red-400 text-sm font-bold"><?php echo $errorMsg; ?></div>
+<?php endif; ?>
 
     <!-- ── Page Header ──────────────────────────────────────── -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -317,6 +342,29 @@ include __DIR__ . '/includes/sidebar.php';
                                             <?php endif; ?>
                                         </button>
                                     </form>
+                                    <?php
+                                    $_editD = json_encode(['id'=>$t['id'],'name'=>$t['full_name']??'','phone'=>$t['phone']??'','email'=>$t['email']??'']);
+                                    $_tId   = json_encode($t['id']);
+                                    $_tName = json_encode($t['full_name'] ?? '');
+                                    ?>
+                                    <div class="action-divider"></div>
+                                    <button onclick='openEditModal(<?php echo $_editD; ?>)' class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Edit Details
+                                    </button>
+                                    <button onclick='openAssignUnitModal(<?php echo $_tId; ?>, <?php echo $_tName; ?>)' class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+                                        <?php echo $hasLease ? 'Change Unit' : 'Assign Unit'; ?>
+                                    </button>
+                                    <button onclick='openResetPassModal(<?php echo $_tId; ?>, <?php echo $_tName; ?>)' class="action-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                        Reset Password
+                                    </button>
+                                    <div class="action-divider"></div>
+                                    <button onclick='confirmDelete(<?php echo $_tId; ?>, <?php echo $_tName; ?>)' class="action-item text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                                        Delete Tenant
+                                    </button>
                                     <?php endif; ?>
                                 </div>
                             </div>
@@ -527,6 +575,134 @@ include __DIR__ . '/includes/sidebar.php';
     </div>
     <?php endif; ?>
 
+    <!-- ── Edit Details Modal ──────────────────────────────────── -->
+    <?php if ($canManage): ?>
+    <div id="editTenantModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card max-w-lg px-8 py-10">
+            <button onclick="closeModal('editTenantModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <h2 class="text-2xl font-black mb-1 tracking-tight">Edit Tenant</h2>
+            <p class="text-xs text-slate-400 font-medium mb-8">Update basic contact information.</p>
+            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-5">
+                <input type="hidden" name="action" value="quick_edit">
+                <input type="hidden" name="tenant_id" id="editTenant_id">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name *</label>
+                    <input type="text" name="full_name" id="editTenant_name" required
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                        <input type="text" name="phone" id="editTenant_phone"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</label>
+                        <input type="email" name="email" id="editTenant_email"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary w-full justify-center py-4 font-black">Save Changes →</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Assign Unit Modal ────────────────────────────────────── -->
+    <div id="assignUnitModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card max-w-lg px-8 py-10">
+            <button onclick="closeModal('assignUnitModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <h2 class="text-2xl font-black mb-1 tracking-tight">Assign Unit</h2>
+            <p class="text-xs text-slate-400 font-medium mb-1">Assigning to: <span id="assign_tenant_name" class="font-black text-slate-700 dark:text-slate-200"></span></p>
+            <p class="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-8">Only tenants without an active lease can be assigned here.</p>
+            <form action="actions/tenant_actions.php" method="POST" class="space-y-5">
+                <input type="hidden" name="action" value="assign_unit">
+                <input type="hidden" name="tenant_id" id="assign_tenant_id">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Property *</label>
+                        <select name="property_id" id="assign_property_id" required onchange="filterAssignUnits(this.value)"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="">Select Property</option>
+                            <?php foreach ($allProperties as $p): ?>
+                            <option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['title']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit *</label>
+                        <select name="unit_id" id="assign_unit_id" required onchange="fillAssignRent(this)"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="">Select Property First</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Rent *</label>
+                        <input type="number" name="monthly_rent" id="assign_monthly_rent" required min="1" step="0.01" placeholder="Auto-fills from unit"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Deposit Amount</label>
+                        <input type="number" name="deposit_amount" id="assign_deposit_amount" min="0" step="0.01" placeholder="0"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lease Start *</label>
+                        <input type="date" name="start_date" id="assign_start_date" required
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lease End <span class="normal-case font-medium">(optional)</span></label>
+                        <input type="date" name="end_date" id="assign_end_date"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                </div>
+                <button type="submit" class="btn-green w-full justify-center py-4 font-black">Assign Unit & Create Lease →</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Reset Password Modal ─────────────────────────────────── -->
+    <div id="resetPassModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card max-w-md px-8 py-10">
+            <button onclick="closeModal('resetPassModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <h2 class="text-2xl font-black mb-1 tracking-tight">Reset Password</h2>
+            <p class="text-xs text-slate-400 font-medium mb-8">Setting new password for: <span id="resetPass_tenant_name" class="font-black text-slate-700 dark:text-slate-200"></span></p>
+            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-5">
+                <input type="hidden" name="action" value="reset_password">
+                <input type="hidden" name="tenant_id" id="resetPass_tenant_id">
+                <input type="hidden" name="_redirect" value="tenants.php">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Password *</label>
+                    <input type="password" name="new_password" id="resetPass_new" required minlength="6" placeholder="••••••••"
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Confirm Password *</label>
+                    <input type="password" name="confirm_password" id="resetPass_confirm" required minlength="6" placeholder="••••••••"
+                        class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                </div>
+                <button type="submit" class="btn-primary w-full justify-center py-4 font-black">Set New Password →</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Hidden Delete Form ───────────────────────────────────── -->
+    <form id="deleteForm" action="actions/tenant_actions.php" method="POST" style="display:none;">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="tenant_id" id="deleteTenant_id">
+    </form>
+    <?php endif; ?>
+
 </div><!-- end space-y-7 -->
 
 <style>
@@ -571,8 +747,9 @@ html.dark .action-divider { background: #1e293b; }
 </style>
 
 <script>
-/* ── Unit filtering for add-tenant modal ─── */
+/* ── Data for modals ────────────────────────── */
 const allUnits = <?php echo json_encode($allUnits); ?>;
+const allProps = <?php echo json_encode($allProperties); ?>;
 function filterAdminUnits(propertyId) {
     const sel = document.getElementById('admin_unit_select');
     sel.innerHTML = '<option value="">Select Unit</option>';
@@ -650,6 +827,66 @@ function clearFilters() {
     document.getElementById('tenantSearch').value = '';
     document.getElementById('statusFilter').value = '';
     filterTable();
+}
+
+/* ── Edit Details Modal ─────────────────────── */
+function openEditModal(d) {
+    document.getElementById('editTenant_id').value    = d.id;
+    document.getElementById('editTenant_name').value  = d.name;
+    document.getElementById('editTenant_phone').value = d.phone;
+    document.getElementById('editTenant_email').value = d.email;
+    openModal('editTenantModal');
+}
+
+/* ── Assign Unit Modal ──────────────────────── */
+function openAssignUnitModal(id, name) {
+    document.getElementById('assign_tenant_id').value       = id;
+    document.getElementById('assign_tenant_name').textContent = name;
+    document.getElementById('assign_property_id').value     = '';
+    document.getElementById('assign_unit_id').innerHTML     = '<option value="">Select Property First</option>';
+    document.getElementById('assign_monthly_rent').value    = '';
+    document.getElementById('assign_deposit_amount').value  = '';
+    document.getElementById('assign_start_date').value      = new Date().toISOString().slice(0, 10);
+    document.getElementById('assign_end_date').value        = '';
+    openModal('assignUnitModal');
+}
+function filterAssignUnits(propId) {
+    const sel = document.getElementById('assign_unit_id');
+    sel.innerHTML = '<option value="">Select Unit</option>';
+    document.getElementById('assign_monthly_rent').value   = '';
+    document.getElementById('assign_deposit_amount').value = '';
+    if (!propId) return;
+    allUnits.filter(u => u.property_id === propId).forEach(u => {
+        const o = document.createElement('option');
+        o.value = u.id;
+        o.dataset.rent    = u.monthly_rent;
+        o.dataset.deposit = u.deposit_amount || '0';
+        o.textContent = `Unit ${u.unit_number} — <?php echo $currency; ?> ${parseInt(u.monthly_rent).toLocaleString()}/mo`;
+        sel.appendChild(o);
+    });
+}
+function fillAssignRent(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && opt.dataset.rent) {
+        document.getElementById('assign_monthly_rent').value   = opt.dataset.rent;
+        document.getElementById('assign_deposit_amount').value = opt.dataset.deposit;
+    }
+}
+
+/* ── Reset Password Modal ───────────────────── */
+function openResetPassModal(id, name) {
+    document.getElementById('resetPass_tenant_id').value         = id;
+    document.getElementById('resetPass_tenant_name').textContent = name;
+    document.getElementById('resetPass_new').value               = '';
+    document.getElementById('resetPass_confirm').value           = '';
+    openModal('resetPassModal');
+}
+
+/* ── Delete Tenant ──────────────────────────── */
+function confirmDelete(id, name) {
+    if (!confirm(`Permanently delete "${name}"?\n\nThis cannot be undone. Tenants with any lease history cannot be deleted — terminate the lease first.`)) return;
+    document.getElementById('deleteTenant_id').value = id;
+    document.getElementById('deleteForm').submit();
 }
 </script>
 
