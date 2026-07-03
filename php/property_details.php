@@ -40,21 +40,76 @@ if (!$property) {
     die("Property not found.");
 }
 
-// Fetch units
-$stmt = $pdo->prepare("SELECT * FROM units WHERE property_id = ? ORDER BY unit_number ASC");
+// Fetch units with active tenant + outstanding balance
+$unitSql = "
+    SELECT u.*,
+        l.id         AS lease_id,
+        l.start_date AS lease_start,
+        l.end_date   AS lease_end,
+        t.id         AS tenant_id,
+        t.full_name  AS tenant_name,
+        t.phone      AS tenant_phone,
+        t.email      AS tenant_email,
+        COALESCE((
+            SELECT SUM(inv.amount)
+            FROM   invoices inv
+            WHERE  inv.tenant_id = t.id
+              AND  inv.status NOT IN ('Paid','Cancelled')
+        ), 0) AS outstanding_balance,
+        (
+            SELECT COUNT(*)
+            FROM   invoices inv
+            WHERE  inv.tenant_id = t.id
+              AND  inv.status NOT IN ('Paid','Cancelled')
+        ) AS unpaid_invoice_count
+    FROM  units u
+    LEFT JOIN leases  l ON l.unit_id = u.id AND l.status = 'Active'
+    LEFT JOIN tenants t ON l.tenant_id = t.id
+    WHERE u.property_id = ?
+    ORDER BY u.unit_number ASC
+";
+$stmt = $pdo->prepare($unitSql);
 try {
     $stmt->execute([$propertyId]);
 } catch (PDOException $e) {
     if ($e->getCode() == '42S22') {
-        // Repair missing meter columns
         $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_meter` VARCHAR(100) NULL AFTER `deposit_amount` ");
         $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_meter` VARCHAR(100) NULL AFTER `electricity_meter` ");
+        $stmt = $pdo->prepare($unitSql);
         $stmt->execute([$propertyId]);
     } else {
         throw $e;
     }
 }
 $units = $stmt->fetchAll();
+
+// Build keyed panel data for JS (avoids quoting issues in onclick attrs)
+$unitPanelData = [];
+foreach ($units as $u) {
+    $unitPanelData[$u['id']] = [
+        'id'                => $u['id'],
+        'unit_number'       => $u['unit_number'],
+        'unit_type'         => $u['unit_type']         ?? '',
+        'floor_number'      => $u['floor_number']       ?? 'G',
+        'category'          => $u['category']           ?? '',
+        'status'            => $u['status'],
+        'monthly_rent'      => (float)$u['monthly_rent'],
+        'deposit_amount'    => (float)$u['deposit_amount'],
+        'electricity_meter' => $u['electricity_meter']  ?? '',
+        'water_meter'       => $u['water_meter']        ?? '',
+        'lease_start'       => $u['lease_start']        ?? null,
+        'lease_end'         => $u['lease_end']          ?? null,
+        'tenant_id'         => $u['tenant_id']          ?? null,
+        'tenant_name'       => $u['tenant_name']        ?? null,
+        'tenant_phone'      => $u['tenant_phone']       ?? null,
+        'tenant_email'      => $u['tenant_email']       ?? null,
+        'outstanding_balance' => (float)($u['outstanding_balance'] ?? 0),
+        'unpaid_count'      => (int)($u['unpaid_invoice_count']    ?? 0),
+    ];
+}
+
+$flash    = $_GET['success'] ?? '';
+$flashErr = $_GET['error']   ?? '';
 
 // Calculate stats
 $totalUnits = count($units);
@@ -79,6 +134,26 @@ include __DIR__ . '/includes/sidebar.php';
 ?>
 
 <div class="space-y-8 animate-in">
+
+<?php
+$flashMsg = match($flash) {
+    'unit_created' => 'Unit registered successfully.',
+    'unit_updated' => 'Unit updated.',
+    'unit_deleted' => 'Unit deleted permanently.',
+    default        => ''
+};
+$flashErrMsg = match($flashErr) {
+    'has_tenant' => 'Cannot delete: unit has an active tenant. Terminate the lease first.',
+    'not_found'  => 'Unit not found.',
+    default      => $flashErr ? htmlspecialchars($flashErr) : '',
+};
+?>
+<?php if ($flashMsg): ?>
+<div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl text-green-700 dark:text-green-400 text-sm font-bold"><?php echo $flashMsg; ?></div>
+<?php elseif ($flashErrMsg): ?>
+<div class="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl text-red-700 dark:text-red-400 text-sm font-bold"><?php echo $flashErrMsg; ?></div>
+<?php endif; ?>
+
     <!-- Header -->
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
@@ -249,7 +324,9 @@ include __DIR__ . '/includes/sidebar.php';
                                 <tr><td colspan="5" class="p-12 text-center text-slate-400 font-medium italic">No units registered for this property.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($units as $unit): ?>
-                                <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group">
+                                <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer"
+                                    onclick="openUnitPanel('<?php echo $unit['id']; ?>')"
+                                    title="Click to view unit details">
                                     <td class="p-4">
                                         <div class="flex items-center gap-3">
                                             <?php 
@@ -280,16 +357,28 @@ include __DIR__ . '/includes/sidebar.php';
                                             <?php echo $unit['status']; ?>
                                         </span>
                                     </td>
-                                    <td class="p-4 text-right">
-                                        <div class="flex justify-end gap-2">
-                                            <?php if ($role === 'admin' || $role === 'staff'): ?>
-                                            <button onclick='openEditUnitModal(<?php echo json_encode($unit); ?>)' class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-green transition-all" title="Edit Unit">
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                    <td class="p-4 text-right" onclick="event.stopPropagation()">
+                                        <div class="relative inline-block unit-menu-wrap">
+                                            <button onclick="toggleUnitMenu(this)"
+                                                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-all">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>
                                             </button>
-                                            <?php endif; ?>
-                                            <button class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-accent-green transition-all">
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-                                            </button>
+                                            <div class="unit-action-menu hidden">
+                                                <button onclick="openUnitPanel('<?php echo $unit['id']; ?>')" class="unit-action-item">
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                                <?php if ($role === 'admin' || $role === 'staff'): ?>
+                                                <button onclick="openEditUnitModal(<?php echo json_encode($unit); ?>)" class="unit-action-item">
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                                    Edit
+                                                </button>
+                                                <button onclick="confirmDeleteUnit('<?php echo $unit['id']; ?>', '<?php echo htmlspecialchars(addslashes($unit['unit_number'])); ?>')" class="unit-action-item text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10">
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                                                    Delete
+                                                </button>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
@@ -385,6 +474,134 @@ include __DIR__ . '/includes/sidebar.php';
     </div>
 </div>
 
+    <!-- Unit Details Slide Panel -->
+    <div id="unitPanel" class="fixed inset-0 z-50 flex justify-end" style="display:none;">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeUnitPanel()"></div>
+        <div class="relative w-full max-w-md bg-white dark:bg-slate-900 h-full overflow-y-auto shadow-2xl flex flex-col border-l border-slate-100 dark:border-slate-800">
+
+            <!-- Panel Header -->
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div>
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Unit Details</p>
+                    <h2 class="text-2xl font-black text-slate-900 dark:text-white" id="panel_unit_title">Unit —</h2>
+                </div>
+                <button onclick="closeUnitPanel()" class="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-6 flex-1">
+                <!-- Status + Meta -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <span id="panel_status_badge" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest"></span>
+                    <span id="panel_unit_type" class="text-xs font-bold text-slate-500 dark:text-slate-400"></span>
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span id="panel_floor" class="text-xs font-bold text-slate-500 dark:text-slate-400"></span>
+                </div>
+
+                <!-- Rent / Deposit -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Rent</p>
+                        <p class="text-xl font-black text-slate-900 dark:text-white" id="panel_rent"></p>
+                    </div>
+                    <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Deposit</p>
+                        <p class="text-xl font-black text-slate-900 dark:text-white" id="panel_deposit"></p>
+                    </div>
+                </div>
+
+                <!-- Meters -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+                        <span class="text-sm">⚡</span>
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Electricity</p>
+                            <p class="text-xs font-black text-slate-700 dark:text-slate-300 truncate" id="panel_elec"></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-xl">
+                        <span class="text-sm">💧</span>
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Water</p>
+                            <p class="text-xs font-black text-slate-700 dark:text-slate-300 truncate" id="panel_water"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tenant (occupied) -->
+                <div id="panel_tenant_section" class="hidden space-y-4">
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Tenant</p>
+                    <div class="p-5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 space-y-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white font-black text-base shrink-0" id="panel_tenant_avatar"></div>
+                            <div class="min-w-0">
+                                <p class="font-black text-slate-900 dark:text-white truncate" id="panel_tenant_name"></p>
+                                <p class="text-[10px] text-slate-400 font-medium truncate" id="panel_tenant_email"></p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Phone</p>
+                                <p class="text-xs font-bold text-slate-700 dark:text-slate-300" id="panel_tenant_phone"></p>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Lease Start</p>
+                                <p class="text-xs font-bold text-slate-700 dark:text-slate-300" id="panel_lease_start"></p>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Lease End</p>
+                                <p class="text-xs font-bold text-slate-700 dark:text-slate-300" id="panel_lease_end"></p>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Outstanding Balance</p>
+                                <p class="text-xs font-black" id="panel_balance"></p>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                            <a id="panel_view_tenant" href="#" class="flex-1 py-2.5 text-center text-[11px] font-black text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-900 rounded-xl hover:opacity-80 transition-opacity">
+                                View Profile
+                            </a>
+                            <a id="panel_view_invoices" href="#" class="flex-1 py-2.5 text-center text-[11px] font-black border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                Invoices
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vacant state -->
+                <div id="panel_vacant_section" class="hidden">
+                    <div class="p-6 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl text-center">
+                        <p class="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">Vacant Unit</p>
+                        <p class="text-xs text-slate-500 font-medium">No active tenant assigned to this unit.</p>
+                        <a href="tenants.php" class="inline-block mt-3 px-4 py-2 bg-accent-green text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-80 transition-opacity">
+                            Register Tenant
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Footer (admin/staff) -->
+            <?php if ($role === 'admin' || $role === 'staff'): ?>
+            <div class="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex gap-3 shrink-0">
+                <button id="panel_edit_btn" class="flex-1 py-3 text-xs font-black border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                    Edit Unit
+                </button>
+                <button id="panel_delete_btn" class="px-5 py-3 text-xs font-black bg-red-50 dark:bg-red-900/20 text-red-500 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+                    Delete
+                </button>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Hidden delete form -->
+    <form id="deleteUnitForm" action="actions/unit_actions.php" method="POST" style="display:none;">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="unit_id" id="deleteUnit_id">
+        <input type="hidden" name="property_id" value="<?php echo htmlspecialchars($propertyId); ?>">
+    </form>
+
     <!-- Edit Unit Modal -->
     <div id="editUnitModal" class="modal-overlay" style="display:none;">
         <div class="modal-card" style="max-width:600px;">
@@ -469,19 +686,128 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
     </div>
 
+    <style>
+    /* Unit 3-dot action menu */
+    .unit-menu-wrap { position: relative; }
+    .unit-action-menu {
+        position: absolute; right: 0; top: calc(100% + 4px);
+        width: 160px; padding: 6px;
+        background: #fff; border: 1px solid #e2e8f0;
+        border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.12);
+        z-index: 200;
+    }
+    html.dark .unit-action-menu { background: #0f172a; border-color: #1e293b; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+    .unit-action-item {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; padding: 8px 12px;
+        font-size: 12px; font-weight: 700; color: #475569;
+        border-radius: 9px; background: none; border: none;
+        cursor: pointer; text-align: left; transition: background .12s;
+        text-decoration: none;
+    }
+    html.dark .unit-action-item { color: #94a3b8; }
+    .unit-action-item:hover { background: #f8fafc; color: #0f172a; }
+    html.dark .unit-action-item:hover { background: #1e293b; color: #f8fafc; }
+    </style>
+
     <script>
+    /* ── Edit unit modal ─────────────────────────────────────────── */
     function openEditUnitModal(unit) {
-        document.getElementById('edit_unit_id').value = unit.id;
-        document.getElementById('edit_unit_number').value = unit.unit_number;
-        document.getElementById('edit_floor_number').value = unit.floor_number;
-        document.getElementById('edit_unit_type').value = unit.unit_type;
-        document.getElementById('edit_category').value = unit.category || '';
-        document.getElementById('edit_electricity_meter').value = unit.electricity_meter || '';
-        document.getElementById('edit_water_meter').value = unit.water_meter || '';
-        document.getElementById('edit_rent_amount').value = unit.monthly_rent;
-        document.getElementById('edit_deposit_amount').value = unit.deposit_amount;
-        document.getElementById('edit_status').value = unit.status;
+        document.getElementById('edit_unit_id').value             = unit.id;
+        document.getElementById('edit_unit_number').value         = unit.unit_number;
+        document.getElementById('edit_floor_number').value        = unit.floor_number;
+        document.getElementById('edit_unit_type').value           = unit.unit_type;
+        document.getElementById('edit_category').value            = unit.category || '';
+        document.getElementById('edit_electricity_meter').value   = unit.electricity_meter || '';
+        document.getElementById('edit_water_meter').value         = unit.water_meter || '';
+        document.getElementById('edit_rent_amount').value         = unit.monthly_rent;
+        document.getElementById('edit_deposit_amount').value      = unit.deposit_amount;
+        document.getElementById('edit_status').value              = unit.status;
         openModal('editUnitModal');
     }
+
+    /* ── Unit panel data (keyed by id) ───────────────────────────── */
+    const unitsData = <?php echo json_encode($unitPanelData); ?>;
+
+    function openUnitPanel(unitId) {
+        const u = unitsData[unitId];
+        if (!u) return;
+
+        document.getElementById('panel_unit_title').textContent = 'Unit ' + u.unit_number;
+        document.getElementById('panel_unit_type').textContent  = u.unit_type || '—';
+        document.getElementById('panel_floor').textContent      = 'Floor ' + (u.floor_number || 'G');
+        document.getElementById('panel_rent').textContent       = 'KSh ' + parseFloat(u.monthly_rent).toLocaleString();
+        document.getElementById('panel_deposit').textContent    = 'KSh ' + parseFloat(u.deposit_amount).toLocaleString();
+        document.getElementById('panel_elec').textContent       = u.electricity_meter || '—';
+        document.getElementById('panel_water').textContent      = u.water_meter || '—';
+
+        // Status badge
+        const sb = document.getElementById('panel_status_badge');
+        const sc = { Occupied: 'bg-green-500/10 text-green-500 border border-green-500/20', Available: 'bg-orange-500/10 text-orange-500 border border-orange-500/20', Maintenance: 'bg-slate-200 dark:bg-slate-700 text-slate-500 border border-slate-300 dark:border-slate-600' };
+        sb.className = 'px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ' + (sc[u.status] || '');
+        sb.textContent = u.status;
+
+        // Tenant vs vacant
+        const ts = document.getElementById('panel_tenant_section');
+        const vs = document.getElementById('panel_vacant_section');
+        if (u.tenant_id) {
+            ts.classList.remove('hidden');
+            vs.classList.add('hidden');
+            document.getElementById('panel_tenant_avatar').textContent  = (u.tenant_name || '?')[0].toUpperCase();
+            document.getElementById('panel_tenant_name').textContent    = u.tenant_name || '—';
+            document.getElementById('panel_tenant_email').textContent   = u.tenant_email || '—';
+            document.getElementById('panel_tenant_phone').textContent   = u.tenant_phone || '—';
+
+            const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}) : '—';
+            document.getElementById('panel_lease_start').textContent = fmtDate(u.lease_start);
+            document.getElementById('panel_lease_end').textContent   = u.lease_end ? fmtDate(u.lease_end) : 'Open-ended';
+
+            const balEl = document.getElementById('panel_balance');
+            balEl.textContent = 'KSh ' + parseFloat(u.outstanding_balance).toLocaleString();
+            balEl.className   = 'text-xs font-black ' + (u.outstanding_balance > 0 ? 'text-red-500' : 'text-green-500');
+
+            document.getElementById('panel_view_tenant').href   = 'tenant_details.php?id=' + u.tenant_id;
+            document.getElementById('panel_view_invoices').href = 'tenant_details.php?id=' + u.tenant_id + '&tab=invoices';
+        } else {
+            ts.classList.add('hidden');
+            vs.classList.remove('hidden');
+        }
+
+        // Footer edit/delete buttons
+        const editBtn   = document.getElementById('panel_edit_btn');
+        const deleteBtn = document.getElementById('panel_delete_btn');
+        if (editBtn)   editBtn.onclick   = () => { closeUnitPanel(); openEditUnitModal(u); };
+        if (deleteBtn) deleteBtn.onclick = () => confirmDeleteUnit(u.id, u.unit_number);
+
+        document.getElementById('unitPanel').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeUnitPanel() {
+        document.getElementById('unitPanel').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    /* ── 3-dot unit menu ─────────────────────────────────────────── */
+    function toggleUnitMenu(btn) {
+        const menu   = btn.nextElementSibling;
+        const isOpen = !menu.classList.contains('hidden');
+        document.querySelectorAll('.unit-action-menu').forEach(m => m.classList.add('hidden'));
+        if (!isOpen) menu.classList.remove('hidden');
+    }
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.unit-menu-wrap'))
+            document.querySelectorAll('.unit-action-menu').forEach(m => m.classList.add('hidden'));
+    });
+
+    /* ── Delete unit ─────────────────────────────────────────────── */
+    function confirmDeleteUnit(id, number) {
+        if (!confirm(`Delete Unit ${number}?\n\nThis cannot be undone. Units with active tenants or lease history cannot be deleted.`)) return;
+        document.getElementById('deleteUnit_id').value = id;
+        document.getElementById('deleteUnitForm').submit();
+    }
+
+    /* Close panel on Escape key */
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUnitPanel(); });
     </script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

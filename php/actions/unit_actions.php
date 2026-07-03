@@ -79,6 +79,41 @@ if ($action === 'create') {
     }
 }
 
+else if ($action === 'delete') {
+    $unitId     = trim($_POST['unit_id']     ?? '');
+    $propertyId = trim($_POST['property_id'] ?? '');
+
+    if (!$unitId) { header("Location: ../property_details.php?id=$propertyId"); exit(); }
+
+    // Block if active lease exists
+    $check = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE unit_id = ? AND status = 'Active'");
+    $check->execute([$unitId]);
+    if ((int)$check->fetchColumn() > 0) {
+        header("Location: ../property_details.php?id=$propertyId&error=has_tenant");
+        exit();
+    }
+
+    // Fetch unit info for audit
+    $row = $pdo->prepare("SELECT unit_number FROM units WHERE id = ?");
+    $row->execute([$unitId]);
+    $uNum = $row->fetchColumn() ?: $unitId;
+
+    try {
+        $pdo->beginTransaction();
+        $pdo->prepare("DELETE FROM units WHERE id = ?")->execute([$unitId]);
+        $pdo->commit();
+
+        require_once __DIR__ . '/../includes/audit.php';
+        logAction($pdo, 'unit_deleted', 'Units', $unitId, "Deleted unit $uNum from property $propertyId");
+
+        header("Location: ../property_details.php?id=$propertyId&success=unit_deleted");
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        header("Location: ../property_details.php?id=$propertyId&error=" . urlencode($e->getMessage()));
+    }
+    exit();
+}
+
 else if ($action === 'update') {
     $unitId = $_POST['unit_id'];
     $propertyId = $_POST['property_id'];
