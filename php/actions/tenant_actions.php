@@ -176,9 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $endDate     = !empty($_POST['end_date']) ? $_POST['end_date'] : null;
         $monthlyRent = (float)($_POST['monthly_rent']    ?? 0);
         $depositAmt  = (float)($_POST['deposit_amount']  ?? 0);
+        $assignRedir = trim($_POST['_redirect'] ?? '../tenants.php');
 
         if (!$tenantId || !$unitId || !$propertyId || $monthlyRent <= 0) {
-            header('Location: ../tenants.php?error=' . urlencode('Missing required fields.'));
+            header('Location: ' . $assignRedir . '?error=' . urlencode('Missing required fields.'));
             exit();
         }
 
@@ -193,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dup = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND status = 'Active'");
         $dup->execute([$tenantId]);
         if ((int)$dup->fetchColumn() > 0) {
-            header('Location: ../tenants.php?error=' . urlencode('Tenant already has an active lease. End the current lease first.'));
+            header('Location: ' . $assignRedir . '?error=' . urlencode('Tenant already has an active lease. End the current lease first.'));
             exit();
         }
 
@@ -212,10 +213,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             require_once __DIR__ . '/../includes/audit.php';
             logAction($pdo, 'unit_assigned', 'Tenants', $tenantId, "Lease {$leaseId} created, unit {$unitId}");
 
-            header('Location: ../tenants.php?success=unit_assigned');
+            header('Location: ' . $assignRedir . '?success=unit_assigned');
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
-            header('Location: ../tenants.php?error=' . urlencode($e->getMessage()));
+            header('Location: ' . $assignRedir . '?error=' . urlencode($e->getMessage()));
         }
         exit();
     }
