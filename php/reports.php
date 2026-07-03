@@ -7,7 +7,7 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
 
 $pageTitle = "Reports & Analytics";
@@ -205,6 +205,43 @@ if ($tab === 'performance') {
     $perfData = $perfStmt->fetchAll();
 }
 
+// ── Tab: Expenses ──────────────────────────────────────────────────
+$expCatBreakdown = [];
+$expMonthlyTrend = [];
+$expTrendMonths  = [];
+$expYTD          = 0;
+$expMTD          = 0;
+if ($tab === 'expenses') {
+    $expFilter   = $selectedProperty !== 'all' ? " AND property_id = ?" : '';
+    $expBaseArgs = $selectedProperty !== 'all' ? [$selectedProperty] : [];
+
+    // YTD total
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=? $expFilter");
+    $stmt->execute(array_merge([$selectedYear], $expBaseArgs));
+    $expYTD = (float)$stmt->fetchColumn();
+
+    // MTD total
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE DATE_FORMAT(expense_date,'%m')=? AND DATE_FORMAT(expense_date,'%Y')=? $expFilter");
+    $stmt->execute(array_merge([$selectedMonth, $selectedYear], $expBaseArgs));
+    $expMTD = (float)$stmt->fetchColumn();
+
+    // Category breakdown (YTD)
+    $catArgs = array_merge([$selectedYear], $expBaseArgs);
+    $stmt = $pdo->prepare("SELECT category, SUM(amount) as total, COUNT(*) as cnt FROM expenses WHERE YEAR(expense_date)=? $expFilter GROUP BY category ORDER BY total DESC");
+    $stmt->execute($catArgs);
+    $expCatBreakdown = $stmt->fetchAll();
+
+    // 6-month monthly trend
+    for ($i = 5; $i >= 0; $i--) {
+        $m = date('m', strtotime("-$i months"));
+        $y = date('Y', strtotime("-$i months"));
+        $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE DATE_FORMAT(expense_date,'%m')=? AND DATE_FORMAT(expense_date,'%Y')=? $expFilter");
+        $stmt->execute(array_merge([$m, $y], $expBaseArgs));
+        $expTrendMonths[]  = date('M Y', strtotime("-$i months"));
+        $expMonthlyTrend[] = (float)$stmt->fetchColumn();
+    }
+}
+
 // ── Tab: Rent Roll ─────────────────────────────────────────────────
 $rentRollData = [];
 $totalRentRoll = 0;
@@ -270,6 +307,7 @@ include __DIR__ . '/includes/sidebar.php';
             'aging'       => ['Overdue Aging','<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'],
             'performance' => ['Property Performance','<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>'],
             'rent_roll'   => ['Rent Roll',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>'],
+            'expenses'    => ['Expenses',     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'],
         ];
         foreach ($tabs as $tKey => [$tLabel, $tIcon]):
             $isActive = $tab === $tKey;
@@ -687,6 +725,135 @@ include __DIR__ . '/includes/sidebar.php';
             </table>
         </div>
     </div>
+    <?php elseif ($tab === 'expenses'): ?>
+    <!-- ===== EXPENSES ANALYSIS ===== -->
+    <?php
+    $expCatTotal = array_sum(array_column($expCatBreakdown, 'total'));
+    $expCatColors = [
+        'Maintenance' => '#f97316',
+        'Utilities'   => '#3b82f6',
+        'Salaries'    => '#a855f7',
+        'Taxes'       => '#ef4444',
+        'Insurance'   => '#6366f1',
+        'Marketing'   => '#ec4899',
+        'Legal'       => '#eab308',
+        'Repairs'     => '#f59e0b',
+        'Cleaning'    => '#14b8a6',
+        'Other'       => '#94a3b8',
+    ];
+    ?>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div class="glass-card p-6 border-l-4 border-red-500">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MTD Expenses</p>
+            <p class="text-2xl font-black text-red-500"><?php echo $currency; ?> <?php echo number_format($expMTD); ?></p>
+            <p class="text-[10px] text-slate-400 mt-1"><?php echo date('F Y', mktime(0,0,0,(int)$selectedMonth,1,$selectedYear)); ?></p>
+        </div>
+        <div class="glass-card p-6 border-l-4 border-orange-400">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">YTD Expenses</p>
+            <p class="text-2xl font-black text-orange-500"><?php echo $currency; ?> <?php echo number_format($expYTD); ?></p>
+            <p class="text-[10px] text-slate-400 mt-1"><?php echo $selectedYear; ?> year-to-date</p>
+        </div>
+        <div class="glass-card p-6 border-l-4 border-slate-400">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Categories</p>
+            <p class="text-2xl font-black text-slate-900 dark:text-white"><?php echo count($expCatBreakdown); ?></p>
+            <p class="text-[10px] text-slate-400 mt-1">spending categories</p>
+        </div>
+    </div>
+
+    <?php if (!empty($expCatBreakdown)): ?>
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <!-- Trend chart -->
+        <div class="lg:col-span-3 glass-card p-6">
+            <h3 class="font-black text-slate-900 dark:text-white mb-1">Monthly Expense Trend</h3>
+            <p class="text-xs text-slate-400 mb-6">Last 6 months</p>
+            <div style="height:220px;"><canvas id="expTrendChart"></canvas></div>
+        </div>
+
+        <!-- Category breakdown -->
+        <div class="lg:col-span-2 glass-card p-6">
+            <h3 class="font-black text-slate-900 dark:text-white mb-1">By Category</h3>
+            <p class="text-xs text-slate-400 mb-6"><?php echo $selectedYear; ?> YTD — <?php echo $currency; ?> <?php echo number_format($expCatTotal); ?> total</p>
+            <div class="space-y-3">
+                <?php foreach ($expCatBreakdown as $cb):
+                    $pct   = $expCatTotal > 0 ? round(($cb['total'] / $expCatTotal) * 100, 1) : 0;
+                    $color = $expCatColors[$cb['category']] ?? '#94a3b8';
+                ?>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:<?php echo $color; ?>"></span>
+                            <span class="text-xs font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($cb['category']); ?></span>
+                            <span class="text-[10px] text-slate-400"><?php echo $pct; ?>%</span>
+                        </div>
+                        <span class="text-xs font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($cb['total']); ?></span>
+                    </div>
+                    <div class="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full" style="width:<?php echo $pct; ?>%;background:<?php echo $color; ?>"></div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expense category table -->
+    <div class="glass-card overflow-hidden">
+        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <h3 class="font-black text-slate-900 dark:text-white">Category Breakdown — <?php echo $selectedYear; ?></h3>
+            <a href="expenses.php" class="text-xs font-black text-accent-green hover:underline">View All Expenses →</a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead><tr class="bg-slate-50 dark:bg-slate-800/50">
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</th>
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Transactions</th>
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Total Spent</th>
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">% of Total</th>
+                    <th class="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Avg per Transaction</th>
+                </tr></thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($expCatBreakdown as $cb):
+                        $pct = $expCatTotal > 0 ? round(($cb['total'] / $expCatTotal) * 100, 1) : 0;
+                        $avg = $cb['cnt'] > 0 ? $cb['total'] / $cb['cnt'] : 0;
+                        $color = $expCatColors[$cb['category']] ?? '#94a3b8';
+                    ?>
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
+                        <td class="p-5">
+                            <div class="flex items-center gap-2.5">
+                                <span class="w-3 h-3 rounded-full shrink-0" style="background:<?php echo $color; ?>"></span>
+                                <span class="font-bold text-sm text-slate-900 dark:text-white"><?php echo htmlspecialchars($cb['category']); ?></span>
+                            </div>
+                        </td>
+                        <td class="p-5 text-right text-sm text-slate-600 dark:text-slate-400"><?php echo $cb['cnt']; ?></td>
+                        <td class="p-5 text-right font-black text-sm text-red-500"><?php echo $currency; ?> <?php echo number_format($cb['total']); ?></td>
+                        <td class="p-5 text-right">
+                            <div class="flex items-center justify-end gap-2">
+                                <div class="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full" style="width:<?php echo $pct; ?>%;background:<?php echo $color; ?>"></div>
+                                </div>
+                                <span class="text-xs font-black text-slate-600 dark:text-slate-400"><?php echo $pct; ?>%</span>
+                            </div>
+                        </td>
+                        <td class="p-5 text-right text-sm text-slate-600 dark:text-slate-400"><?php echo $currency; ?> <?php echo number_format($avg); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+                <tfoot><tr class="bg-slate-50 dark:bg-slate-900/50">
+                    <td class="p-5 font-black text-sm text-slate-900 dark:text-white">Total</td>
+                    <td class="p-5 text-right font-black text-sm"><?php echo array_sum(array_column($expCatBreakdown, 'cnt')); ?></td>
+                    <td class="p-5 text-right font-black text-sm text-red-500"><?php echo $currency; ?> <?php echo number_format($expCatTotal); ?></td>
+                    <td colspan="2" class="p-5"></td>
+                </tr></tfoot>
+            </table>
+        </div>
+    </div>
+    <?php else: ?>
+    <div class="glass-card p-16 text-center">
+        <p class="font-black text-slate-900 dark:text-white text-lg">No Expenses Recorded</p>
+        <p class="text-slate-400 text-sm mt-1">Start tracking business expenses from the <a href="expenses.php" class="text-accent-green hover:underline font-bold">Expenses</a> page.</p>
+    </div>
+    <?php endif; ?>
+
     <?php endif; ?>
 
 </div>
@@ -742,6 +909,45 @@ include __DIR__ . '/includes/sidebar.php';
                     grid: { drawOnChartArea: false },
                     min: 0, max: 100,
                     ticks: { color: '#94a3b8', font: { size: 11 }, callback: v => v + '%' }
+                }
+            }
+        }
+    });
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($tab === 'expenses' && !empty($expCatBreakdown)): ?>
+<script>
+(function(){
+    const ctx = document.getElementById('expTrendChart');
+    if (!ctx) return;
+    const isDark = document.documentElement.classList.contains('dark');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: <?php echo json_encode($expTrendMonths); ?>,
+            datasets: [{
+                label: 'Expenses',
+                data: <?php echo json_encode($expMonthlyTrend); ?>,
+                backgroundColor: 'rgba(239,68,68,0.15)',
+                borderColor: '#ef4444',
+                borderWidth: 2,
+                borderRadius: 8,
+                hoverBackgroundColor: 'rgba(239,68,68,0.30)',
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: c => '<?php echo $currency; ?> ' + c.raw.toLocaleString() } }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, weight: '700' } } },
+                y: {
+                    grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' },
+                    ticks: { color: '#94a3b8', font: { size: 11 }, callback: v => '<?php echo $currency; ?> ' + v.toLocaleString() }
                 }
             }
         }
