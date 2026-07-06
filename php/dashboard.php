@@ -373,6 +373,9 @@ include __DIR__ . '/includes/sidebar.php';
                         <div class="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-900/20 rounded-xl">
                             <span class="text-[10px] font-black text-green-600">YTD <?php echo $currency; ?> <?php echo number_format($revYTD); ?></span>
                         </div>
+                        <div class="flex items-center gap-2 px-3 py-1 <?php echo $collectionRate >= 90 ? 'bg-emerald-50 dark:bg-emerald-900/20' : ($collectionRate >= 70 ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-red-50 dark:bg-red-900/20'); ?> rounded-xl">
+                            <span class="text-[10px] font-black <?php echo $collectionRate >= 90 ? 'text-emerald-600' : ($collectionRate >= 70 ? 'text-amber-600' : 'text-red-500'); ?>"><?php echo $collectionRate; ?>% collected</span>
+                        </div>
                     </div>
                 </div>
                 <div style="height:200px;"><canvas id="revenueChart"></canvas></div>
@@ -587,6 +590,70 @@ include __DIR__ . '/includes/sidebar.php';
         </div><!-- end right col -->
     </div><!-- end main grid -->
 
+    <!-- ── Properties at a Glance ───────────────────────── -->
+    <?php if (!empty($propertyStats)): ?>
+    <div>
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-black text-slate-900 dark:text-white tracking-tight">Properties at a Glance</h3>
+            <a href="properties.php" class="text-[10px] font-black text-accent-green uppercase tracking-widest hover:opacity-70">View All →</a>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <?php foreach ($propertyStats as $ps):
+                $psOcc  = $ps['total_units'] > 0 ? round(($ps['occupied_units'] / $ps['total_units']) * 100) : 0;
+                $psVac  = $ps['total_units'] - $ps['occupied_units'];
+                $psOwing = (float)$ps['outstanding'];
+                $psOccColor = $psOcc >= 80 ? 'bg-accent-green' : ($psOcc >= 50 ? 'bg-amber-400' : 'bg-red-400');
+                $psOccTxt   = $psOcc >= 80 ? 'text-accent-green' : ($psOcc >= 50 ? 'text-amber-500' : 'text-red-500');
+            ?>
+            <a href="property_details.php?id=<?php echo $ps['id']; ?>" class="glass-card p-5 hover:-translate-y-0.5 transition-all group block">
+                <div class="flex items-start justify-between mb-3">
+                    <div class="w-9 h-9 rounded-xl bg-accent-green/10 flex items-center justify-center text-accent-green shrink-0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    </div>
+                    <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><?php echo htmlspecialchars($ps['property_type'] ?? ''); ?></span>
+                </div>
+                <h4 class="text-sm font-black text-slate-900 dark:text-white group-hover:text-accent-green transition-colors leading-tight mb-0.5 truncate"><?php echo htmlspecialchars($ps['title']); ?></h4>
+                <p class="text-[10px] text-slate-400 font-medium truncate mb-3"><?php echo htmlspecialchars($ps['location']); ?></p>
+
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-500 font-bold">Occupancy</span>
+                        <span class="font-black <?php echo $psOccTxt; ?>"><?php echo $psOcc; ?>% <span class="text-slate-400 font-medium">(<?php echo $ps['occupied_units']; ?>/<?php echo $ps['total_units']; ?>)</span></span>
+                    </div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div class="<?php echo $psOccColor; ?> h-full rounded-full transition-all" style="width:<?php echo $psOcc; ?>%"></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div>
+                        <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Rent Roll</p>
+                        <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($ps['monthly_rent']); ?></p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Outstanding</p>
+                        <p class="text-xs font-black <?php echo $psOwing > 0 ? 'text-red-500' : 'text-accent-green'; ?>"><?php echo $currency; ?> <?php echo number_format($psOwing); ?></p>
+                    </div>
+                </div>
+                <?php if ($psVac > 0): ?>
+                <div class="mt-2 px-2 py-1 bg-amber-50 dark:bg-amber-900/10 rounded-lg text-center">
+                    <p class="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase"><?php echo $psVac; ?> vacant unit<?php echo $psVac !== 1 ? 's' : ''; ?></p>
+                </div>
+                <?php endif; ?>
+            </a>
+            <?php endforeach; ?>
+
+            <!-- Add New Property card -->
+            <button onclick="openModal('newPropertyModal')" class="glass-card p-5 border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-accent-green hover:-translate-y-0.5 transition-all flex flex-col items-center justify-center gap-3 text-center min-h-[180px]">
+                <div class="w-10 h-10 rounded-xl bg-accent-green/10 flex items-center justify-center text-accent-green">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                </div>
+                <p class="text-xs font-black text-slate-500 dark:text-slate-400">Add New Property</p>
+            </button>
+        </div>
+    </div>
+    <?php endif; ?>
+
 </div>
 
 <!-- Revenue Chart Script -->
@@ -705,6 +772,27 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="space-y-2">
                     <label class="form-label">Area (Sqm)</label>
                     <input type="number" name="area" placeholder="E.g. 150" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                </div>
+            </div>
+            <?php if (!empty($landlordList)): ?>
+            <div class="space-y-2">
+                <label class="form-label">Assign Landlord</label>
+                <select name="landlord_id" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    <option value="">— Managed directly by PrimeLink —</option>
+                    <?php foreach ($landlordList as $ll): ?>
+                    <option value="<?php echo $ll['id']; ?>"><?php echo htmlspecialchars($ll['full_name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <label class="form-label">Water Rate (<?php echo $currency; ?>/unit)</label>
+                    <input type="number" name="water_rate" step="0.01" placeholder="0.00" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                </div>
+                <div class="space-y-2">
+                    <label class="form-label">Garbage Fee (<?php echo $currency; ?>/mo)</label>
+                    <input type="number" name="garbage_fee" step="0.01" placeholder="0.00" class="w-full px-4 py-3.5 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                 </div>
             </div>
             <div class="space-y-2">
