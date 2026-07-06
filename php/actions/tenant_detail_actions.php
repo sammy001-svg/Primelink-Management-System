@@ -26,40 +26,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $tenantId = $_POST['tenant_id'] ?? '';
 
     if ($action === 'update_profile') {
-        $fullName = $_POST['full_name'] ?? '';
-        $phone = $_POST['phone'] ?? '';
-        $address = $_POST['address'] ?? '';
-        $profession = $_POST['profession'] ?? '';
-        $employerName = $_POST['employer_name'] ?? '';
-        $maritalStatus = $_POST['marital_status'] ?? 'Single';
+        $fullName      = trim($_POST['full_name']      ?? '');
+        $phone         = trim($_POST['phone']          ?? '');
+        $address       = trim($_POST['address']        ?? '');
+        $profession    = trim($_POST['profession']     ?? '');
+        $employerName  = trim($_POST['employer_name']  ?? '');
+        $maritalStatus = trim($_POST['marital_status'] ?? 'Single');
+        $idNo          = trim($_POST['id_no']          ?? '');
 
         try {
             $pdo->beginTransaction();
 
-            // 1. Update Profile (linked by user_id)
             $stmt = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
             $stmt->execute([$tenantId]);
             $userId = $stmt->fetchColumn();
 
             if ($userId) {
-                $stmt = $pdo->prepare("UPDATE profiles SET full_name = ?, phone = ?, address = ? WHERE id = ?");
-                $stmt->execute([$fullName, $phone, $address, $userId]);
+                $pdo->prepare("UPDATE profiles SET full_name = ?, phone = ?, address = ? WHERE id = ?")
+                    ->execute([$fullName, $phone, $address, $userId]);
             }
 
-            // 2. Update Tenant record
-            $stmt = $pdo->prepare("
-                UPDATE tenants 
-                SET full_name = ?, phone = ?, current_address = ?, profession = ?, employer_name = ?, marital_status = ?
+            $pdo->prepare("
+                UPDATE tenants
+                SET full_name = ?, phone = ?, current_address = ?, profession = ?,
+                    employer_name = ?, marital_status = ?, id_no = ?
                 WHERE id = ?
-            ");
-            $stmt->execute([$fullName, $phone, $address, $profession, $employerName, $maritalStatus, $tenantId]);
+            ")->execute([$fullName, $phone, $address, $profession, $employerName, $maritalStatus, $idNo ?: null, $tenantId]);
 
             $pdo->commit();
-            header("Location: ../tenant_details.php?id=$tenantId&success=profile_updated");
+            logAction($pdo, 'tenant_profile_updated', 'Tenants', $tenantId, "Profile updated: {$fullName}");
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&success=profile_updated");
             exit();
         } catch (Exception $e) {
-            $pdo->rollBack();
-            die("Error updating profile: " . $e->getMessage());
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&error=" . urlencode($e->getMessage()));
+            exit();
         }
     }
 
@@ -220,7 +221,190 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             header("Location: ../view_combined_invoice.php?batch_id={$batchId}");
         } catch (PDOException $e) {
-            header("Location: ../tenant_details.php?id=$tenantId&tab=invoices&error=" . urlencode($e->getMessage()));
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── update_nok: save next-of-kin details ─────────────────────────
+    if ($action === 'update_nok') {
+        $nokName = trim($_POST['nok_name']         ?? '');
+        $nokRel  = trim($_POST['nok_relationship'] ?? '');
+        $nokPhone= trim($_POST['nok_contact']      ?? '');
+        try {
+            $pdo->prepare("
+                UPDATE tenants
+                SET next_of_kin_name = ?, next_of_kin_relationship = ?, next_of_kin_contact = ?
+                WHERE id = ?
+            ")->execute([$nokName ?: null, $nokRel ?: null, $nokPhone ?: null, $tenantId]);
+            logAction($pdo, 'nok_updated', 'Tenants', $tenantId, "NOK updated: {$nokName}");
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&success=nok_updated");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── update_spouse: save spouse details ───────────────────────────
+    if ($action === 'update_spouse') {
+        $spouseName  = trim($_POST['spouse_name']   ?? '');
+        $spousePhone = trim($_POST['spouse_phone']  ?? '');
+        $spouseIdNo  = trim($_POST['spouse_id_no']  ?? '');
+        try {
+            $pdo->prepare("
+                UPDATE tenants
+                SET spouse_name = ?, spouse_phone = ?, spouse_id_no = ?
+                WHERE id = ?
+            ")->execute([$spouseName ?: null, $spousePhone ?: null, $spouseIdNo ?: null, $tenantId]);
+            logAction($pdo, 'spouse_updated', 'Tenants', $tenantId, "Spouse info updated");
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&success=spouse_updated");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=profile&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── record_payment: log a manual payment transaction ─────────────
+    if ($action === 'record_payment') {
+        $amount      = (float)($_POST['amount']           ?? 0);
+        $txType      = trim($_POST['transaction_type']    ?? 'Rent');
+        $refCode     = trim($_POST['reference_code']      ?? '');
+        $payDate     = !empty($_POST['payment_date']) ? $_POST['payment_date'] : date('Y-m-d');
+
+        if (!$tenantId || $amount <= 0) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&error=" . urlencode('Invalid amount.'));
+            exit();
+        }
+
+        // Schema self-heal for transactions table
+        foreach ([
+            "CREATE TABLE IF NOT EXISTS transactions (
+                id VARCHAR(36) PRIMARY KEY,
+                tenant_id VARCHAR(36) NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                transaction_type VARCHAR(100) DEFAULT 'Rent',
+                status VARCHAR(20) DEFAULT 'Paid',
+                reference_code VARCHAR(255) NULL,
+                transaction_date DATE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )",
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_code VARCHAR(255) NULL",
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(100) DEFAULT 'Rent'",
+        ] as $ddl) {
+            try { $pdo->exec($ddl); } catch (PDOException $_e) {}
+        }
+
+        try {
+            $txId = generateUUID();
+            $pdo->prepare("
+                INSERT INTO transactions (id, tenant_id, amount, transaction_type, status, reference_code, transaction_date)
+                VALUES (?, ?, ?, ?, 'Paid', ?, ?)
+            ")->execute([$txId, $tenantId, $amount, $txType, $refCode ?: null, $payDate]);
+
+            // Auto-apply: mark the oldest unpaid invoice as paid if amount matches
+            $unpaid = $pdo->prepare("SELECT id, amount FROM invoices WHERE tenant_id = ? AND status != 'Paid' ORDER BY due_date ASC LIMIT 1");
+            $unpaid->execute([$tenantId]);
+            $inv = $unpaid->fetch();
+            if ($inv && abs((float)$inv['amount'] - $amount) < 0.01) {
+                $pdo->prepare("UPDATE invoices SET status = 'Paid' WHERE id = ?")->execute([$inv['id']]);
+            }
+
+            logAction($pdo, 'payment_recorded', 'Transactions', $txId,
+                "{$txType}: {$currency} " . number_format($amount) . " | Ref: {$refCode} | Date: {$payDate}");
+
+            $uRow = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
+            $uRow->execute([$tenantId]);
+            $uid = $uRow->fetchColumn();
+            if ($uid) {
+                createNotification($pdo, $uid, 'Payment Recorded',
+                    "Payment of {$currency} " . number_format($amount, 2) . " ({$txType}) received on " . date('d M Y', strtotime($payDate)) . ".", 'success');
+            }
+
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&success=payment_recorded");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── toggle_status: activate / deactivate tenant ──────────────────
+    if ($action === 'toggle_status') {
+        $currentStatus = trim($_POST['current_status'] ?? 'Active');
+        $newStatus     = $currentStatus === 'Active' ? 'Inactive' : 'Active';
+        $redir         = trim($_POST['redirect'] ?? "tenant_details.php?id={$tenantId}");
+        try {
+            $pdo->prepare("UPDATE tenants SET status = ? WHERE id = ?")->execute([$newStatus, $tenantId]);
+            logAction($pdo, 'tenant_status_changed', 'Tenants', $tenantId, "Status changed to {$newStatus}");
+            header("Location: ../{$redir}&success=status_changed");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=security&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── upload_document: save a tenant document file ─────────────────
+    if ($action === 'upload_document') {
+        $title    = trim($_POST['title']    ?? '');
+        $category = in_array($_POST['category'] ?? '', ['Lease','ID','Termination','Other'])
+                        ? $_POST['category'] : 'Other';
+
+        if (!$title || !isset($_FILES['document_file']) || $_FILES['document_file']['error'] !== UPLOAD_ERR_OK) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&error=" . urlencode('Title and file are required.'));
+            exit();
+        }
+
+        $ext      = strtolower(pathinfo($_FILES['document_file']['name'], PATHINFO_EXTENSION));
+        $allowed  = ['pdf','jpg','jpeg','png','doc','docx'];
+        if (!in_array($ext, $allowed)) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&error=" . urlencode('File type not allowed.'));
+            exit();
+        }
+
+        $uploadDir = __DIR__ . '/../uploads/documents/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        $fileName = 'doc_' . substr($tenantId, 0, 8) . '_' . time() . '.' . $ext;
+        if (!move_uploaded_file($_FILES['document_file']['tmp_name'], $uploadDir . $fileName)) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&error=" . urlencode('File upload failed.'));
+            exit();
+        }
+
+        $fileUrl = 'php/uploads/documents/' . $fileName;
+        $fileSize = $_FILES['document_file']['size'];
+
+        try {
+            $docId = generateUUID();
+            $pdo->prepare("
+                INSERT INTO documents (id, tenant_id, title, category, file_url, file_size)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ")->execute([$docId, $tenantId, $title, $category, $fileUrl, $fileSize]);
+            logAction($pdo, 'document_uploaded', 'Tenants', $tenantId, "Doc: {$title} ({$category})");
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&success=document_uploaded");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── delete_document: remove document record ───────────────────────
+    if ($action === 'delete_document') {
+        $docId = trim($_POST['document_id'] ?? '');
+        if (!$docId) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents");
+            exit();
+        }
+        try {
+            $row = $pdo->prepare("SELECT file_url FROM documents WHERE id = ? AND tenant_id = ?");
+            $row->execute([$docId, $tenantId]);
+            $doc = $row->fetch();
+            if ($doc && !empty($doc['file_url'])) {
+                $physical = __DIR__ . '/../../' . $doc['file_url'];
+                if (file_exists($physical)) @unlink($physical);
+            }
+            $pdo->prepare("DELETE FROM documents WHERE id = ? AND tenant_id = ?")->execute([$docId, $tenantId]);
+            logAction($pdo, 'document_deleted', 'Tenants', $tenantId, "Document {$docId} removed");
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&success=document_deleted");
+        } catch (PDOException $e) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=documents&error=" . urlencode($e->getMessage()));
         }
         exit();
     }

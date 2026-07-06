@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireRole('staff');
+requireRole(['admin', 'staff']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -119,17 +119,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, garbage_fee=? WHERE id=?");
             $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $garbage_fee, $id]);
-            header("Location: ../properties.php?success=updated");
+            $redir = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : '../properties.php?success=updated';
+            header("Location: $redir");
             exit();
         } catch (PDOException $e) {
             if ($e->getCode() == '42S22') {
                 $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ");
                 $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_rate` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `property_code` ");
                 $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate` ");
-                
+
                 $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, garbage_fee=? WHERE id=?");
                 $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $garbage_fee, $id]);
-                header("Location: ../properties.php?success=updated");
+                $redir = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : '../properties.php?success=updated';
+                header("Location: $redir");
                 exit();
             }
             die("Error updating property: " . $e->getMessage());

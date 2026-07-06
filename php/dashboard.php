@@ -117,6 +117,57 @@ $healthScore  = min(100, round($healthScore));
 $healthLabel  = $healthScore >= 80 ? 'Excellent' : ($healthScore >= 60 ? 'Good' : ($healthScore >= 40 ? 'Fair' : 'Needs Attention'));
 $healthColor  = $healthScore >= 80 ? 'text-green-500' : ($healthScore >= 60 ? 'text-blue-500' : ($healthScore >= 40 ? 'text-orange-500' : 'text-red-500'));
 
+// ── Collection rate ─────────────────────────────────────────────
+$mtdInvoiced    = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE MONTH(created_at)=MONTH(NOW()) AND YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+$collectionRate = $mtdInvoiced > 0 ? round(($revMTD / $mtdInvoiced) * 100, 1) : ($revMTD > 0 ? 100 : 0);
+
+// ── Per-property snapshot ───────────────────────────────────────
+$propertyStats = [];
+try {
+    $propertyStats = $pdo->query("
+        SELECT p.id, p.title, p.location, p.property_type,
+               COUNT(u.id) AS total_units,
+               SUM(CASE WHEN u.status='Occupied' THEN 1 ELSE 0 END) AS occupied_units,
+               COALESCE(SUM(CASE WHEN u.status='Occupied' THEN u.monthly_rent ELSE 0 END), 0) AS monthly_rent,
+               COALESCE((
+                   SELECT SUM(i.amount) FROM invoices i
+                   JOIN leases l2 ON i.tenant_id = l2.tenant_id AND l2.status='Active'
+                   JOIN units u2 ON l2.unit_id = u2.id
+                   WHERE u2.property_id = p.id AND i.status IN ('Unpaid','Overdue')
+               ), 0) AS outstanding
+        FROM properties p
+        LEFT JOIN units u ON u.property_id = p.id
+        GROUP BY p.id, p.title, p.location, p.property_type
+        ORDER BY monthly_rent DESC
+        LIMIT 12
+    ")->fetchAll();
+} catch (PDOException $_e) {}
+
+// ── Top debtors ─────────────────────────────────────────────────
+$topDebtors = [];
+try {
+    $topDebtors = $pdo->query("
+        SELECT t.id, t.full_name, u.unit_number, p.title AS prop_title,
+               COALESCE(SUM(i.amount), 0) AS total_outstanding
+        FROM invoices i
+        JOIN tenants t ON i.tenant_id = t.id
+        LEFT JOIN leases l ON l.tenant_id = t.id AND l.status = 'Active'
+        LEFT JOIN units u ON l.unit_id = u.id
+        LEFT JOIN properties p ON u.property_id = p.id
+        WHERE i.status IN ('Unpaid','Overdue')
+        GROUP BY t.id, t.full_name, u.unit_number, p.title
+        HAVING total_outstanding > 0
+        ORDER BY total_outstanding DESC
+        LIMIT 5
+    ")->fetchAll();
+} catch (PDOException $_e) {}
+
+// ── Landlords list for new-property modal ───────────────────────
+$landlordList = [];
+try {
+    $landlordList = $pdo->query("SELECT id, full_name FROM landlords ORDER BY full_name")->fetchAll();
+} catch (PDOException $_e) {}
+
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
@@ -146,6 +197,39 @@ include __DIR__ . '/includes/sidebar.php';
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                 Register Tenant
             </a>
+        </div>
+    </div>
+
+    <!-- ── Income Summary Strip ─────────────────────────── -->
+    <div class="glass-card bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-none overflow-hidden relative">
+        <div class="absolute -right-20 -top-20 w-80 h-80 bg-accent-green/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-700/50">
+            <div class="px-6 py-5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1"><?php echo date('M Y'); ?> Collected</p>
+                <p class="text-2xl font-black text-white"><?php echo $currency; ?> <?php echo number_format($revMTD); ?></p>
+                <?php if ($revTrendPct !== null): ?>
+                <p class="text-[10px] font-bold mt-1 <?php echo $revTrendPct >= 0 ? 'text-accent-green' : 'text-red-400'; ?>">
+                    <?php echo $revTrendPct >= 0 ? '▲' : '▼'; ?> <?php echo abs($revTrendPct); ?>% vs last month
+                </p>
+                <?php endif; ?>
+            </div>
+            <div class="px-6 py-5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">YTD <?php echo date('Y'); ?></p>
+                <p class="text-2xl font-black text-white"><?php echo $currency; ?> <?php echo number_format($revYTD); ?></p>
+                <p class="text-[10px] text-slate-500 font-medium mt-1">year to date</p>
+            </div>
+            <div class="px-6 py-5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Outstanding</p>
+                <p class="text-2xl font-black <?php echo $outstanding > 0 ? 'text-red-400' : 'text-accent-green'; ?>"><?php echo $currency; ?> <?php echo number_format($outstanding); ?></p>
+                <p class="text-[10px] text-slate-500 font-medium mt-1"><?php echo $overdueTenants; ?> tenant<?php echo $overdueTenants !== 1 ? 's' : ''; ?> owing</p>
+            </div>
+            <div class="px-6 py-5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Collection Rate</p>
+                <p class="text-2xl font-black <?php echo $collectionRate >= 90 ? 'text-accent-green' : ($collectionRate >= 70 ? 'text-amber-400' : 'text-red-400'); ?>"><?php echo $collectionRate; ?>%</p>
+                <div class="w-full bg-slate-700 h-1 rounded-full mt-2 overflow-hidden mx-auto" style="max-width:80px;">
+                    <div class="h-full rounded-full <?php echo $collectionRate >= 90 ? 'bg-accent-green' : ($collectionRate >= 70 ? 'bg-amber-400' : 'bg-red-400'); ?>" style="width:<?php echo min(100, $collectionRate); ?>%"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -450,6 +534,33 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <?php endif; ?>
             </div>
+
+            <!-- Top Debtors -->
+            <?php if (!empty($topDebtors)): ?>
+            <div class="glass-card overflow-hidden">
+                <div class="flex justify-between items-center p-5 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white text-sm">Top Debtors</h3>
+                        <p class="text-[10px] text-slate-400 font-medium">Highest outstanding balances</p>
+                    </div>
+                    <a href="tenant_payments.php?filter=overdue" class="text-[10px] font-black text-accent-green hover:opacity-70 uppercase tracking-widest">All →</a>
+                </div>
+                <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($topDebtors as $deb): ?>
+                    <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                        <div class="w-8 h-8 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center text-red-500 font-black text-xs shrink-0">
+                            <?php echo strtoupper(substr($deb['full_name'], 0, 1)); ?>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <a href="tenant_details.php?id=<?php echo $deb['id']; ?>" class="text-xs font-bold text-slate-900 dark:text-white truncate hover:text-accent-green transition-colors block"><?php echo htmlspecialchars($deb['full_name']); ?></a>
+                            <p class="text-[10px] text-slate-400 truncate"><?php echo htmlspecialchars(($deb['prop_title'] ?? '') . ($deb['unit_number'] ? ' · Unit ' . $deb['unit_number'] : '')); ?></p>
+                        </div>
+                        <p class="text-xs font-black text-red-500 shrink-0"><?php echo $currency; ?> <?php echo number_format($deb['total_outstanding']); ?></p>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- Portfolio Health -->
             <div class="glass-card p-6 bg-slate-900 dark:bg-slate-800 border-none text-white">

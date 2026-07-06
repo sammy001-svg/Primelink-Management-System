@@ -24,18 +24,20 @@ $stmt->execute([$tenantId]);
 $tenant = $stmt->fetch();
 if (!$tenant) { header('Location: tenants.php?toast_msg=Tenant+not+found&toast_type=error'); exit(); }
 
-// ── Active lease ─────────────────────────────────────────────────
+// ── Active leases (all) ───────────────────────────────────────────
 $stmt = $pdo->prepare("
-    SELECT l.*, u.unit_number, u.unit_type, u.monthly_rent, u.deposit_amount,
+    SELECT l.*, u.unit_number, u.unit_type,
            pr.id AS property_id, pr.title AS property_title, pr.location AS property_location
     FROM leases l
-    JOIN units u      ON l.unit_id = u.id
+    JOIN units u       ON l.unit_id = u.id
     JOIN properties pr ON u.property_id = pr.id
     WHERE l.tenant_id = ? AND l.status = 'Active'
-    LIMIT 1
+    ORDER BY l.start_date DESC
 ");
 $stmt->execute([$tenantId]);
-$activeLease = $stmt->fetch();
+$activeLeases = $stmt->fetchAll();
+$primaryLease = $activeLeases[0] ?? null;
+$activeLease  = $primaryLease; // backward compat alias for modals
 
 // ── All leases (history) ─────────────────────────────────────────
 $stmt = $pdo->prepare("
@@ -97,9 +99,41 @@ $maintenanceRequests = $stmt->fetchAll();
 $allProperties = $pdo->query("SELECT id, title FROM properties ORDER BY title")->fetchAll();
 $availableUnits = $pdo->query("SELECT id, property_id, unit_number, monthly_rent, deposit_amount FROM units WHERE status='Available' ORDER BY unit_number")->fetchAll();
 
-// ── Active tab (from query string, e.g. ?tab=invoices) ───────────
+// ── Documents ─────────────────────────────────────────────────────
+try { $pdo->exec("CREATE TABLE IF NOT EXISTS documents (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(50) DEFAULT 'Other',
+    file_url TEXT,
+    file_size INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)"); } catch (PDOException $_e) {}
+$stmt = $pdo->prepare("SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC");
+$stmt->execute([$tenantId]);
+$documents = $stmt->fetchAll();
+
+// ── 6-month payment trend ─────────────────────────────────────────
+$_trendRaw = [];
+try {
+    $_ts = $pdo->prepare("
+        SELECT DATE_FORMAT(transaction_date,'%Y-%m') AS ym, SUM(amount) AS tot
+        FROM transactions WHERE tenant_id = ? AND status='Paid'
+        AND transaction_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+        GROUP BY ym
+    ");
+    $_ts->execute([$tenantId]);
+    foreach ($_ts->fetchAll() as $_tr) $_trendRaw[$_tr['ym']] = (float)$_tr['tot'];
+} catch (PDOException $_e) {}
+$trendLabels = $trendValues = [];
+for ($i = 5; $i >= 0; $i--) {
+    $trendLabels[] = date('M', strtotime("-$i months"));
+    $trendValues[] = $_trendRaw[date('Y-m', strtotime("-$i months"))] ?? 0;
+}
+
+// ── Active tab ────────────────────────────────────────────────────
 $activeTab = $_GET['tab'] ?? 'overview';
-$validTabs = ['overview', 'invoices', 'maintenance', 'profile', 'security'];
+$validTabs = ['overview', 'leases', 'invoices', 'statement', 'maintenance', 'documents', 'profile', 'security'];
 if (!in_array($activeTab, $validTabs)) $activeTab = 'overview';
 
 $isActive = ($tenant['status'] ?? 'Active') === 'Active';
@@ -159,8 +193,8 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <div class="w-px h-12 bg-white/10 self-center hidden sm:block"></div>
                 <div class="text-center hidden sm:block">
-                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Invoices</p>
-                    <p class="text-xl font-black text-white"><?php echo $invoiceSummary['total']; ?></p>
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Active Units</p>
+                    <p class="text-xl font-black <?php echo count($activeLeases) > 0 ? 'text-green-400' : 'text-slate-400'; ?>"><?php echo count($activeLeases); ?></p>
                 </div>
             </div>
         </div>
@@ -173,13 +207,18 @@ include __DIR__ . '/includes/sidebar.php';
     <div class="flex gap-1 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl w-fit border border-slate-200 dark:border-slate-800 overflow-x-auto">
         <?php
         $tabs = [
-            'overview'    => ['Overview',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>'],
-            'invoices'    => ['Invoices'  . ($invoiceSummary['overdue'] > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded text-[8px]">' . $invoiceSummary['overdue'] . '</span>' : ''),
+            'overview'    => ['Overview',     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>'],
+            'leases'      => ['Leases' . (count($activeLeases) > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-green-500 text-white rounded text-[8px]">' . count($activeLeases) . '</span>' : ''),
+                              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>'],
+            'invoices'    => ['Invoices' . ($invoiceSummary['overdue'] > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded text-[8px]">' . $invoiceSummary['overdue'] . '</span>' : ''),
                               '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'],
+            'statement'   => ['Statement',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'],
             'maintenance' => ['Maintenance' . (!empty($maintenanceRequests) ? ' <span class="ml-1 px-1.5 py-0.5 bg-slate-400 dark:bg-slate-700 text-white dark:text-slate-300 rounded text-[8px]">' . count($maintenanceRequests) . '</span>' : ''),
                               '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'],
-            'profile'     => ['Profile',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'],
-            'security'    => ['Security',   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'],
+            'documents'   => ['Documents' . (count($documents) > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-blue-500 text-white rounded text-[8px]">' . count($documents) . '</span>' : ''),
+                              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>'],
+            'profile'     => ['Profile',      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'],
+            'security'    => ['Security',     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'],
         ];
         foreach ($tabs as $key => [$label, $icon]):
             $isT = $key === $activeTab;
@@ -202,58 +241,86 @@ include __DIR__ . '/includes/sidebar.php';
             <!-- Left (2/3): Lease + identity -->
             <div class="lg:col-span-2 space-y-6">
 
-                <!-- Active Residency -->
+                <!-- Active Residency — multi-lease -->
                 <div class="glass-card p-6">
                     <div class="flex items-center justify-between mb-5">
-                        <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Active Residency</h3>
-                        <?php if (!$activeLease): ?>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Active Leases</h3>
+                            <?php if (!empty($activeLeases)): ?>
+                            <span class="px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 text-[9px] font-black"><?php echo count($activeLeases); ?></span>
+                            <?php endif; ?>
+                        </div>
                         <button onclick="openModal('assignUnitModal')" class="btn-green text-xs gap-1.5 py-2 px-4">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                            Assign Unit
+                            Add Unit / Lease
                         </button>
-                        <?php endif; ?>
                     </div>
-                    <?php if ($activeLease): ?>
-                    <div class="flex flex-col sm:flex-row gap-5 items-start">
-                        <div class="w-full sm:w-44 h-28 rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="text-slate-300 dark:text-slate-600"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+                    <?php if (!empty($activeLeases)): ?>
+                    <div class="space-y-4">
+                    <?php foreach ($activeLeases as $al):
+                        $daysLeft   = !empty($al['end_date']) ? (int)ceil((strtotime($al['end_date']) - time()) / 86400) : null;
+                        $nearExpiry = $daysLeft !== null && $daysLeft <= 60;
+                    ?>
+                    <div class="flex flex-col sm:flex-row gap-4 items-start p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <div class="w-full sm:w-28 h-20 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0 flex items-center justify-center">
+                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="text-slate-300 dark:text-slate-600"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
                         </div>
-                        <div class="flex-1 space-y-3">
-                            <div>
-                                <p class="text-[10px] font-black text-accent-green uppercase tracking-widest">Currently Occupying</p>
-                                <h4 class="text-xl font-black text-slate-900 dark:text-white mt-1">
-                                    <?php echo htmlspecialchars($activeLease['property_title']); ?> — Unit <?php echo htmlspecialchars($activeLease['unit_number']); ?>
-                                </h4>
-                                <p class="text-sm text-slate-500 mt-0.5"><?php echo htmlspecialchars($activeLease['property_location'] ?? ''); ?> · <?php echo htmlspecialchars($activeLease['unit_type'] ?? ''); ?></p>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-2">
+                                <div>
+                                    <p class="text-[10px] font-black text-accent-green uppercase tracking-widest">Unit <?php echo htmlspecialchars($al['unit_number']); ?></p>
+                                    <h4 class="text-base font-black text-slate-900 dark:text-white mt-0.5"><?php echo htmlspecialchars($al['property_title']); ?></h4>
+                                    <?php if (!empty($al['property_location'])): ?>
+                                    <p class="text-xs text-slate-400 mt-0.5"><?php echo htmlspecialchars($al['property_location']); ?><?php if (!empty($al['unit_type'])): ?> · <?php echo htmlspecialchars($al['unit_type']); ?><?php endif; ?></p>
+                                    <?php endif; ?>
+                                </div>
+                                <form action="actions/tenant_actions.php" method="POST" class="shrink-0"
+                                      onsubmit="return confirm('End lease for Unit <?php echo htmlspecialchars(addslashes($al['unit_number'])); ?>? The unit will be freed.')">
+                                    <input type="hidden" name="action" value="end_lease">
+                                    <input type="hidden" name="lease_id" value="<?php echo $al['id']; ?>">
+                                    <input type="hidden" name="_redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>&tab=overview">
+                                    <button type="submit" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide text-red-500 border border-red-200 dark:border-red-900/40 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
+                                        End Lease
+                                    </button>
+                                </form>
                             </div>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
+                            <div class="grid grid-cols-3 gap-2 mt-3">
+                                <div class="bg-white dark:bg-slate-800 rounded-lg p-2.5">
                                     <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Monthly Rent</p>
-                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$activeLease['monthly_rent']); ?></p>
+                                    <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$al['monthly_rent']); ?></p>
                                 </div>
-                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
-                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Lease Start</p>
-                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?php echo date('M d, Y', strtotime($activeLease['start_date'])); ?></p>
+                                <div class="bg-white dark:bg-slate-800 rounded-lg p-2.5">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Start</p>
+                                    <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo date('M d, Y', strtotime($al['start_date'])); ?></p>
                                 </div>
-                                <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
-                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Lease End</p>
-                                    <p class="text-sm font-black <?php echo strtotime($activeLease['end_date']) <= strtotime('+60 days') ? 'text-orange-500' : 'text-slate-900 dark:text-white'; ?>">
-                                        <?php echo date('M d, Y', strtotime($activeLease['end_date'])); ?>
+                                <div class="bg-white dark:bg-slate-800 rounded-lg p-2.5">
+                                    <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Expiry</p>
+                                    <p class="text-xs font-black <?php echo $nearExpiry ? 'text-orange-500' : 'text-slate-900 dark:text-white'; ?>">
+                                        <?php echo !empty($al['end_date']) ? date('M d, Y', strtotime($al['end_date'])) : 'Open'; ?>
                                     </p>
                                 </div>
                             </div>
-                            <div class="flex gap-3 flex-wrap pt-1">
-                                <a href="property_details.php?id=<?php echo $activeLease['property_id']; ?>"
+                            <?php if ($nearExpiry): ?>
+                            <p class="text-[10px] font-bold mt-2 <?php echo $daysLeft <= 0 ? 'text-red-500' : 'text-orange-500'; ?>">
+                                <?php echo $daysLeft <= 0 ? '⚠ Lease has expired' : "⚠ Expires in {$daysLeft} days"; ?>
+                            </p>
+                            <?php endif; ?>
+                            <div class="flex gap-3 flex-wrap mt-2">
+                                <a href="property_details.php?id=<?php echo $al['property_id']; ?>"
                                    class="text-[11px] font-black text-accent-green hover:underline">View Property →</a>
-                                <a href="view_lease.php?lease_id=<?php echo $activeLease['id']; ?>"
-                                   class="text-[11px] font-black text-slate-500 hover:text-accent-green transition-colors">View Lease Agreement →</a>
                             </div>
                         </div>
+                    </div>
+                    <?php endforeach; ?>
                     </div>
                     <?php else: ?>
                     <div class="empty-state py-10">
                         <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg></div>
                         <p class="font-bold text-slate-400 text-sm mt-3">No active unit assigned.</p>
+                        <button onclick="openModal('assignUnitModal')" class="btn-green text-xs mt-4 gap-1.5">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                            Assign First Unit
+                        </button>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -303,41 +370,7 @@ include __DIR__ . '/includes/sidebar.php';
                     </div>
                 </div>
 
-                <!-- Lease history -->
-                <?php if (count($allLeases) > 1 || ($allLeases && $allLeases[0]['status'] !== 'Active')): ?>
-                <div class="glass-card overflow-hidden">
-                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-                        <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">Lease History</h3>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left data-table text-sm">
-                            <thead><tr class="bg-slate-50 dark:bg-slate-800/50">
-                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</th>
-                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</th>
-                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rent</th>
-                                <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
-                            </tr></thead>
-                            <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            <?php foreach ($allLeases as $lh): ?>
-                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all">
-                                <td class="px-5 py-3 font-bold text-slate-700 dark:text-slate-300">Unit <?php echo htmlspecialchars($lh['unit_number']); ?> — <?php echo htmlspecialchars($lh['property_title']); ?></td>
-                                <td class="px-5 py-3 text-slate-500 text-xs"><?php echo date('M Y', strtotime($lh['start_date'])); ?> – <?php echo date('M Y', strtotime($lh['end_date'])); ?></td>
-                                <td class="px-5 py-3 font-bold text-slate-700 dark:text-slate-300"><?php echo $currency; ?> <?php echo number_format((float)$lh['monthly_rent']); ?></td>
-                                <td class="px-5 py-3 text-right">
-                                    <span class="px-2 py-1 rounded-full text-[9px] font-black uppercase
-                                        <?php echo match($lh['status']) {
-                                            'Active'     => 'bg-green-500/10 text-green-500',
-                                            'Terminated' => 'bg-red-500/10 text-red-500',
-                                            default      => 'bg-slate-100 dark:bg-slate-800 text-slate-500',
-                                        }; ?>"><?php echo htmlspecialchars($lh['status']); ?></span>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <?php endif; ?>
+                <!-- Lease history moved to Leases tab -->
             </div>
 
             <!-- Right (1/3): NOK + quick actions -->
@@ -378,7 +411,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="glass-card p-5">
                     <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Quick Actions</h3>
                     <div class="space-y-2">
-                        <button onclick="switchTab('invoices')"
+                        <button onclick="openModal('generateInvoiceModal')"
                             class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest text-left">
                             <div class="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center shrink-0">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -392,13 +425,20 @@ include __DIR__ . '/includes/sidebar.php';
                             </div>
                             Record Payment
                         </button>
-                        <a href="view_statement.php?tenant_id=<?php echo $tenantId; ?>"
-                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest">
+                        <button onclick="switchTab('statement')"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest text-left">
                             <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
                             </div>
                             View Statement
-                        </a>
+                        </button>
+                        <button onclick="openModal('assignUnitModal')"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-black uppercase tracking-widest text-left">
+                            <div class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg>
+                            </div>
+                            Add Unit / Lease
+                        </button>
                     </div>
                 </div>
 
@@ -415,6 +455,108 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <?php endif; ?>
             </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: LEASES
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-leases" class="tab-content <?php echo $activeTab !== 'leases' ? 'hidden' : ''; ?>">
+        <?php
+        $activeLeasesCount = count($activeLeases);
+        $totalLeases       = count($allLeases);
+        $totalActiveRent   = array_sum(array_column($activeLeases, 'monthly_rent'));
+        $endedCount        = $totalLeases - $activeLeasesCount;
+        ?>
+        <!-- KPI bar -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <div class="glass-card p-5 bg-green-50 dark:bg-green-900/20">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Active Leases</p>
+                <h3 class="text-2xl font-black text-green-500"><?php echo $activeLeasesCount; ?></h3>
+            </div>
+            <div class="glass-card p-5">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Leases</p>
+                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $totalLeases; ?></h3>
+            </div>
+            <div class="glass-card p-5">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Rent</p>
+                <h3 class="text-xl font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($totalActiveRent); ?></h3>
+            </div>
+            <div class="glass-card p-5">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ended</p>
+                <h3 class="text-2xl font-black text-slate-500"><?php echo $endedCount; ?></h3>
+            </div>
+        </div>
+
+        <div class="glass-card overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                    <h3 class="font-black text-slate-900 dark:text-white">Lease History</h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">All <?php echo $totalLeases; ?> lease<?php echo $totalLeases !== 1 ? 's' : ''; ?></p>
+                </div>
+                <button onclick="openModal('assignUnitModal')" class="btn-green text-xs gap-1.5 py-2 px-4">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                    Add Unit / Lease
+                </button>
+            </div>
+            <?php if (empty($allLeases)): ?>
+            <div class="empty-state py-16">
+                <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg></div>
+                <p class="font-bold text-slate-400 text-sm mt-3">No leases on record for this tenant.</p>
+            </div>
+            <?php else: ?>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left data-table">
+                    <thead><tr class="bg-slate-50 dark:bg-slate-800/30">
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit &amp; Property</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:table-cell">Period</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rent / mo</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Deposit</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($allLeases as $lh): ?>
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                        <td class="px-5 py-3">
+                            <p class="text-sm font-black text-slate-900 dark:text-white">Unit <?php echo htmlspecialchars($lh['unit_number']); ?></p>
+                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars($lh['property_title']); ?></p>
+                        </td>
+                        <td class="px-5 py-3 hidden sm:table-cell text-xs text-slate-500">
+                            <?php echo date('M d, Y', strtotime($lh['start_date'])); ?> –
+                            <?php echo !empty($lh['end_date']) ? date('M d, Y', strtotime($lh['end_date'])) : 'Open'; ?>
+                        </td>
+                        <td class="px-5 py-3 font-bold text-slate-700 dark:text-slate-300 text-sm"><?php echo $currency; ?> <?php echo number_format((float)$lh['monthly_rent']); ?></td>
+                        <td class="px-5 py-3 text-xs text-slate-500"><?php echo !empty($lh['deposit_amount']) ? $currency . ' ' . number_format((float)$lh['deposit_amount']) : '—'; ?></td>
+                        <td class="px-5 py-3 text-center">
+                            <span class="px-2 py-1 rounded-full text-[9px] font-black uppercase
+                                <?php echo match($lh['status']) {
+                                    'Active'             => 'bg-green-500/10 text-green-500',
+                                    'Terminated','Ended' => 'bg-red-500/10 text-red-500',
+                                    default              => 'bg-slate-100 dark:bg-slate-800 text-slate-500',
+                                }; ?>"><?php echo htmlspecialchars($lh['status']); ?></span>
+                        </td>
+                        <td class="px-5 py-3 text-right">
+                            <?php if ($lh['status'] === 'Active'): ?>
+                            <form action="actions/tenant_actions.php" method="POST" class="inline"
+                                  onsubmit="return confirm('End lease for Unit <?php echo htmlspecialchars(addslashes($lh['unit_number'])); ?>?')">
+                                <input type="hidden" name="action" value="end_lease">
+                                <input type="hidden" name="lease_id" value="<?php echo $lh['id']; ?>">
+                                <input type="hidden" name="_redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>&tab=leases">
+                                <button type="submit" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide text-red-500 border border-red-200 dark:border-red-900/40 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
+                                    End Lease
+                                </button>
+                            </form>
+                            <?php else: ?>
+                            <span class="text-[10px] text-slate-300 dark:text-slate-600">—</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -568,6 +710,98 @@ include __DIR__ . '/includes/sidebar.php';
     </div>
 
     <!-- ══════════════════════════════════════════════════════
+         TAB: STATEMENT
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-statement" class="tab-content <?php echo $activeTab !== 'statement' ? 'hidden' : ''; ?>">
+        <?php
+        $stmtPeriod   = $_GET['stmt_period'] ?? 'all';
+        $validPeriods = ['month', '3m', 'ytd', 'all'];
+        if (!in_array($stmtPeriod, $validPeriods)) $stmtPeriod = 'all';
+        $periodMap  = ['month' => 'This Month', '3m' => 'Last 3 Months', 'ytd' => 'Year to Date', 'all' => 'All Time'];
+        $stmtTxArr  = array_values(array_filter($transactions, function($tx) use ($stmtPeriod) {
+            $txTime = strtotime($tx['transaction_date'] ?? $tx['created_at'] ?? 'now');
+            if ($stmtPeriod === 'month') return $txTime >= strtotime(date('Y-m-01'));
+            if ($stmtPeriod === '3m')    return $txTime >= strtotime('-3 months');
+            if ($stmtPeriod === 'ytd')   return $txTime >= strtotime(date('Y-01-01'));
+            return true;
+        }));
+        $stmtPaid   = array_sum(array_column(array_filter($stmtTxArr, fn($t) => ($t['status'] ?? '') === 'Paid'), 'amount'));
+        $stmtCount  = count($stmtTxArr);
+        ?>
+
+        <!-- Period filter -->
+        <div class="flex gap-2 flex-wrap mb-6">
+        <?php foreach ($periodMap as $pk => $pl): ?>
+            <a href="?id=<?php echo urlencode($tenantId); ?>&tab=statement&stmt_period=<?php echo $pk; ?>"
+               class="px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all
+                   <?php echo $stmtPeriod === $pk ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'; ?>">
+                <?php echo $pl; ?>
+            </a>
+        <?php endforeach; ?>
+        </div>
+
+        <!-- Summary KPIs -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+            <div class="glass-card p-5 bg-green-50 dark:bg-green-900/20">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Paid</p>
+                <h3 class="text-2xl font-black text-green-500"><?php echo $currency; ?> <?php echo number_format($stmtPaid); ?></h3>
+            </div>
+            <div class="glass-card p-5">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Transactions</p>
+                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $stmtCount; ?></h3>
+            </div>
+            <div class="glass-card p-5 bg-red-50 dark:bg-red-900/20">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Outstanding</p>
+                <h3 class="text-2xl font-black text-red-500"><?php echo $currency; ?> <?php echo number_format($invoiceSummary['outstanding']); ?></h3>
+            </div>
+        </div>
+
+        <!-- Transactions table -->
+        <div class="glass-card overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                    <h3 class="font-black text-slate-900 dark:text-white">Payment Transactions — <?php echo $periodMap[$stmtPeriod]; ?></h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5"><?php echo $stmtCount; ?> transaction<?php echo $stmtCount !== 1 ? 's' : ''; ?></p>
+                </div>
+            </div>
+            <?php if (empty($stmtTxArr)): ?>
+            <div class="empty-state py-16">
+                <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                <p class="font-bold text-slate-400 text-sm mt-3">No payment transactions for this period.</p>
+            </div>
+            <?php else: ?>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left data-table">
+                    <thead><tr class="bg-slate-50 dark:bg-slate-800/30">
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Reference</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($stmtTxArr as $tx): ?>
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                        <td class="px-5 py-3 text-xs text-slate-600 dark:text-slate-400"><?php echo date('M d, Y', strtotime($tx['transaction_date'] ?? $tx['created_at'] ?? 'now')); ?></td>
+                        <td class="px-5 py-3 text-xs font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($tx['transaction_type'] ?? 'Payment'); ?></td>
+                        <td class="px-5 py-3 text-xs text-slate-500 font-mono hidden md:table-cell"><?php echo htmlspecialchars($tx['reference_code'] ?? '—'); ?></td>
+                        <td class="px-5 py-3 text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$tx['amount']); ?></td>
+                        <td class="px-5 py-3 text-right">
+                            <span class="px-2.5 py-1 rounded-full text-[9px] font-black uppercase border
+                                <?php echo ($tx['status'] ?? '') === 'Paid' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'; ?>">
+                                <?php echo htmlspecialchars($tx['status'] ?? 'Recorded'); ?>
+                            </span>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
          TAB: MAINTENANCE
     ══════════════════════════════════════════════════════ -->
     <div id="content-maintenance" class="tab-content <?php echo $activeTab !== 'maintenance' ? 'hidden' : ''; ?>">
@@ -632,6 +866,99 @@ include __DIR__ . '/includes/sidebar.php';
                 </table>
             </div>
             <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: DOCUMENTS
+    ══════════════════════════════════════════════════════ -->
+    <div id="content-documents" class="tab-content <?php echo $activeTab !== 'documents' ? 'hidden' : ''; ?>">
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+            <!-- Documents list -->
+            <div class="xl:col-span-2 glass-card overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                    <h3 class="font-black text-slate-900 dark:text-white">Tenant Documents</h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5"><?php echo count($documents); ?> file<?php echo count($documents) !== 1 ? 's' : ''; ?> on record</p>
+                </div>
+                <?php if (empty($documents)): ?>
+                <div class="empty-state py-16">
+                    <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                    <p class="font-bold text-slate-400 text-sm mt-3">No documents uploaded yet.</p>
+                </div>
+                <?php else: ?>
+                <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                <?php
+                $docCatColors = ['Lease' => 'bg-blue-500/10 text-blue-500', 'ID' => 'bg-purple-500/10 text-purple-500', 'Termination' => 'bg-red-500/10 text-red-500', 'Other' => 'bg-slate-100 dark:bg-slate-800 text-slate-500'];
+                foreach ($documents as $doc):
+                    $catClass = $docCatColors[$doc['category'] ?? 'Other'] ?? $docCatColors['Other'];
+                    $sizeLabel = $doc['file_size'] > 0 ? round($doc['file_size'] / 1024, 1) . ' KB' : '';
+                ?>
+                <div class="px-6 py-4 flex items-center gap-4">
+                    <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-400">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-bold text-slate-900 dark:text-white truncate"><?php echo htmlspecialchars($doc['title']); ?></p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase <?php echo $catClass; ?>"><?php echo htmlspecialchars($doc['category'] ?? 'Other'); ?></span>
+                            <?php if ($sizeLabel): ?><span class="text-[10px] text-slate-400"><?php echo $sizeLabel; ?></span><?php endif; ?>
+                            <span class="text-[10px] text-slate-400"><?php echo date('M d, Y', strtotime($doc['created_at'])); ?></span>
+                        </div>
+                    </div>
+                    <?php if (!empty($doc['file_url'])): ?>
+                    <a href="/<?php echo htmlspecialchars($doc['file_url']); ?>" target="_blank"
+                       class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0">
+                        Download
+                    </a>
+                    <?php endif; ?>
+                    <form action="actions/tenant_detail_actions.php" method="POST" class="shrink-0"
+                          onsubmit="return confirm('Delete this document?')">
+                        <input type="hidden" name="action" value="delete_document">
+                        <input type="hidden" name="document_id" value="<?php echo $doc['id']; ?>">
+                        <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                        <button type="submit" class="w-7 h-7 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all flex items-center justify-center">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                        </button>
+                    </form>
+                </div>
+                <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Upload Document -->
+            <div class="glass-card p-5">
+                <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Upload Document</h3>
+                <form action="actions/tenant_detail_actions.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                    <input type="hidden" name="action" value="upload_document">
+                    <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Title / Label</label>
+                        <input type="text" name="title" required placeholder="e.g. National ID Copy"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label>
+                        <select name="category"
+                            class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                            <option value="Lease">Lease Agreement</option>
+                            <option value="ID">ID / Passport</option>
+                            <option value="Termination">Termination Notice</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">File</label>
+                        <input type="file" name="document_file" required accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            class="w-full text-sm text-slate-600 dark:text-slate-400
+                                file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
+                                file:text-[11px] file:font-black file:uppercase file:bg-slate-200 dark:file:bg-slate-700
+                                file:text-slate-700 dark:file:text-slate-300 file:cursor-pointer hover:file:bg-slate-300 dark:hover:file:bg-slate-600">
+                    </div>
+                    <button type="submit" class="btn-green w-full justify-center py-3 text-xs">Upload Document</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -868,7 +1195,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <div class="space-y-1.5">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount (<?php echo $currency; ?>)</label>
                     <input type="number" name="amount" id="singleInvAmount" required placeholder="0.00" min="0" step="0.01"
-                        value="<?php echo $activeLease ? (float)$activeLease['monthly_rent'] : ''; ?>"
+                        value="<?php echo $primaryLease ? (float)$primaryLease['monthly_rent'] : ''; ?>"
                         class="form-input w-full">
                 </div>
                 <div class="space-y-1.5">
@@ -893,12 +1220,12 @@ include __DIR__ . '/includes/sidebar.php';
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Charges to include</p>
                 <?php
                 $bundleItems = [
-                    ['type' => 'Rent',           'label' => 'Monthly Rent',     'default' => $activeLease ? (float)$activeLease['monthly_rent'] : '', 'checked' => !!$activeLease],
+                    ['type' => 'Rent',           'label' => 'Monthly Rent',     'default' => $primaryLease ? (float)$primaryLease['monthly_rent'] : '', 'checked' => !!$primaryLease],
                     ['type' => 'Water',           'label' => 'Water',            'default' => '', 'checked' => false],
                     ['type' => 'Electricity',     'label' => 'Electricity',      'default' => '', 'checked' => false],
                     ['type' => 'Garbage',         'label' => 'Garbage / Waste',  'default' => '', 'checked' => false],
                     ['type' => 'Service Charge',  'label' => 'Service Charge',   'default' => '', 'checked' => false],
-                    ['type' => 'Deposit',         'label' => 'Security Deposit', 'default' => $activeLease ? (float)$activeLease['deposit_amount'] : '', 'checked' => false],
+                    ['type' => 'Deposit',         'label' => 'Security Deposit', 'default' => $primaryLease ? (float)$primaryLease['deposit_amount'] : '', 'checked' => false],
                     ['type' => 'Penalty',         'label' => 'Penalty / Late Fee','default' => '', 'checked' => false],
                 ];
                 foreach ($bundleItems as $item): ?>
@@ -942,12 +1269,12 @@ include __DIR__ . '/includes/sidebar.php';
         <button onclick="closeModal('assignUnitModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-xl font-black mb-1">Assign Unit</h2>
-        <p class="text-xs text-slate-400 mb-6">Create a new lease for <?php echo htmlspecialchars($tenant['full_name']); ?></p>
-        <form action="actions/lease_actions.php" method="POST" class="space-y-5">
-            <input type="hidden" name="action" value="create">
+        <h2 class="text-xl font-black mb-1">Add Unit / Lease</h2>
+        <p class="text-xs text-slate-400 mb-6">Create a new lease for <strong class="text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($tenant['full_name']); ?></strong><?php if (!empty($activeLeases)): ?> <span class="text-orange-500">(already has <?php echo count($activeLeases); ?> active)</span><?php endif; ?></p>
+        <form action="actions/tenant_actions.php" method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="assign_unit">
             <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
-            <input type="hidden" name="redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>">
+            <input type="hidden" name="_redirect" value="tenant_details.php?id=<?php echo $tenantId; ?>&tab=leases">
             <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-1.5">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Property</label>
@@ -989,7 +1316,7 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="flex justify-end gap-3 pt-2">
                 <button type="button" onclick="closeModal('assignUnitModal')" class="px-6 py-3 text-xs font-black uppercase text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">Cancel</button>
-                <button type="submit" class="btn-green text-xs px-8 py-3">Confirm Assignment</button>
+                <button type="submit" class="btn-green text-xs px-8 py-3">Add Unit &amp; Create Lease →</button>
             </div>
         </form>
     </div>
@@ -1058,8 +1385,8 @@ function switchInvMode(mode) {
 }
 
 /* ── Single invoice: prefill amount by type ─ */
-const leaseRent    = <?php echo $activeLease ? (float)$activeLease['monthly_rent'] : 0; ?>;
-const leaseDeposit = <?php echo $activeLease ? (float)$activeLease['deposit_amount'] : 0; ?>;
+const leaseRent    = <?php echo $primaryLease ? (float)$primaryLease['monthly_rent'] : 0; ?>;
+const leaseDeposit = <?php echo $primaryLease ? (float)$primaryLease['deposit_amount'] : 0; ?>;
 
 function prefillSingleAmount(type) {
     const amtInput = document.getElementById('singleInvAmount');

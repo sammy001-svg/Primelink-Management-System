@@ -7,7 +7,8 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireRole(['admin', 'staff']);
 
-$action = $_POST['action'] ?? '';
+$action  = $_POST['action'] ?? '';
+$_redir  = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : null;
 
 if ($action === 'create') {
     $propertyId = $_POST['property_id'];
@@ -47,7 +48,7 @@ if ($action === 'create') {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson]);
-        header("Location: ../property_details.php?id=$propertyId&success=unit_created");
+        header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_created"));
     } catch (PDOException $e) {
         // Self-healing: category, images, or rent_amount naming drift
         if ($e->getCode() == '42S22') {
@@ -56,7 +57,7 @@ if ($action === 'create') {
                 $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `images` JSON NULL AFTER `status` ");
                 $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_meter` VARCHAR(100) NULL AFTER `deposit_amount` ");
                 $pdo->exec("ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_meter` VARCHAR(100) NULL AFTER `electricity_meter` ");
-                
+
                 // Attempt to rename rent_amount to monthly_rent if it exists
                 try {
                     $pdo->exec("ALTER TABLE `units` CHANGE COLUMN `rent_amount` `monthly_rent` DECIMAL(15,2) NOT NULL DEFAULT 0");
@@ -69,7 +70,7 @@ if ($action === 'create') {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson]);
-                header("Location: ../property_details.php?id=$propertyId&success=unit_created");
+                header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_created"));
                 exit();
             } catch (PDOException $subE) {
                 die("Unit Repair Failed: " . $subE->getMessage());
@@ -83,13 +84,13 @@ else if ($action === 'delete') {
     $unitId     = trim($_POST['unit_id']     ?? '');
     $propertyId = trim($_POST['property_id'] ?? '');
 
-    if (!$unitId) { header("Location: ../property_details.php?id=$propertyId"); exit(); }
+    if (!$unitId) { header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId")); exit(); }
 
     // Block if active lease exists
     $check = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE unit_id = ? AND status = 'Active'");
     $check->execute([$unitId]);
     if ((int)$check->fetchColumn() > 0) {
-        header("Location: ../property_details.php?id=$propertyId&error=has_tenant");
+        header("Location: ../property_details.php?id=$propertyId&tab=units&error=has_tenant");
         exit();
     }
 
@@ -106,7 +107,7 @@ else if ($action === 'delete') {
         require_once __DIR__ . '/../includes/audit.php';
         logAction($pdo, 'unit_deleted', 'Units', $unitId, "Deleted unit $uNum from property $propertyId");
 
-        header("Location: ../property_details.php?id=$propertyId&success=unit_deleted");
+        header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_deleted"));
     } catch (PDOException $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         header("Location: ../property_details.php?id=$propertyId&error=" . urlencode($e->getMessage()));
@@ -158,7 +159,7 @@ else if ($action === 'update') {
     ");
     
     if ($stmt->execute([$unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson, $unitId])) {
-        header("Location: ../property_details.php?id=$propertyId&success=unit_updated");
+        header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_updated"));
     } else {
         header("Location: ../property_details.php?id=$propertyId&error=update_failed");
     }
