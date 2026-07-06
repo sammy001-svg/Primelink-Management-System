@@ -40,13 +40,18 @@ if ($role === 'landlord') {
     $landlordId = getLandlordId($pdo);
     $stmt = $pdo->prepare("
         SELECT t.*,
-            l.id       AS lease_id,
-            l.status   AS lease_status,
-            l.end_date AS lease_end,
-            u.unit_number, u.monthly_rent,
-            pr.title   AS property_title,
+            MIN(l.id) AS lease_id,
+            COUNT(DISTINCT l.id) AS lease_count,
+            MIN(l.start_date) AS lease_start,
+            MAX(l.end_date)   AS lease_end,
+            GROUP_CONCAT(DISTINCT u.unit_number ORDER BY u.unit_number SEPARATOR ', ') AS unit_numbers,
+            MIN(u.unit_number) AS unit_number,
+            COALESCE(SUM(l.monthly_rent), 0) AS monthly_rent,
+            MIN(pr.title) AS property_title,
+            GROUP_CONCAT(DISTINCT pr.title ORDER BY pr.title SEPARATOR ' | ') AS property_titles,
             (SELECT COUNT(*) FROM invoices i WHERE i.tenant_id = t.id AND i.status = 'Overdue') AS overdue_count,
-            (SELECT MAX(tr.transaction_date) FROM transactions tr WHERE tr.tenant_id = t.id AND tr.status = 'Paid') AS last_payment
+            (SELECT MAX(tr.transaction_date) FROM transactions tr WHERE tr.tenant_id = t.id AND tr.status = 'Paid') AS last_payment,
+            COALESCE((SELECT SUM(i.amount) FROM invoices i WHERE i.tenant_id = t.id AND i.status NOT IN ('Paid','Cancelled')), 0) AS outstanding_balance
         FROM tenants t
         LEFT JOIN leases l      ON l.tenant_id = t.id AND l.status = 'Active'
         LEFT JOIN units u       ON l.unit_id = u.id
@@ -62,13 +67,16 @@ if ($role === 'landlord') {
     requireRole(['admin', 'staff']);
     $stmt = $pdo->query("
         SELECT t.*,
-            l.id         AS lease_id,
-            l.status     AS lease_status,
-            l.start_date AS lease_start,
-            l.end_date   AS lease_end,
-            u.unit_number, u.monthly_rent,
-            pr.id    AS property_id_fk,
-            pr.title AS property_title,
+            MIN(l.id)         AS lease_id,
+            COUNT(DISTINCT l.id) AS lease_count,
+            MIN(l.start_date) AS lease_start,
+            MAX(l.end_date)   AS lease_end,
+            GROUP_CONCAT(DISTINCT u.unit_number ORDER BY u.unit_number SEPARATOR ', ') AS unit_numbers,
+            MIN(u.unit_number) AS unit_number,
+            COALESCE(SUM(l.monthly_rent), 0) AS monthly_rent,
+            MIN(pr.id)    AS property_id_fk,
+            MIN(pr.title) AS property_title,
+            GROUP_CONCAT(DISTINCT pr.title ORDER BY pr.title SEPARATOR ' | ') AS property_titles,
             (SELECT COUNT(*) FROM invoices i WHERE i.tenant_id = t.id AND i.status = 'Overdue') AS overdue_count,
             (SELECT MAX(tr.transaction_date) FROM transactions tr WHERE tr.tenant_id = t.id AND tr.status = 'Paid') AS last_payment,
             COALESCE((SELECT SUM(i.amount) FROM invoices i WHERE i.tenant_id = t.id AND i.status NOT IN ('Paid','Cancelled')), 0) AS outstanding_balance
@@ -76,30 +84,55 @@ if ($role === 'landlord') {
         LEFT JOIN leases l      ON l.tenant_id = t.id AND l.status = 'Active'
         LEFT JOIN units u       ON l.unit_id = u.id
         LEFT JOIN properties pr ON u.property_id = pr.id
+        GROUP BY t.id
         ORDER BY t.created_at DESC
     ");
 }
 $tenants = $stmt->fetchAll();
+
+// ── All active leases per tenant (for panel multi-lease display) ───
+$_allTenantLeases = [];
+if (!empty($tenants)) {
+    $_tenantIds = array_column($tenants, 'id');
+    $_ph        = implode(',', array_fill(0, count($_tenantIds), '?'));
+    $_lStmt     = $pdo->prepare("
+        SELECT l.id, l.tenant_id, l.monthly_rent, l.deposit_amount,
+               l.start_date, l.end_date, l.status,
+               u.id AS unit_id, u.unit_number,
+               p.id AS property_id, p.title AS property_title
+        FROM leases l
+        JOIN units u ON l.unit_id = u.id
+        JOIN properties p ON u.property_id = p.id
+        WHERE l.tenant_id IN ($_ph) AND l.status = 'Active'
+        ORDER BY l.tenant_id, l.start_date DESC
+    ");
+    $_lStmt->execute($_tenantIds);
+    foreach ($_lStmt->fetchAll() as $_lr) {
+        $_allTenantLeases[$_lr['tenant_id']][] = $_lr;
+    }
+}
 
 // ── Panel data keyed by ID (for JS slide panel) ───────────────────
 $tenantPanelData = [];
 foreach ($tenants as $_pt) {
     $tenantPanelData[$_pt['id']] = [
         'id'                  => $_pt['id'],
-        'full_name'           => $_pt['full_name']      ?? '',
-        'email'               => $_pt['email']          ?? '',
-        'phone'               => $_pt['phone']          ?? '',
-        'status'              => $_pt['status']         ?? 'Active',
-        'created_at'          => $_pt['created_at']     ?? '',
-        'unit_number'         => $_pt['unit_number']    ?? null,
-        'property_title'      => $_pt['property_title'] ?? null,
+        'full_name'           => $_pt['full_name']       ?? '',
+        'email'               => $_pt['email']           ?? '',
+        'phone'               => $_pt['phone']           ?? '',
+        'status'              => $_pt['status']          ?? 'Active',
+        'created_at'          => $_pt['created_at']      ?? '',
+        'unit_number'         => $_pt['unit_numbers']    ?? null,
+        'property_title'      => $_pt['property_titles'] ?? null,
         'property_id_fk'      => $_pt['property_id_fk'] ?? null,
         'monthly_rent'        => (float)($_pt['monthly_rent'] ?? 0),
-        'lease_id'            => $_pt['lease_id']       ?? null,
-        'lease_start'         => $_pt['lease_start']    ?? null,
-        'lease_end'           => $_pt['lease_end']      ?? null,
+        'lease_id'            => $_pt['lease_id']        ?? null,
+        'lease_count'         => (int)($_pt['lease_count'] ?? 0),
+        'lease_start'         => $_pt['lease_start']     ?? null,
+        'lease_end'           => $_pt['lease_end']       ?? null,
         'outstanding_balance' => (float)($_pt['outstanding_balance'] ?? 0),
         'overdue_count'       => (int)($_pt['overdue_count']  ?? 0),
+        'leases'              => $_allTenantLeases[$_pt['id']] ?? [],
     ];
 }
 
@@ -129,9 +162,10 @@ $toastMsg = match($success) {
     'created'         => 'Tenant registered successfully.',
     'profile_updated' => 'Tenant details updated.',
     'unit_assigned'   => 'Unit assigned and lease created.',
+    'lease_ended'     => 'Lease ended and unit freed.',
     'tenant_deleted'  => 'Tenant deleted permanently.',
     'password_reset'  => 'Password reset successfully.',
-    default           => ''
+    default           => $success ? htmlspecialchars($success) : ''
 };
 $errorMsg = match($error) {
     'has_lease'         => 'Cannot delete: tenant has lease history. Terminate the lease first.',
@@ -340,8 +374,13 @@ $errorMsg = match($error) {
                             </div>
                         </td>
                         <td class="px-6 py-4 hidden md:table-cell">
-                            <?php if ($hasLease): ?>
-                            <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Unit <?php echo htmlspecialchars($t['unit_number'] ?? ''); ?></p>
+                            <?php
+                            $leaseCount = (int)($t['lease_count'] ?? 0);
+                            if ($leaseCount > 1): ?>
+                            <p class="text-sm font-black text-violet-600 dark:text-violet-400"><?php echo $leaseCount; ?> units</p>
+                            <p class="text-[9px] text-slate-400 font-medium truncate max-w-[160px]"><?php echo htmlspecialchars($t['unit_numbers'] ?? ''); ?></p>
+                            <?php elseif ($leaseCount === 1): ?>
+                            <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Unit <?php echo htmlspecialchars($t['unit_numbers'] ?? ''); ?></p>
                             <p class="text-[9px] text-slate-400 font-medium truncate max-w-[150px]"><?php echo htmlspecialchars($t['property_title'] ?? ''); ?></p>
                             <?php if (!empty($t['lease_end'])): ?>
                             <p class="text-[9px] font-bold text-slate-300 dark:text-slate-600 mt-0.5">Until <?php echo date('M Y', strtotime($t['lease_end'])); ?></p>
@@ -353,7 +392,7 @@ $errorMsg = match($error) {
                         <td class="px-6 py-4 hidden lg:table-cell">
                             <?php if ($hasLease && !empty($t['monthly_rent'])): ?>
                             <p class="text-sm font-black text-slate-700 dark:text-slate-300"><?php echo $currency; ?> <?php echo number_format((float)$t['monthly_rent']); ?></p>
-                            <p class="text-[9px] text-slate-400">per month</p>
+                            <p class="text-[9px] text-slate-400"><?php echo (int)($t['lease_count'] ?? 1) > 1 ? 'total / month' : 'per month'; ?></p>
                             <?php else: ?>
                             <span class="text-slate-300 dark:text-slate-600 text-xs">—</span>
                             <?php endif; ?>
@@ -428,7 +467,7 @@ $errorMsg = match($error) {
                                     </button>
                                     <button onclick='openAssignUnitModal(<?php echo $_tId; ?>, <?php echo $_tName; ?>)' class="action-item">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
-                                        <?php echo $hasLease ? 'Change Unit' : 'Assign Unit'; ?>
+                                        Add Unit
                                     </button>
                                     <button onclick='openResetPassModal(<?php echo $_tId; ?>, <?php echo $_tName; ?>)' class="action-item">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -692,15 +731,21 @@ $errorMsg = match($error) {
         </div>
     </div>
 
-    <!-- ── Assign Unit Modal ────────────────────────────────────── -->
+    <!-- ── Add Unit / Lease Modal ──────────────────────────────────── -->
     <div id="assignUnitModal" class="modal-overlay" style="display:none;">
         <div class="modal-card max-w-lg px-8 py-10">
             <button onclick="closeModal('assignUnitModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
-            <h2 class="text-2xl font-black mb-1 tracking-tight">Assign Unit</h2>
-            <p class="text-xs text-slate-400 font-medium mb-1">Assigning to: <span id="assign_tenant_name" class="font-black text-slate-700 dark:text-slate-200"></span></p>
-            <p class="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-8">Only tenants without an active lease can be assigned here.</p>
+            <h2 class="text-2xl font-black mb-1 tracking-tight">Add Unit / Lease</h2>
+            <p class="text-xs text-slate-400 font-medium mb-2">Adding unit for: <span id="assign_tenant_name" class="font-black text-slate-700 dark:text-slate-200"></span></p>
+
+            <!-- Current units for this tenant -->
+            <div id="assign_current_units" class="hidden mb-5 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl">
+                <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Already Assigned Units</p>
+                <p id="assign_current_units_list" class="text-xs font-bold text-blue-700 dark:text-blue-300"></p>
+            </div>
+
             <form action="actions/tenant_actions.php" method="POST" class="space-y-5">
                 <input type="hidden" name="action" value="assign_unit">
                 <input type="hidden" name="tenant_id" id="assign_tenant_id">
@@ -747,7 +792,7 @@ $errorMsg = match($error) {
                             class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                     </div>
                 </div>
-                <button type="submit" class="btn-green w-full justify-center py-4 font-black">Assign Unit & Create Lease →</button>
+                <button type="submit" class="btn-green w-full justify-center py-4 font-black">Add Unit & Create Lease →</button>
             </form>
         </div>
     </div>
@@ -827,33 +872,18 @@ $errorMsg = match($error) {
                 </div>
             </div>
 
-            <!-- Unit / Lease -->
+            <!-- Unit / Leases (supports multiple) -->
             <div id="tp_lease_section">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Current Lease</p>
-                <div class="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="font-black text-slate-900 dark:text-white" id="tp_unit"></p>
-                            <p class="text-[10px] text-slate-400 font-medium" id="tp_property"></p>
-                        </div>
-                        <p class="text-lg font-black text-accent-green" id="tp_rent"></p>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2 text-[10px]">
-                        <div>
-                            <p class="font-black text-slate-400 uppercase tracking-widest mb-0.5">Lease Start</p>
-                            <p class="font-bold text-slate-600 dark:text-slate-300" id="tp_lease_start"></p>
-                        </div>
-                        <div>
-                            <p class="font-black text-slate-400 uppercase tracking-widest mb-0.5">Lease End</p>
-                            <p class="font-bold text-slate-600 dark:text-slate-300" id="tp_lease_end"></p>
-                        </div>
-                    </div>
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active Leases</p>
+                    <span id="tp_lease_badge" class="px-2 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 rounded-lg text-[9px] font-black"></span>
                 </div>
+                <div id="tp_leases_list" class="space-y-2"></div>
             </div>
             <div id="tp_nolease_section" class="hidden">
                 <div class="p-4 border-2 border-dashed border-orange-200 dark:border-orange-900/40 rounded-2xl text-center">
                     <p class="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">No Active Lease</p>
-                    <p class="text-xs text-slate-500 font-medium">This tenant has not been assigned a unit.</p>
+                    <p class="text-xs text-slate-500 font-medium">This tenant has not been assigned a unit yet.</p>
                 </div>
             </div>
 
@@ -1027,16 +1057,27 @@ function openEditModal(d) {
     openModal('editTenantModal');
 }
 
-/* ── Assign Unit Modal ──────────────────────── */
+/* ── Add Unit / Lease Modal ─────────────────── */
 function openAssignUnitModal(id, name) {
-    document.getElementById('assign_tenant_id').value       = id;
+    document.getElementById('assign_tenant_id').value        = id;
     document.getElementById('assign_tenant_name').textContent = name;
-    document.getElementById('assign_property_id').value     = '';
-    document.getElementById('assign_unit_id').innerHTML     = '<option value="">Select Property First</option>';
-    document.getElementById('assign_monthly_rent').value    = '';
-    document.getElementById('assign_deposit_amount').value  = '';
-    document.getElementById('assign_start_date').value      = new Date().toISOString().slice(0, 10);
-    document.getElementById('assign_end_date').value        = '';
+    document.getElementById('assign_property_id').value      = '';
+    document.getElementById('assign_unit_id').innerHTML      = '<option value="">Select Property First</option>';
+    document.getElementById('assign_monthly_rent').value     = '';
+    document.getElementById('assign_deposit_amount').value   = '';
+    document.getElementById('assign_start_date').value       = new Date().toISOString().slice(0, 10);
+    document.getElementById('assign_end_date').value         = '';
+
+    // Show current unit assignments if any
+    const t = tenantPanelData[id];
+    const curBox  = document.getElementById('assign_current_units');
+    const curList = document.getElementById('assign_current_units_list');
+    if (t && t.leases && t.leases.length > 0) {
+        curList.textContent = t.leases.map(l => `Unit ${l.unit_number} — ${l.property_title}`).join(' | ');
+        curBox.classList.remove('hidden');
+    } else {
+        curBox.classList.add('hidden');
+    }
     openModal('assignUnitModal');
 }
 function filterAssignUnits(propId) {
@@ -1118,17 +1159,44 @@ function openTenantPanel(id) {
         sb.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current"></span> Inactive';
     }
 
-    // Lease section
+    // Lease section — multi-lease support
     const ls = document.getElementById('tp_lease_section');
     const ns = document.getElementById('tp_nolease_section');
-    if (t.lease_id) {
+    const leases = t.leases || [];
+    if (leases.length > 0) {
         ls.classList.remove('hidden'); ns.classList.add('hidden');
-        document.getElementById('tp_unit').textContent     = 'Unit ' + (t.unit_number || '—');
-        document.getElementById('tp_property').textContent = t.property_title || '—';
-        document.getElementById('tp_rent').textContent     = '<?php echo $currency; ?> ' + parseFloat(t.monthly_rent).toLocaleString() + '/mo';
-        const fmtD = d => d ? new Date(d).toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}) : '—';
-        document.getElementById('tp_lease_start').textContent = fmtD(t.lease_start);
-        document.getElementById('tp_lease_end').textContent   = t.lease_end ? fmtD(t.lease_end) : 'Open-ended';
+        const badge = document.getElementById('tp_lease_badge');
+        badge.textContent = leases.length + ' unit' + (leases.length !== 1 ? 's' : '');
+        const fmtD = d => d ? new Date(d).toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}) : null;
+        const cur = '<?php echo $currency; ?>';
+        const list = document.getElementById('tp_leases_list');
+        list.innerHTML = leases.map(l => `
+            <div class="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30">
+                <div class="flex items-start justify-between gap-2 mb-1.5">
+                    <div>
+                        <p class="font-black text-sm text-slate-900 dark:text-white">Unit ${l.unit_number}</p>
+                        <p class="text-[10px] text-slate-400 font-medium">${l.property_title}</p>
+                    </div>
+                    <p class="text-sm font-black text-emerald-500 shrink-0">${cur} ${parseFloat(l.monthly_rent).toLocaleString()}/mo</p>
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                    <p class="text-[10px] text-slate-400">
+                        ${fmtD(l.start_date) || '—'} → ${fmtD(l.end_date) || 'Open-ended'}
+                    </p>
+                    <?php if ($canManage): ?>
+                    <form method="POST" action="actions/tenant_actions.php" style="display:inline"
+                          onsubmit="return confirm('End lease for Unit ${l.unit_number}? Unit will be freed.')">
+                        <input type="hidden" name="action" value="end_lease">
+                        <input type="hidden" name="lease_id" value="${l.id}">
+                        <input type="hidden" name="_redirect" value="tenants.php">
+                        <button type="submit" class="text-[9px] font-black uppercase text-red-400 hover:text-red-600 transition-colors px-2 py-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">
+                            End Lease
+                        </button>
+                    </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+        `).join('');
     } else {
         ls.classList.add('hidden'); ns.classList.remove('hidden');
     }

@@ -200,11 +200,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $propertyId = $r->fetchColumn() ?: '';
         }
 
-        // Block if tenant already has an active lease
-        $dup = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND status = 'Active'");
-        $dup->execute([$tenantId]);
-        if ((int)$dup->fetchColumn() > 0) {
-            header('Location: ' . $assignRedir . '?error=' . urlencode('Tenant already has an active lease. End the current lease first.'));
+        // Block if this specific unit is already occupied by someone else
+        $unitOcc = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE unit_id = ? AND status = 'Active'");
+        $unitOcc->execute([$unitId]);
+        if ((int)$unitOcc->fetchColumn() > 0) {
+            header('Location: ' . $assignRedir . '?error=' . urlencode('This unit is already occupied. Select a different unit.'));
+            exit();
+        }
+
+        // Block if this tenant already has an active lease for this exact unit
+        $dupUnit = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND unit_id = ? AND status = 'Active'");
+        $dupUnit->execute([$tenantId, $unitId]);
+        if ((int)$dupUnit->fetchColumn() > 0) {
+            header('Location: ' . $assignRedir . '?error=' . urlencode('This tenant already has an active lease for this unit.'));
             exit();
         }
 
@@ -227,6 +235,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             header('Location: ' . $assignRedir . '?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+    }
+
+    // ── end_lease: terminate one active lease, free the unit ─────────
+    if ($action === 'end_lease') {
+        $leaseId   = trim($_POST['lease_id']   ?? '');
+        $endRedir  = trim($_POST['_redirect'] ?? '../tenants.php');
+
+        if (!$leaseId) {
+            header('Location: ' . $endRedir . '?error=' . urlencode('Invalid lease.'));
+            exit();
+        }
+
+        try {
+            $row = $pdo->prepare("SELECT l.unit_id, l.tenant_id, u.unit_number FROM leases l JOIN units u ON l.unit_id = u.id WHERE l.id = ?");
+            $row->execute([$leaseId]);
+            $lease = $row->fetch();
+
+            if (!$lease) {
+                header('Location: ' . $endRedir . '?error=' . urlencode('Lease not found.'));
+                exit();
+            }
+
+            $pdo->beginTransaction();
+            // End the lease
+            $pdo->prepare("UPDATE leases SET status = 'Ended', end_date = NOW() WHERE id = ?")->execute([$leaseId]);
+            // Free the unit
+            $pdo->prepare("UPDATE units SET status = 'Available' WHERE id = ?")->execute([$lease['unit_id']]);
+            // If no more active leases, set tenant to Inactive
+            $activeLeft = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ? AND status = 'Active'");
+            $activeLeft->execute([$lease['tenant_id']]);
+            if ((int)$activeLeft->fetchColumn() === 0) {
+                $pdo->prepare("UPDATE tenants SET status = 'Inactive' WHERE id = ?")->execute([$lease['tenant_id']]);
+            }
+            $pdo->commit();
+
+            require_once __DIR__ . '/../includes/audit.php';
+            logAction($pdo, 'lease_ended', 'Tenants', $lease['tenant_id'], "Lease {$leaseId} ended — Unit {$lease['unit_number']} freed");
+
+            header('Location: ' . $endRedir . '?success=lease_ended');
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            header('Location: ' . $endRedir . '?error=' . urlencode($e->getMessage()));
         }
         exit();
     }

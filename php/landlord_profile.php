@@ -323,7 +323,9 @@ include __DIR__ . '/includes/sidebar.php';
             'loans'       => ['Loans',        'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6'],
             'profile'     => ['Profile',      'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'],
         ];
-        foreach ($tabDefs as $key => [$label, $path, $badge]) {
+        foreach ($tabDefs as $key => $tabDef) {
+            [$label, $path] = $tabDef;
+            $badge = $tabDef[2] ?? null;
             $active = ($tab === $key);
             echo '<button onclick="switchTab(\'' . $key . '\')" id="tab_btn_' . $key . '"
                 class="flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all ' .
