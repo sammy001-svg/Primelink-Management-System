@@ -22,14 +22,19 @@ function sendSystemEmail(PDO $pdo, string $to, string $subject, string $htmlBody
         return _sendSmtp($pdo, $to, $toName, $fromEmail, $fromName, $subject, $htmlBody, $plainText);
     }
 
-    // Fall back to PHP mail()
-    $headers  = "MIME-Version: 1.0\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    $headers .= "From: {$fromName} <{$fromEmail}>\r\n";
-    $headers .= "Reply-To: {$fromEmail}\r\n";
-    $headers .= "X-Mailer: Primelink/1.0\r\n";
+    // Try PHP mail() only if it is available on this server
+    if (function_exists('mail')) {
+        $headers  = "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $headers .= "From: {$fromName} <{$fromEmail}>\r\n";
+        $headers .= "Reply-To: {$fromEmail}\r\n";
+        $headers .= "X-Mailer: Primelink/1.0\r\n";
 
-    return @mail($to, $subject, $htmlBody, $headers);
+        return @mail($to, $subject, $htmlBody, $headers);
+    }
+
+    // mail() disabled on this host — attempt SMTP with whatever credentials are saved
+    return _sendSmtp($pdo, $to, $toName, $fromEmail, $fromName, $subject, $htmlBody, $plainText);
 }
 
 /**
