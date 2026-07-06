@@ -5,25 +5,50 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireRole(['staff']); // admin/staff only
+requireRole(['admin', 'staff']);
+
+require_once __DIR__ . '/../includes/audit.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: ../landlords.php');
     exit();
 }
 
+// Schema self-heal
+foreach ([
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS id_number        VARCHAR(100) NULL",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS address          TEXT NULL",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS fee_type         VARCHAR(20)  NOT NULL DEFAULT 'percentage'",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS nok_name         VARCHAR(255) NULL",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS nok_phone        VARCHAR(50)  NULL",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS nok_relationship VARCHAR(100) NULL",
+    "ALTER TABLE landlords ADD COLUMN IF NOT EXISTS status           VARCHAR(20)  NOT NULL DEFAULT 'active'",
+] as $ddl) {
+    try { $pdo->exec($ddl); } catch (PDOException $e) {}
+}
+
 $action = $_POST['action'] ?? '';
 
 switch ($action) {
 
+    // ─── CREATE ──────────────────────────────────────────────────────────────
     case 'create':
         $fullName = trim($_POST['full_name'] ?? '');
-        $email    = trim($_POST['email'] ?? '');
-        $phone    = trim($_POST['phone'] ?? '');
-        $password = $_POST['password'] ?? '';
+        $email    = trim($_POST['email']     ?? '');
+        $phone    = trim($_POST['phone']     ?? '');
+        $password = $_POST['password']        ?? '';
+        $idNumber = trim($_POST['id_number'] ?? '');
+        $address  = trim($_POST['address']   ?? '');
+        $feeType  = in_array($_POST['fee_type'] ?? '', ['percentage', 'fixed'])
+                        ? $_POST['fee_type'] : 'percentage';
+        $mgmtFee  = max(0, (float)($_POST['management_fee'] ?? 10));
+        if ($feeType === 'percentage') $mgmtFee = min(100, $mgmtFee);
+        $nokName  = trim($_POST['nok_name']         ?? '');
+        $nokPhone = trim($_POST['nok_phone']        ?? '');
+        $nokRel   = trim($_POST['nok_relationship'] ?? '');
 
         if (!$fullName || !$email || !$password) {
-            header('Location: ../landlords.php?error=missing_fields');
+            header('Location: ../landlords.php?error=' . urlencode('Name, email and password are required.'));
             exit();
         }
 
@@ -31,33 +56,132 @@ switch ($action) {
             $userId = generateUUID();
             $hash   = password_hash($password, PASSWORD_BCRYPT);
 
-            // Create user account
             $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'landlord')")
                 ->execute([$userId, $email, $hash]);
 
-            // Create profile
             $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, role) VALUES (?, ?, ?, ?, 'landlord')")
                 ->execute([$userId, $fullName, $email, $phone]);
 
-            // Create landlord record
             $landlordId = generateUUID();
-            $mgmtFee    = min(100, max(0, (float)($_POST['management_fee'] ?? 10)));
-            $pdo->prepare("INSERT INTO landlords (id, full_name, email, phone, user_id, management_fee) VALUES (?, ?, ?, ?, ?, ?)")
-                ->execute([$landlordId, $fullName, $email, $phone, $userId, $mgmtFee]);
+            $pdo->prepare("
+                INSERT INTO landlords
+                    (id, full_name, email, phone, user_id, management_fee, fee_type,
+                     id_number, address, nok_name, nok_phone, nok_relationship, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            ")->execute([
+                $landlordId, $fullName, $email, $phone, $userId, $mgmtFee, $feeType,
+                $idNumber ?: null, $address  ?: null,
+                $nokName  ?: null, $nokPhone ?: null, $nokRel ?: null,
+            ]);
 
-            header('Location: ../landlords.php?success=Landlord+account+created+successfully');
+            logAction($pdo, 'landlord_created', 'Landlords', $landlordId, "New landlord: {$fullName}");
+            header('Location: ../landlords.php?success=' . urlencode("Landlord account created for {$fullName}."));
         } catch (PDOException $e) {
-            if ($e->getCode() == 23000) {
-                header('Location: ../landlords.php?error=Email+already+exists');
-            } else {
-                header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
-            }
+            $msg = $e->getCode() == 23000 ? 'Email address is already registered.' : $e->getMessage();
+            header('Location: ../landlords.php?error=' . urlencode($msg));
         }
         exit();
 
+    // ─── EDIT ────────────────────────────────────────────────────────────────
+    case 'edit':
+        $landlordId = trim($_POST['landlord_id'] ?? '');
+        $fullName   = trim($_POST['full_name']   ?? '');
+        $email      = trim($_POST['email']       ?? '');
+        $phone      = trim($_POST['phone']       ?? '');
+        $idNumber   = trim($_POST['id_number']   ?? '');
+        $address    = trim($_POST['address']     ?? '');
+        $feeType    = in_array($_POST['fee_type'] ?? '', ['percentage', 'fixed'])
+                          ? $_POST['fee_type'] : 'percentage';
+        $mgmtFee    = max(0, (float)($_POST['management_fee'] ?? 10));
+        if ($feeType === 'percentage') $mgmtFee = min(100, $mgmtFee);
+        $nokName    = trim($_POST['nok_name']         ?? '');
+        $nokPhone   = trim($_POST['nok_phone']        ?? '');
+        $nokRel     = trim($_POST['nok_relationship'] ?? '');
+        $status     = in_array($_POST['status'] ?? '', ['active', 'inactive'])
+                          ? $_POST['status'] : 'active';
+
+        if (!$landlordId || !$fullName) {
+            header('Location: ../landlords.php?error=' . urlencode('Invalid request.'));
+            exit();
+        }
+
+        try {
+            $stmt = $pdo->prepare("SELECT user_id FROM landlords WHERE id = ?");
+            $stmt->execute([$landlordId]);
+            $userId = $stmt->fetchColumn();
+
+            $pdo->prepare("
+                UPDATE landlords
+                SET full_name=?, email=?, phone=?, management_fee=?, fee_type=?,
+                    id_number=?, address=?, nok_name=?, nok_phone=?, nok_relationship=?, status=?
+                WHERE id=?
+            ")->execute([
+                $fullName, $email, $phone, $mgmtFee, $feeType,
+                $idNumber ?: null, $address  ?: null,
+                $nokName  ?: null, $nokPhone ?: null, $nokRel ?: null,
+                $status, $landlordId,
+            ]);
+
+            if ($userId) {
+                $pdo->prepare("UPDATE users    SET email=?                          WHERE id=?")->execute([$email, $userId]);
+                $pdo->prepare("UPDATE profiles SET full_name=?, email=?, phone=?    WHERE id=?")->execute([$fullName, $email, $phone, $userId]);
+            }
+
+            logAction($pdo, 'landlord_updated', 'Landlords', $landlordId, "Updated profile: {$fullName}");
+            header('Location: ../landlords.php?success=' . urlencode('Landlord profile updated successfully.'));
+        } catch (PDOException $e) {
+            header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── DELETE ──────────────────────────────────────────────────────────────
+    case 'delete':
+        $landlordId = trim($_POST['landlord_id'] ?? '');
+        if (!$landlordId) {
+            header('Location: ../landlords.php?error=invalid_landlord');
+            exit();
+        }
+
+        try {
+            $stmt = $pdo->prepare("SELECT full_name, user_id FROM landlords WHERE id = ?");
+            $stmt->execute([$landlordId]);
+            $ll = $stmt->fetch();
+            if (!$ll) {
+                header('Location: ../landlords.php?error=' . urlencode('Landlord not found.'));
+                exit();
+            }
+
+            // Block delete if active leases exist on this landlord's properties
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM leases ls
+                JOIN units u ON ls.unit_id = u.id
+                JOIN properties p ON u.property_id = p.id
+                WHERE p.landlord_id = ? AND ls.status = 'Active'
+            ");
+            $stmt->execute([$landlordId]);
+            if ((int)$stmt->fetchColumn() > 0) {
+                header('Location: ../landlords.php?error=' . urlencode('Cannot delete: landlord has active tenants. Reassign or terminate leases first.'));
+                exit();
+            }
+
+            $pdo->prepare("UPDATE properties SET landlord_id = NULL WHERE landlord_id = ?")->execute([$landlordId]);
+            $pdo->prepare("DELETE FROM landlords WHERE id = ?")->execute([$landlordId]);
+            if ($ll['user_id']) {
+                $pdo->prepare("DELETE FROM profiles WHERE id = ?")->execute([$ll['user_id']]);
+                $pdo->prepare("DELETE FROM users    WHERE id = ?")->execute([$ll['user_id']]);
+            }
+
+            logAction($pdo, 'landlord_deleted', 'Landlords', $landlordId, "Deleted: {$ll['full_name']}");
+            header('Location: ../landlords.php?success=' . urlencode("Landlord {$ll['full_name']} deleted."));
+        } catch (PDOException $e) {
+            header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── ASSIGN PROPERTIES ───────────────────────────────────────────────────
     case 'assign_properties':
-        $landlordId   = $_POST['landlord_id'] ?? '';
-        $propertyIds  = $_POST['property_ids'] ?? [];
+        $landlordId  = $_POST['landlord_id'] ?? '';
+        $propertyIds = $_POST['property_ids'] ?? [];
 
         if (!$landlordId) {
             header('Location: ../landlords.php?error=invalid_landlord');
@@ -65,24 +189,25 @@ switch ($action) {
         }
 
         try {
-            // First, unset any properties previously assigned to this landlord that are not in the new list
             $pdo->prepare("UPDATE properties SET landlord_id = NULL WHERE landlord_id = ?")
                 ->execute([$landlordId]);
 
-            // Now assign the checked properties
             if (!empty($propertyIds)) {
-                $placeholders = implode(',', array_fill(0, count($propertyIds), '?'));
+                $ph     = implode(',', array_fill(0, count($propertyIds), '?'));
                 $params = array_merge([$landlordId], $propertyIds);
-                $pdo->prepare("UPDATE properties SET landlord_id = ? WHERE id IN ($placeholders)")
+                $pdo->prepare("UPDATE properties SET landlord_id = ? WHERE id IN ($ph)")
                     ->execute($params);
             }
 
+            logAction($pdo, 'properties_assigned', 'Landlords', $landlordId,
+                count($propertyIds) . ' propert' . (count($propertyIds) === 1 ? 'y' : 'ies') . ' assigned.');
             header('Location: ../landlords.php?success=Properties+assigned+successfully');
         } catch (PDOException $e) {
             header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
         }
         exit();
 
+    // ─── UNASSIGN PROPERTY ───────────────────────────────────────────────────
     case 'unassign_property':
         $propertyId = $_POST['property_id'] ?? '';
         try {

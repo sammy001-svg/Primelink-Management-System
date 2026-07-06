@@ -49,6 +49,14 @@ $stmt = $pdo->prepare("
 $stmt->execute([$tenantId]);
 $allLeases = $stmt->fetchAll();
 
+// Schema self-heal: ensure invoice columns exist before querying
+foreach ([
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS batch_id    VARCHAR(36) NULL",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS description TEXT NULL",
+] as $_ddl) {
+    try { $pdo->exec($_ddl); } catch (PDOException $_e) {}
+}
+
 // ── Invoices ─────────────────────────────────────────────────────
 $stmt = $pdo->prepare("
     SELECT i.*
@@ -452,22 +460,26 @@ include __DIR__ . '/includes/sidebar.php';
                             <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
                             <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
                             <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</th>
-                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                            <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">View</th>
                         </tr></thead>
                         <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
                         <?php if (empty($invoices)): ?>
-                        <tr><td colspan="5" class="p-10 text-center text-slate-400 italic text-sm">No invoices generated yet.</td></tr>
+                        <tr><td colspan="6" class="p-10 text-center text-slate-400 italic text-sm">No invoices generated yet.</td></tr>
                         <?php else: ?>
                         <?php foreach ($invoices as $inv): ?>
                         <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
                             <td class="px-5 py-3">
-                                <p class="text-xs font-black text-slate-900 dark:text-white">INV-<?php echo substr($inv['id'], 0, 8); ?></p>
+                                <p class="text-xs font-black text-slate-900 dark:text-white">INV-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?></p>
                                 <p class="text-[10px] text-slate-400"><?php echo date('M d, Y', strtotime($inv['created_at'])); ?></p>
+                                <?php if (!empty($inv['batch_id'])): ?>
+                                <p class="text-[9px] text-slate-300">Bundle</p>
+                                <?php endif; ?>
                             </td>
                             <td class="px-5 py-3 text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($inv['invoice_type'] ?? 'Rent'); ?></td>
                             <td class="px-5 py-3 text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$inv['amount']); ?></td>
                             <td class="px-5 py-3 text-xs text-slate-500"><?php echo !empty($inv['due_date']) ? date('M d, Y', strtotime($inv['due_date'])) : '—'; ?></td>
-                            <td class="px-5 py-3 text-right">
+                            <td class="px-5 py-3 text-center">
                                 <span class="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border
                                     <?php echo match($inv['status'] ?? '') {
                                         'Paid'    => 'bg-green-500/10 text-green-500 border-green-500/20',
@@ -476,6 +488,23 @@ include __DIR__ . '/includes/sidebar.php';
                                     }; ?>">
                                     <?php echo htmlspecialchars($inv['status'] ?? 'Unpaid'); ?>
                                 </span>
+                            </td>
+                            <td class="px-5 py-3 text-right">
+                                <?php if (!empty($inv['batch_id'])): ?>
+                                <a href="view_combined_invoice.php?batch_id=<?php echo urlencode($inv['batch_id']); ?>&back_tenant=<?php echo urlencode($tenantId); ?>"
+                                   target="_blank"
+                                   class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-white hover:text-white dark:hover:text-slate-900 text-[10px] font-black uppercase tracking-wide transition-all">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                    Bundle
+                                </a>
+                                <?php else: ?>
+                                <a href="view_invoice.php?id=<?php echo urlencode($inv['id']); ?>&back_tenant=<?php echo urlencode($tenantId); ?>"
+                                   target="_blank"
+                                   class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-white hover:text-white dark:hover:text-slate-900 text-[10px] font-black uppercase tracking-wide transition-all">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                    View
+                                </a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -798,45 +827,112 @@ include __DIR__ . '/includes/sidebar.php';
 
 <!-- ── Generate Invoice Modal ────────────────────────────────────── -->
 <div id="generateInvoiceModal" class="modal-overlay" style="display:none;">
-    <div class="modal-card max-w-md">
-        <button onclick="closeModal('generateInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:rotate-90 transform">
+    <div class="modal-card" style="max-width:520px">
+        <button onclick="closeModal('generateInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
         <h2 class="text-xl font-black mb-1">Generate Invoice</h2>
-        <p class="text-xs text-slate-400 mb-6">For <?php echo htmlspecialchars($tenant['full_name']); ?></p>
-        <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
-            <input type="hidden" name="action" value="generate_invoice">
-            <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
-            <div class="space-y-1.5">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice Type</label>
-                <select name="invoice_type"
-                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-                    <option value="Rent">Rent</option>
-                    <option value="Deposit">Deposit</option>
-                    <option value="Water">Water</option>
-                    <option value="Service Charge">Service Charge</option>
-                    <option value="Penalty">Penalty / Late Fee</option>
-                    <option value="Other">Other</option>
-                </select>
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</label>
-                <input type="number" name="amount" required placeholder="0.00" step="0.01"
-                    <?php if ($activeLease): ?>value="<?php echo (float)$activeLease['monthly_rent']; ?>"<?php endif; ?>
-                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
-                <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>"
-                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description (optional)</label>
-                <input type="text" name="description" placeholder="e.g. July 2026 rent"
-                    class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
-            </div>
-            <button type="submit" class="btn-green w-full justify-center py-3 text-xs mt-2">Generate & Notify Tenant</button>
-        </form>
+        <p class="text-xs text-slate-400 mb-5">For <strong class="text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($tenant['full_name']); ?></strong></p>
+
+        <!-- Mode toggle -->
+        <div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl mb-6 w-fit">
+            <button id="invModeBtn_single" onclick="switchInvMode('single')"
+                class="px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-all bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm">
+                Single Invoice
+            </button>
+            <button id="invModeBtn_bundle" onclick="switchInvMode('bundle')"
+                class="px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-all text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                Full Bundle
+            </button>
+        </div>
+
+        <!-- ─── SINGLE MODE ─── -->
+        <div id="invMode_single">
+            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+                <input type="hidden" name="action" value="generate_invoice">
+                <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice Type</label>
+                    <select name="invoice_type" id="singleInvType" onchange="prefillSingleAmount(this.value)"
+                        class="form-input w-full">
+                        <option value="Rent">Rent</option>
+                        <option value="Water">Water</option>
+                        <option value="Electricity">Electricity</option>
+                        <option value="Garbage">Garbage</option>
+                        <option value="Service Charge">Service Charge</option>
+                        <option value="Deposit">Security Deposit</option>
+                        <option value="Penalty">Penalty / Late Fee</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount (<?php echo $currency; ?>)</label>
+                    <input type="number" name="amount" id="singleInvAmount" required placeholder="0.00" min="0" step="0.01"
+                        value="<?php echo $activeLease ? (float)$activeLease['monthly_rent'] : ''; ?>"
+                        class="form-input w-full">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
+                    <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>" class="form-input w-full">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Note / Description (optional)</label>
+                    <input type="text" name="description" placeholder="e.g. July 2026 Rent" class="form-input w-full">
+                </div>
+                <button type="submit" class="btn-green w-full justify-center py-3 text-xs">
+                    Generate Invoice &amp; Notify Tenant
+                </button>
+            </form>
+        </div>
+
+        <!-- ─── BUNDLE MODE ─── -->
+        <div id="invMode_bundle" class="hidden">
+            <form action="actions/tenant_detail_actions.php" method="POST" class="space-y-4">
+                <input type="hidden" name="action" value="generate_bundle">
+                <input type="hidden" name="tenant_id" value="<?php echo $tenantId; ?>">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Charges to include</p>
+                <?php
+                $bundleItems = [
+                    ['type' => 'Rent',           'label' => 'Monthly Rent',     'default' => $activeLease ? (float)$activeLease['monthly_rent'] : '', 'checked' => !!$activeLease],
+                    ['type' => 'Water',           'label' => 'Water',            'default' => '', 'checked' => false],
+                    ['type' => 'Electricity',     'label' => 'Electricity',      'default' => '', 'checked' => false],
+                    ['type' => 'Garbage',         'label' => 'Garbage / Waste',  'default' => '', 'checked' => false],
+                    ['type' => 'Service Charge',  'label' => 'Service Charge',   'default' => '', 'checked' => false],
+                    ['type' => 'Deposit',         'label' => 'Security Deposit', 'default' => $activeLease ? (float)$activeLease['deposit_amount'] : '', 'checked' => false],
+                    ['type' => 'Penalty',         'label' => 'Penalty / Late Fee','default' => '', 'checked' => false],
+                ];
+                foreach ($bundleItems as $item): ?>
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
+                    <input type="checkbox" name="bundle_type[]" value="<?php echo $item['type']; ?>"
+                        id="btype_<?php echo str_replace(' ', '_', $item['type']); ?>"
+                        <?php echo $item['checked'] ? 'checked' : ''; ?>
+                        class="w-4 h-4 rounded accent-green-500 cursor-pointer">
+                    <label for="btype_<?php echo str_replace(' ', '_', $item['type']); ?>"
+                        class="flex-1 text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <?php echo $item['label']; ?>
+                    </label>
+                    <div class="relative w-32">
+                        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400"><?php echo $currency; ?></span>
+                        <input type="number" name="bundle_amount[<?php echo htmlspecialchars($item['type']); ?>]"
+                            value="<?php echo htmlspecialchars((string)$item['default']); ?>"
+                            min="0" step="0.01" placeholder="0.00"
+                            class="w-full pl-8 pr-2 py-2 text-right text-sm font-black bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-accent-green/20 outline-none transition">
+                    </div>
+                </div>
+                <?php endforeach; ?>
+                <div class="space-y-1.5 pt-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
+                    <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>" class="form-input w-full">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">General Note (optional)</label>
+                    <input type="text" name="description" placeholder="e.g. July 2026 charges" class="form-input w-full">
+                </div>
+                <button type="submit" class="btn-green w-full justify-center py-3 text-xs">
+                    Generate All &amp; View Combined Invoice
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -944,6 +1040,34 @@ function fillLeaseTerms(sel) {
 
 // Set initial active tab
 switchTab('<?php echo $activeTab; ?>');
+
+/* ── Invoice modal: mode toggle ───────────── */
+function switchInvMode(mode) {
+    document.getElementById('invMode_single').classList.toggle('hidden', mode !== 'single');
+    document.getElementById('invMode_bundle').classList.toggle('hidden', mode !== 'bundle');
+    ['single', 'bundle'].forEach(m => {
+        const btn = document.getElementById('invModeBtn_' + m);
+        if (m === mode) {
+            btn.classList.add('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-sm');
+            btn.classList.remove('text-slate-500');
+        } else {
+            btn.classList.remove('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-sm');
+            btn.classList.add('text-slate-500');
+        }
+    });
+}
+
+/* ── Single invoice: prefill amount by type ─ */
+const leaseRent    = <?php echo $activeLease ? (float)$activeLease['monthly_rent'] : 0; ?>;
+const leaseDeposit = <?php echo $activeLease ? (float)$activeLease['deposit_amount'] : 0; ?>;
+
+function prefillSingleAmount(type) {
+    const amtInput = document.getElementById('singleInvAmount');
+    if (!amtInput) return;
+    if (type === 'Rent'    && leaseRent    > 0) amtInput.value = leaseRent;
+    else if (type === 'Deposit' && leaseDeposit > 0) amtInput.value = leaseDeposit;
+    else if (['Water','Electricity','Garbage','Service Charge','Penalty','Other'].includes(type)) amtInput.value = '';
+}
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

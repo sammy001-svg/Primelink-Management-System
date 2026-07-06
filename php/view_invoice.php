@@ -62,12 +62,17 @@ $mpesaShortcode = getSetting($pdo, 'mpesa_shortcode', '—');
         <div class="no-print absolute top-5 right-5 flex gap-2">
             <button onclick="window.print()" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:opacity-90">Print Invoice</button>
             <?php
-            $backUrl = match($_SESSION['role'] ?? '') {
-                'tenant' => 'financials.php',
-                default  => 'tenant_payments.php',
-            };
+            $backTenantId = $_GET['back_tenant'] ?? '';
+            if ($backTenantId) {
+                $backUrl = 'tenant_details.php?id=' . urlencode($backTenantId) . '&tab=invoices';
+            } else {
+                $backUrl = match($_SESSION['role'] ?? '') {
+                    'tenant' => 'financials.php',
+                    default  => 'invoices.php',
+                };
+            }
             ?>
-            <a href="<?php echo $backUrl; ?>" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200">Back</a>
+            <a href="<?php echo htmlspecialchars($backUrl); ?>" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200">Back</a>
         </div>
 
         <div class="flex justify-between items-start border-b pb-10 mb-10">
@@ -111,7 +116,9 @@ $mpesaShortcode = getSetting($pdo, 'mpesa_shortcode', '—');
                 <tr class="border-b border-slate-100">
                     <td class="py-6">
                         <p class="font-black text-slate-900"><?php echo htmlspecialchars((string)$invoice['invoice_type']); ?></p>
-                        <p class="text-xs text-slate-500 font-medium italic">Standard monthly charge for <?php echo htmlspecialchars((string)$invoice['invoice_type']); ?> billing.</p>
+                        <p class="text-xs text-slate-500 font-medium italic">
+                            <?php echo !empty($invoice['description']) ? htmlspecialchars($invoice['description']) : 'Standard monthly charge for ' . htmlspecialchars((string)$invoice['invoice_type']) . ' billing.'; ?>
+                        </p>
                     </td>
                     <td class="py-6 text-right font-black text-slate-900"><?php echo $currency; ?> <?php echo number_format($invoice['amount'], 2); ?></td>
                 </tr>
