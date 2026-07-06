@@ -99,9 +99,10 @@ switch ($action) {
         $nokRel     = trim($_POST['nok_relationship'] ?? '');
         $status     = in_array($_POST['status'] ?? '', ['active', 'inactive'])
                           ? $_POST['status'] : 'active';
+        $editRedir  = trim($_POST['_redirect'] ?? '') ?: '../landlords.php';
 
         if (!$landlordId || !$fullName) {
-            header('Location: ../landlords.php?error=' . urlencode('Invalid request.'));
+            header('Location: ' . $editRedir . '?error=' . urlencode('Invalid request.'));
             exit();
         }
 
@@ -128,9 +129,11 @@ switch ($action) {
             }
 
             logAction($pdo, 'landlord_updated', 'Landlords', $landlordId, "Updated profile: {$fullName}");
-            header('Location: ../landlords.php?success=' . urlencode('Landlord profile updated successfully.'));
+            // If _redirect already has query params don't double-add success
+            $sep = strpos($editRedir, '?') !== false ? '&' : '?';
+            header('Location: ' . $editRedir . $sep . 'success=' . urlencode('Landlord profile updated successfully.'));
         } catch (PDOException $e) {
-            header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
+            header('Location: ' . $editRedir . '?error=' . urlencode($e->getMessage()));
         }
         exit();
 
@@ -216,6 +219,110 @@ switch ($action) {
             header('Location: ../landlords.php?success=Property+unassigned');
         } catch (PDOException $e) {
             header('Location: ../landlords.php?error=' . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── MAINTENANCE DECISION ────────────────────────────────────────────────
+    case 'maintenance_decision':
+        $maintId   = trim($_POST['maintenance_id'] ?? '');
+        $decision  = in_array($_POST['decision'] ?? '', ['Approved', 'Denied'])
+                         ? $_POST['decision'] : '';
+        $redir     = trim($_POST['_redirect'] ?? '') ?: '../landlords.php';
+
+        if (!$maintId || !$decision) {
+            header('Location: ' . $redir . '&error=' . urlencode('Invalid request.'));
+            exit();
+        }
+
+        try {
+            $pdo->prepare("
+                UPDATE maintenance_requests
+                SET landlord_decision = ?
+                WHERE id = ?
+            ")->execute([$decision, $maintId]);
+
+            logAction($pdo, 'maintenance_' . strtolower($decision), 'Maintenance', $maintId,
+                "Landlord decision: {$decision}");
+            header('Location: ' . $redir);
+        } catch (PDOException $e) {
+            header('Location: ' . $redir . '&error=' . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── ADD LOAN ────────────────────────────────────────────────────────────
+    case 'add_loan':
+        $landlordId     = trim($_POST['landlord_id']     ?? '');
+        $lenderName     = trim($_POST['lender_name']     ?? '');
+        $principalAmt   = max(0, (float)($_POST['principal_amount']  ?? 0));
+        $totalRepayable = max(0, (float)($_POST['total_repayable']   ?? 0));
+        $interestRate   = max(0, (float)($_POST['interest_rate']     ?? 0));
+        $commRate       = max(0, (float)($_POST['commission_rate']   ?? 0));
+        $commAmt        = max(0, (float)($_POST['commission_amount'] ?? 0));
+        $dueDate        = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
+        $loanStatus     = in_array($_POST['status'] ?? '', ['Active','Cleared','Defaulted'])
+                              ? $_POST['status'] : 'Active';
+        $description    = trim($_POST['description'] ?? '');
+        $loanRedir      = trim($_POST['_redirect'] ?? '') ?: '../landlords.php';
+
+        if (!$landlordId || !$lenderName || $totalRepayable <= 0) {
+            header('Location: ' . $loanRedir . '&error=' . urlencode('Lender name and amount are required.'));
+            exit();
+        }
+
+        // Ensure columns exist
+        foreach ([
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS principal_amount  DECIMAL(15,2) DEFAULT 0",
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS commission_rate   DECIMAL(5,2)  DEFAULT 0",
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS commission_amount DECIMAL(15,2) DEFAULT 0",
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS due_date          DATE NULL",
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS lender_name       VARCHAR(255)  NULL",
+            "ALTER TABLE landlord_loans ADD COLUMN IF NOT EXISTS description       TEXT NULL",
+        ] as $ddl) {
+            try { $pdo->exec($ddl); } catch (PDOException $e) {}
+        }
+
+        try {
+            $loanId = generateUUID();
+            $pdo->prepare("
+                INSERT INTO landlord_loans
+                    (id, landlord_id, lender_name, principal_amount, total_repayable,
+                     interest_rate, commission_rate, commission_amount,
+                     due_date, status, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ")->execute([
+                $loanId, $landlordId, $lenderName, $principalAmt, $totalRepayable,
+                $interestRate, $commRate, $commAmt,
+                $dueDate, $loanStatus, $description ?: null,
+            ]);
+
+            logAction($pdo, 'loan_added', 'Landlords', $landlordId,
+                "Loan from {$lenderName}: {$totalRepayable}");
+            header('Location: ' . $loanRedir);
+        } catch (PDOException $e) {
+            header('Location: ' . $loanRedir . '&error=' . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── DELETE LOAN ─────────────────────────────────────────────────────────
+    case 'delete_loan':
+        $loanId    = trim($_POST['loan_id']   ?? '');
+        $delRedir  = trim($_POST['_redirect'] ?? '') ?: '../landlords.php';
+
+        if (!$loanId) {
+            header('Location: ' . $delRedir);
+            exit();
+        }
+
+        try {
+            $row = $pdo->prepare("SELECT landlord_id FROM landlord_loans WHERE id = ?");
+            $row->execute([$loanId]);
+            $llId = $row->fetchColumn();
+
+            $pdo->prepare("DELETE FROM landlord_loans WHERE id = ?")->execute([$loanId]);
+            logAction($pdo, 'loan_deleted', 'Landlords', $llId ?: $loanId, "Loan {$loanId} deleted.");
+            header('Location: ' . $delRedir);
+        } catch (PDOException $e) {
+            header('Location: ' . $delRedir . '&error=' . urlencode($e->getMessage()));
         }
         exit();
 

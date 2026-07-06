@@ -512,11 +512,16 @@ $errorMsg = match($error) {
                                 class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         </div>
                         <div class="space-y-1.5">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</label>
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary Phone</label>
                             <input type="text" name="phone" placeholder="+254 7XX XXX XXX"
                                 class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         </div>
-                        <div class="space-y-1.5 col-span-2">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alternative Phone</label>
+                            <input type="text" name="alt_phone" placeholder="+254 7XX XXX XXX"
+                                class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+                        </div>
+                        <div class="space-y-1.5">
                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Residential Address *</label>
                             <input type="text" name="address" required placeholder="Estate, Apartment, City"
                                 class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
@@ -554,22 +559,26 @@ $errorMsg = match($error) {
                             <label for="admin_has_kids" class="text-sm font-bold text-slate-600 dark:text-slate-400">Has Children</label>
                         </div>
                     </div>
-                    <!-- Spouse fields (conditional) -->
-                    <div id="admin-spouse-fields" class="hidden grid grid-cols-3 gap-4 pl-9 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700">
-                        <div class="col-span-3 pt-2">
-                            <p class="text-[10px] font-black text-orange-500 uppercase tracking-widest">Spouse Information</p>
-                        </div>
-                        <div class="space-y-1.5 col-span-3 md:col-span-1">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Name</label>
-                            <input type="text" name="spouse_name" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
-                        </div>
-                        <div class="space-y-1.5">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Phone</label>
-                            <input type="text" name="spouse_phone" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
-                        </div>
-                        <div class="space-y-1.5">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse ID No.</label>
-                            <input type="text" name="spouse_id_no" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                    <!-- Spouse fields (conditional — shown when Married) -->
+                    <div id="admin-spouse-fields" class="hidden pl-9 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700">
+                        <p class="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-3 pt-2">Spouse / Partner Information</p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Full Name</label>
+                                <input type="text" name="spouse_name" placeholder="e.g. Jane Doe" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Phone</label>
+                                <input type="text" name="spouse_phone" placeholder="+254 7XX XXX XXX" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse ID No.</label>
+                                <input type="text" name="spouse_id_no" placeholder="e.g. 3XXXXXXX" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spouse Email (Alternative Contact)</label>
+                                <input type="email" name="spouse_email" placeholder="spouse@example.com" class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold outline-none">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -937,7 +946,6 @@ function filterAdminUnits(propertyId) {
 function toggleAdminSpouseFields(v) {
     const el = document.getElementById('admin-spouse-fields');
     el.classList.toggle('hidden', v !== 'Married');
-    if (v === 'Married') el.classList.add('grid');
 }
 
 /* ── Action dropdown ─────────────────────── */

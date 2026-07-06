@@ -189,9 +189,11 @@ include __DIR__ . '/includes/sidebar.php';
                     $colors = ['from-emerald-500 to-teal-600', 'from-blue-500 to-indigo-600', 'from-violet-500 to-purple-600', 'from-orange-400 to-rose-500'];
                     $colorClass = $colors[abs(crc32($ll['id'])) % 4];
                 ?>
-                <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/20 transition-all ll-row"
+                <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/20 transition-all ll-row cursor-pointer"
                     data-name="<?php echo strtolower(htmlspecialchars($ll['full_name'])); ?>"
-                    data-email="<?php echo strtolower(htmlspecialchars($ll['email'])); ?>">
+                    data-email="<?php echo strtolower(htmlspecialchars($ll['email'])); ?>"
+                    onclick="window.location='landlord_profile.php?id=<?php echo $ll['id']; ?>'"
+                    title="Open <?php echo htmlspecialchars($ll['full_name'], ENT_QUOTES); ?>'s profile">
 
                     <!-- Landlord identity -->
                     <td class="px-5 py-4">
@@ -240,7 +242,7 @@ include __DIR__ . '/includes/sidebar.php';
 
                     <!-- Actions -->
                     <td class="px-5 py-4 text-right">
-                        <div class="flex items-center justify-end gap-1.5">
+                        <div class="flex items-center justify-end gap-1.5" onclick="event.stopPropagation()">
                             <button onclick="openViewModal('<?php echo $ll['id']; ?>')"
                                     title="View Profile"
                                     class="p-2 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
@@ -257,7 +259,8 @@ include __DIR__ . '/includes/sidebar.php';
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                             </button>
                             <form method="POST" action="actions/landlord_actions.php" class="inline"
-                                  onsubmit="return confirm('Delete landlord <?php echo htmlspecialchars($ll['full_name'], ENT_QUOTES); ?>? This cannot be undone.')">
+                                  onsubmit="return confirm('Delete landlord <?php echo htmlspecialchars($ll['full_name'], ENT_QUOTES); ?>? This cannot be undone.')"
+                                  onclick="event.stopPropagation()">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="landlord_id" value="<?php echo $ll['id']; ?>">
                                 <button type="submit" title="Delete"

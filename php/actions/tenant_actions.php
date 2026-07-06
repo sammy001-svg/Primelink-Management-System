@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireRole('staff');
+requireRole(['admin', 'staff']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nokName = $_POST['nok_name'] ?? null;
         $nokContact = $_POST['nok_contact'] ?? null;
         $nokRelationship = $_POST['nok_relationship'] ?? null;
+        $altPhone = trim($_POST['alt_phone'] ?? '');
 
         $userId = generateUUID();
         $tenantId = generateUUID();
@@ -41,6 +42,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             // 0. PRE-FLIGHT: Self-Healing (Outside transaction to avoid implicit commit)
             // We do a quick check/repair of the tenants table before starting
+            // Safe schema self-heal for newer columns
+            foreach ([
+                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) NULL",
+                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS spouse_email VARCHAR(255) NULL",
+            ] as $_ddl) {
+                try { $pdo->exec($_ddl); } catch (PDOException $_ex) {}
+            }
+
             try {
                 $pdo->query("SELECT id_no FROM tenants LIMIT 1");
             } catch (PDOException $e) {
@@ -86,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'tenant')");
-                $stmt->execute([$userId, $email, $hashedPassword, 'tenant']);
+                $stmt->execute([$userId, $email, $hashedPassword]);
                 $pdo->commit();
             }
 
@@ -121,19 +130,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 4. Create Tenant Record
             $tenantId = generateUUID();
             $sql = "INSERT INTO tenants (
-                id, user_id, full_name, email, phone, status, id_no, id_copy_url, 
-                marital_status, has_kids, current_address, spouse_name, spouse_phone, 
-                spouse_id_no, spouse_email, profession, employer_name, occupation_type, 
-                business_name, business_nature, next_of_kin_name, next_of_kin_contact, 
+                id, user_id, full_name, email, phone, alt_phone, status, id_no, id_copy_url,
+                marital_status, has_kids, current_address, spouse_name, spouse_phone,
+                spouse_id_no, spouse_email, profession, employer_name, occupation_type,
+                business_name, business_nature, next_of_kin_name, next_of_kin_contact,
                 next_of_kin_relationship, terms_accepted_at
             ) VALUES (
-                ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
+                ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
             )";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([
-                $tenantId, $userId, $fullName, $email, $phone, $idNo, $idCopyUrl, 
-                $maritalStatus, $hasKids, $address, $spouseName, $spousePhone, 
-                $spouseIdNo, $spouseEmail, $profession, $employerName, $occupationType,
+                $tenantId, $userId, $fullName, $email, $phone, $altPhone ?: null,
+                $idNo, $idCopyUrl, $maritalStatus, $hasKids, $address,
+                $spouseName, $spousePhone, $spouseIdNo, $spouseEmail,
+                $profession, $employerName, $occupationType,
                 $businessName, $businessNature, $nokName, $nokContact, $nokRelationship
             ]);
 
