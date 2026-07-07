@@ -37,6 +37,22 @@ foreach ([
     try { $pdo->exec($ddl); } catch (PDOException $e) {}
 }
 
+// ── Documents table self-create ──────────────────────────────────────
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS landlord_documents (
+        id VARCHAR(64) PRIMARY KEY,
+        landlord_id VARCHAR(64) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        category VARCHAR(100) DEFAULT 'General',
+        file_url VARCHAR(500) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        file_size INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        uploaded_by VARCHAR(64) NULL,
+        INDEX idx_ll_docs_landlord (landlord_id)
+    )");
+} catch (PDOException $e) {}
+
 // ── Landlord record ──────────────────────────────────────────────────
 $stmt = $pdo->prepare("SELECT * FROM landlords WHERE id = ?");
 $stmt->execute([$landlordId]);
@@ -192,9 +208,26 @@ $stmt = $pdo->prepare("SELECT * FROM landlord_advances WHERE landlord_id = ? ORD
 $stmt->execute([$landlordId]);
 $advances = $stmt->fetchAll();
 
+// ── Statement period filter ───────────────────────────────────────────
+$stmtPeriod = $_GET['stmt_period'] ?? 'all';
+$stmtFiltered = match($stmtPeriod) {
+    'month'   => array_values(array_filter($statements, fn($s) => date('Y-m', strtotime($s['created_at'])) === date('Y-m'))),
+    '3months' => array_values(array_filter($statements, fn($s) => strtotime($s['created_at']) >= strtotime('-3 months'))),
+    'ytd'     => array_values(array_filter($statements, fn($s) => date('Y', strtotime($s['created_at'])) === date('Y'))),
+    default   => $statements,
+};
+
+// ── Documents ─────────────────────────────────────────────────────────
+$documents = [];
+try {
+    $docStmt = $pdo->prepare("SELECT * FROM landlord_documents WHERE landlord_id = ? ORDER BY created_at DESC");
+    $docStmt->execute([$landlordId]);
+    $documents = $docStmt->fetchAll();
+} catch (PDOException $e) {}
+
 $llInitial = strtoupper(substr($ll['full_name'], 0, 1));
 $pageTitle = htmlspecialchars($ll['full_name']) . ' — Landlord Profile';
-$tabs = ['overview','properties','tenants','statement','maintenance','loans','profile'];
+$tabs = ['overview','properties','tenants','statement','maintenance','loans','profile','documents'];
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -229,53 +262,80 @@ include __DIR__ . '/includes/sidebar.php';
     <?php endif; ?>
 
     <!-- ── HERO ─────────────────────────────────────────────────── -->
-    <div class="glass-card p-6 sm:p-8">
-        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-            <!-- Avatar -->
-            <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-3xl font-black text-white shrink-0 shadow-lg">
-                <?php echo $llInitial; ?>
-            </div>
-            <!-- Info -->
-            <div class="flex-1 min-w-0">
-                <div class="flex flex-wrap items-center gap-3 mb-1">
-                    <h1 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($ll['full_name']); ?></h1>
-                    <span class="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest
-                        <?php echo ($ll['status'] ?? 'active') === 'active'
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800'; ?>">
-                        <?php echo ucfirst($ll['status'] ?? 'active'); ?>
-                    </span>
+    <div class="rounded-2xl overflow-hidden bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 shadow-xl">
+        <div class="p-6 sm:p-8">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                <!-- Avatar -->
+                <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-3xl font-black text-white shrink-0 shadow-lg ring-4 ring-emerald-500/20">
+                    <?php echo $llInitial; ?>
                 </div>
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">LLD-<?php echo strtoupper(substr($ll['id'], 0, 8)); ?></p>
-                <div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500 dark:text-slate-400 font-medium">
-                    <span class="flex items-center gap-1.5">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                        <?php echo htmlspecialchars($ll['email']); ?>
-                    </span>
-                    <?php if ($ll['phone']): ?>
-                    <span class="flex items-center gap-1.5">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.93 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.88 1h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                        <?php echo htmlspecialchars($ll['phone']); ?>
-                    </span>
-                    <?php endif; ?>
-                    <?php if ($ll['address'] ?? ''): ?>
-                    <span class="flex items-center gap-1.5">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-                        <?php echo htmlspecialchars($ll['address']); ?>
-                    </span>
-                    <?php endif; ?>
+                <!-- Info -->
+                <div class="flex-1 min-w-0">
+                    <div class="flex flex-wrap items-center gap-3 mb-1">
+                        <h1 class="text-2xl font-black text-white"><?php echo htmlspecialchars($ll['full_name']); ?></h1>
+                        <span class="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest
+                            <?php echo ($ll['status'] ?? 'active') === 'active'
+                                ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30'
+                                : 'bg-slate-700 text-slate-400'; ?>">
+                            <?php echo ucfirst($ll['status'] ?? 'active'); ?>
+                        </span>
+                    </div>
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">LLD-<?php echo strtoupper(substr($ll['id'], 0, 8)); ?></p>
+                    <div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-400 font-medium">
+                        <span class="flex items-center gap-1.5">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                            <?php echo htmlspecialchars($ll['email']); ?>
+                        </span>
+                        <?php if ($ll['phone']): ?>
+                        <span class="flex items-center gap-1.5">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.93 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.88 1h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <?php echo htmlspecialchars($ll['phone']); ?>
+                        </span>
+                        <?php endif; ?>
+                        <?php if ($ll['address'] ?? ''): ?>
+                        <span class="flex items-center gap-1.5">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <?php echo htmlspecialchars($ll['address']); ?>
+                        </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <!-- Fee badge -->
+                <div class="text-right shrink-0">
+                    <?php
+                    $feeDisplay = $feeType === 'fixed'
+                        ? $currency . ' ' . number_format($feeSetting, 2)
+                        : number_format($feeSetting, 1) . '%';
+                    ?>
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mgmt Fee</p>
+                    <p class="text-2xl font-black <?php echo $feeType === 'fixed' ? 'text-blue-400' : 'text-orange-400'; ?>"><?php echo $feeDisplay; ?></p>
+                    <p class="text-[10px] text-slate-500"><?php echo $feeType === 'fixed' ? 'fixed/payout' : 'of gross rent'; ?></p>
                 </div>
             </div>
-            <!-- Fee badge -->
-            <div class="text-right shrink-0">
-                <?php
-                $feeDisplay = $feeType === 'fixed'
-                    ? $currency . ' ' . number_format($feeSetting, 2)
-                    : number_format($feeSetting, 1) . '%';
-                ?>
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mgmt Fee</p>
-                <p class="text-2xl font-black <?php echo $feeType === 'fixed' ? 'text-blue-600' : 'text-orange-500'; ?>"><?php echo $feeDisplay; ?></p>
-                <p class="text-[10px] text-slate-400"><?php echo $feeType === 'fixed' ? 'fixed/payout' : 'of gross rent'; ?></p>
+        </div>
+        <!-- Hero stats strip -->
+        <div class="border-t border-slate-700/50 grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-700/50">
+            <div class="px-5 py-3.5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Properties</p>
+                <p class="text-xl font-black text-white"><?php echo $totalPropCount; ?></p>
+                <p class="text-[10px] text-slate-500"><?php echo $totalUnits; ?> units</p>
+            </div>
+            <div class="px-5 py-3.5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Monthly Rent</p>
+                <p class="text-xl font-black text-emerald-400"><?php echo $currency; ?> <?php echo number_format($monthlyRentRoll); ?></p>
+                <p class="text-[10px] text-slate-500">rent roll</p>
+            </div>
+            <div class="px-5 py-3.5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Active Tenants</p>
+                <p class="text-xl font-black text-white"><?php echo $activeTenantCount; ?></p>
+                <p class="text-[10px] text-slate-500"><?php echo $occupiedUnits; ?>/<?php echo $totalUnits; ?> occupied</p>
+            </div>
+            <div class="px-5 py-3.5 text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Outstanding</p>
+                <p class="text-xl font-black <?php echo $outstanding > 0 ? 'text-red-400' : 'text-emerald-400'; ?>">
+                    <?php echo $outstanding > 0 ? $currency . ' ' . number_format($outstanding) : 'Clear'; ?>
+                </p>
+                <p class="text-[10px] text-slate-500">unpaid</p>
             </div>
         </div>
     </div>
@@ -322,6 +382,7 @@ include __DIR__ . '/includes/sidebar.php';
             'maintenance' => ['Maintenance',  'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7', $mntPending > 0 ? $mntPending : null],
             'loans'       => ['Loans',        'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6'],
             'profile'     => ['Profile',      'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'],
+            'documents'   => ['Documents',    'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M16 13H8|M16 17H8|M10 9H8', count($documents) > 0 ? count($documents) : null],
         ];
         foreach ($tabDefs as $key => $tabDef) {
             [$label, $path] = $tabDef;
@@ -580,11 +641,26 @@ include __DIR__ . '/includes/sidebar.php';
     <!-- ════════════════════════════════════════════════════════════ -->
     <div id="tab_statement" class="space-y-5 <?php echo $tab !== 'statement' ? 'hidden' : ''; ?>">
 
+        <!-- Period filter -->
+        <div class="flex gap-2 flex-wrap">
+            <?php foreach ([
+                ['all',     'All Time'],
+                ['month',   'This Month'],
+                ['3months', 'Last 3 Months'],
+                ['ytd',     'YTD ' . date('Y')],
+            ] as [$pk, $plbl]): ?>
+            <a href="?id=<?php echo urlencode($landlordId); ?>&tab=statement&stmt_period=<?php echo $pk; ?>"
+               class="px-3 py-1.5 rounded-lg text-xs font-black transition-all <?php echo $stmtPeriod === $pk ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white'; ?>">
+                <?php echo $plbl; ?>
+            </a>
+            <?php endforeach; ?>
+        </div>
+
         <!-- Summary bar -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <?php
-            $stmtPaid     = array_sum(array_column(array_filter($statements, fn($s) => $s['status'] === 'Paid'),    'amount'));
-            $stmtUnpaid   = array_sum(array_column(array_filter($statements, fn($s) => $s['status'] !== 'Paid' && $s['status'] !== 'Cancelled'), 'amount'));
+            $stmtPaid     = array_sum(array_column(array_filter($stmtFiltered, fn($s) => $s['status'] === 'Paid'),    'amount'));
+            $stmtUnpaid   = array_sum(array_column(array_filter($stmtFiltered, fn($s) => $s['status'] !== 'Paid' && $s['status'] !== 'Cancelled'), 'amount'));
             $stmtMgmtFee  = $feeType === 'percentage' ? ($stmtPaid * $feeSetting / 100) : ($feeSetting * 12);
             $stmtNet      = max(0, $stmtPaid - $stmtMgmtFee);
             ?>
@@ -610,10 +686,10 @@ include __DIR__ . '/includes/sidebar.php';
         <div class="glass-card overflow-hidden">
             <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="font-black text-slate-900 dark:text-white">Transaction History</h3>
-                <span class="text-[10px] text-slate-400 font-bold"><?php echo count($statements); ?> entries</span>
+                <span class="text-[10px] text-slate-400 font-bold"><?php echo count($stmtFiltered); ?> entries<?php echo $stmtPeriod !== 'all' ? ' · filtered' : ''; ?></span>
             </div>
-            <?php if (empty($statements)): ?>
-            <p class="p-12 text-center text-slate-400 italic">No transactions yet.</p>
+            <?php if (empty($stmtFiltered)): ?>
+            <p class="p-12 text-center text-slate-400 italic">No transactions in this period.</p>
             <?php else: ?>
             <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse min-w-[700px]">
@@ -622,13 +698,13 @@ include __DIR__ . '/includes/sidebar.php';
                         <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
                         <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
                         <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tenant</th>
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit / Property</th>
                         <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
                         <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                    <?php foreach ($statements as $s): ?>
+                    <?php foreach ($stmtFiltered as $s): ?>
                     <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
                         <td class="px-5 py-3 text-xs text-slate-500 font-medium whitespace-nowrap"><?php echo date('d M Y', strtotime($s['created_at'])); ?></td>
                         <td class="px-5 py-3">
@@ -637,7 +713,10 @@ include __DIR__ . '/includes/sidebar.php';
                             </span>
                         </td>
                         <td class="px-5 py-3 text-sm font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($s['tenant_name']); ?></td>
-                        <td class="px-5 py-3 text-xs text-slate-400"><?php echo htmlspecialchars($s['unit_number']); ?></td>
+                        <td class="px-5 py-3">
+                            <p class="text-xs text-slate-600 dark:text-slate-300 font-bold">Unit <?php echo htmlspecialchars($s['unit_number']); ?></p>
+                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars($s['property_title']); ?></p>
+                        </td>
                         <td class="px-5 py-3 font-black text-sm text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$s['amount']); ?></td>
                         <td class="px-5 py-3">
                             <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg
@@ -949,6 +1028,104 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
     </div>
 
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- DOCUMENTS TAB                                                -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab_documents" class="space-y-5 <?php echo $tab !== 'documents' ? 'hidden' : ''; ?>">
+
+        <!-- Upload form -->
+        <div class="glass-card p-6">
+            <h3 class="font-black text-slate-900 dark:text-white mb-5">Upload Document</h3>
+            <form action="actions/landlord_actions.php" method="POST" enctype="multipart/form-data"
+                  class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                <input type="hidden" name="action" value="upload_document">
+                <input type="hidden" name="landlord_id" value="<?php echo $landlordId; ?>">
+                <input type="hidden" name="_redirect" value="<?php echo urlencode('landlord_profile.php?id=' . $landlordId . '&tab=documents&success=Document+uploaded.'); ?>">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Title *</label>
+                    <input type="text" name="title" required placeholder="e.g. Lease Agreement" class="form-input">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Category</label>
+                    <select name="category" class="form-input">
+                        <?php foreach (['General','ID Document','Contract','Agreement','Receipt','Certificate','Other'] as $cat): ?>
+                        <option value="<?php echo $cat; ?>"><?php echo $cat; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">File * (PDF, DOC, JPG, PNG)</label>
+                    <input type="file" name="document_file" required
+                           accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"
+                           class="form-input file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-slate-200 dark:file:bg-slate-700 file:text-slate-700 dark:file:text-slate-300 cursor-pointer">
+                </div>
+                <div class="sm:col-span-3">
+                    <button type="submit" class="btn-green px-6 py-2.5">Upload Document</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Documents list -->
+        <div class="glass-card overflow-hidden">
+            <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <h3 class="font-black text-slate-900 dark:text-white">Documents (<?php echo count($documents); ?>)</h3>
+            </div>
+            <?php if (empty($documents)): ?>
+            <p class="p-12 text-center text-slate-400 italic">No documents uploaded yet.</p>
+            <?php else: ?>
+            <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[540px]">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-800/50">
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Title</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Size</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Uploaded</th>
+                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($documents as $doc):
+                        $sz = (int)$doc['file_size'];
+                        $szLabel = $sz > 1048576 ? round($sz/1048576, 1) . ' MB' : round($sz/1024) . ' KB';
+                    ?>
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                        <td class="px-5 py-3.5">
+                            <p class="font-black text-sm text-slate-900 dark:text-white"><?php echo htmlspecialchars($doc['title']); ?></p>
+                            <p class="text-[10px] text-slate-400 font-mono truncate max-w-[200px]"><?php echo htmlspecialchars($doc['file_name']); ?></p>
+                        </td>
+                        <td class="px-5 py-3.5">
+                            <span class="text-[10px] font-black px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-400">
+                                <?php echo htmlspecialchars($doc['category']); ?>
+                            </span>
+                        </td>
+                        <td class="px-5 py-3.5 text-xs text-slate-400"><?php echo $szLabel; ?></td>
+                        <td class="px-5 py-3.5 text-xs text-slate-400"><?php echo date('d M Y', strtotime($doc['created_at'])); ?></td>
+                        <td class="px-5 py-3.5">
+                            <div class="flex items-center justify-end gap-4">
+                                <a href="../<?php echo htmlspecialchars($doc['file_url']); ?>" target="_blank"
+                                   class="text-[10px] font-black uppercase tracking-widest text-blue-500 hover:text-blue-700 transition-colors">
+                                    Download
+                                </a>
+                                <form method="POST" action="actions/landlord_actions.php" class="inline"
+                                      onsubmit="return confirm('Delete this document?')">
+                                    <input type="hidden" name="action" value="delete_document">
+                                    <input type="hidden" name="document_id" value="<?php echo $doc['id']; ?>">
+                                    <input type="hidden" name="_redirect" value="<?php echo urlencode('landlord_profile.php?id=' . $landlordId . '&tab=documents&success=Document+deleted.'); ?>">
+                                    <button type="submit" class="text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
 </div><!-- end main wrapper -->
 
 
@@ -1134,6 +1311,8 @@ function switchTab(key) {
             (active ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm border border-slate-100 dark:border-slate-700 border-b-white dark:border-b-slate-800 -mb-px'
                     : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200');
     });
+
+    history.replaceState(null, '', '?id=<?php echo urlencode($landlordId); ?>&tab=' + key);
 
     if (key === 'overview' && window._chartInited) return;
     if (key === 'overview') initChart();

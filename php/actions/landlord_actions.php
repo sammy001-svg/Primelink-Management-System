@@ -326,6 +326,65 @@ switch ($action) {
         }
         exit();
 
+    // ─── UPLOAD DOCUMENT ─────────────────────────────────────────────────
+    case 'upload_document':
+        $landlordId = trim($_POST['landlord_id'] ?? '');
+        $title      = trim($_POST['title']       ?? '');
+        $category   = trim($_POST['category']    ?? 'General');
+        $redir      = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : "../landlord_profile.php?id=$landlordId&tab=documents";
+
+        if (!$landlordId || !$title || !isset($_FILES['document_file']) || $_FILES['document_file']['error'] !== UPLOAD_ERR_OK) {
+            header("Location: $redir&error=" . urlencode('Missing file or title.'));
+            exit();
+        }
+
+        $uploadDir = __DIR__ . '/../uploads/landlord_docs/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+        $originalName = basename($_FILES['document_file']['name']);
+        $safeFileName = time() . '_' . preg_replace('/[^a-zA-Z0-9.\-_]/', '_', $originalName);
+        $targetPath   = $uploadDir . $safeFileName;
+        $fileSize     = (int)$_FILES['document_file']['size'];
+        $fileUrl      = 'php/uploads/landlord_docs/' . $safeFileName;
+
+        if (!move_uploaded_file($_FILES['document_file']['tmp_name'], $targetPath)) {
+            header("Location: $redir&error=" . urlencode('File upload failed.'));
+            exit();
+        }
+
+        try {
+            $docId = bin2hex(random_bytes(18));
+            $pdo->prepare("INSERT INTO landlord_documents (id, landlord_id, title, category, file_url, file_name, file_size, uploaded_by) VALUES (?,?,?,?,?,?,?,?)")
+                ->execute([$docId, $landlordId, $title, $category, $fileUrl, $originalName, $fileSize, $_SESSION['user_id'] ?? null]);
+            logAction($pdo, 'document_uploaded', 'Landlords', $landlordId, "Document '{$title}' uploaded for landlord {$landlordId}.");
+            header("Location: $redir");
+        } catch (PDOException $e) {
+            header("Location: $redir&error=" . urlencode($e->getMessage()));
+        }
+        exit();
+
+    // ─── DELETE DOCUMENT ─────────────────────────────────────────────────
+    case 'delete_document':
+        $docId = trim($_POST['document_id'] ?? '');
+        $redir = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : '../landlords.php';
+
+        if ($docId) {
+            try {
+                $row = $pdo->prepare("SELECT landlord_id, file_url FROM landlord_documents WHERE id = ?");
+                $row->execute([$docId]);
+                $docRow = $row->fetch();
+                if ($docRow) {
+                    $filePath = __DIR__ . '/../../' . $docRow['file_url'];
+                    if (is_file($filePath)) @unlink($filePath);
+                    $pdo->prepare("DELETE FROM landlord_documents WHERE id = ?")->execute([$docId]);
+                    logAction($pdo, 'document_deleted', 'Landlords', $docRow['landlord_id'], "Document {$docId} deleted.");
+                }
+            } catch (PDOException $e) {}
+        }
+
+        header("Location: $redir");
+        exit();
+
     default:
         header('Location: ../landlords.php');
         exit();

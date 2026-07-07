@@ -13,7 +13,7 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/includes/settings.php';
 
@@ -126,6 +126,16 @@ $payouts = $pdo->query("
 
 $totalReleased = array_sum(array_column($payouts, 'amount'));
 
+// ── KPI aggregates ────────────────────────────────────────────────────
+$kpiYTD = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM landlord_payouts WHERE status='Completed' AND YEAR(payout_date)=YEAR(NOW())")->fetchColumn();
+$kpiMTD = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM landlord_payouts WHERE status='Completed' AND YEAR(payout_date)=YEAR(NOW()) AND MONTH(payout_date)=MONTH(NOW())")->fetchColumn();
+$kpiPendingAdv = (float)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM landlord_advances WHERE status='Approved' AND (is_deducted=0 OR is_deducted IS NULL)")->fetchColumn();
+$kpiActiveLandlords = (int)$pdo->query("SELECT COUNT(*) FROM landlords WHERE status='active'")->fetchColumn();
+
+// Period totals for selected month (sum across all landlords)
+$periodTotalGross = (float)array_sum(array_column(array_map(fn($l) => $calcs[$l['id']], $landlordRows), 'gross'));
+$periodTotalNet   = (float)array_sum(array_column(array_map(fn($l) => $calcs[$l['id']], $landlordRows), 'net'));
+
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
@@ -140,6 +150,56 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
         <a href="landlord_payouts.php" class="text-[10px] font-black text-slate-400 hover:text-slate-900 dark:hover:text-white uppercase tracking-widest transition-colors">Advances & Loans →</a>
     </div>
+
+    <!-- ── KPI Strip ────────────────────────────────────────────────── -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-card p-5 border-l-[3px] border-emerald-500">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">YTD Released</p>
+            <h3 class="text-xl font-black text-emerald-500 mt-1"><?php echo $currency; ?> <?php echo number_format($kpiYTD); ?></h3>
+            <p class="text-[10px] text-slate-400 font-bold"><?php echo date('Y'); ?> total</p>
+        </div>
+        <div class="glass-card p-5 border-l-[3px] border-blue-500">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">This Month</p>
+            <h3 class="text-xl font-black text-blue-500 mt-1"><?php echo $currency; ?> <?php echo number_format($kpiMTD); ?></h3>
+            <p class="text-[10px] text-slate-400 font-bold"><?php echo date('M Y'); ?> payouts</p>
+        </div>
+        <div class="glass-card p-5 border-l-[3px] border-violet-500">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending Advances</p>
+            <h3 class="text-xl font-black <?php echo $kpiPendingAdv > 0 ? 'text-violet-500' : 'text-slate-400'; ?> mt-1">
+                <?php echo $kpiPendingAdv > 0 ? $currency . ' ' . number_format($kpiPendingAdv) : 'None'; ?>
+            </h3>
+            <p class="text-[10px] text-slate-400 font-bold">to deduct</p>
+        </div>
+        <div class="glass-card p-5 border-l-[3px] border-orange-400">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Landlords</p>
+            <h3 class="text-2xl font-black text-slate-900 dark:text-white mt-1"><?php echo $kpiActiveLandlords; ?></h3>
+            <p class="text-[10px] text-slate-400 font-bold"><?php echo count(array_filter($calcs, fn($c) => $c['gross'] > 0)); ?> with income this period</p>
+        </div>
+    </div>
+
+    <!-- ── Period totals summary ─────────────────────────────────────── -->
+    <?php if ($periodTotalGross > 0): ?>
+    <div class="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-5 flex flex-wrap gap-6 items-center justify-between">
+        <div>
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1"><?php echo $monthNames[$selMonth]; ?> <?php echo $selYear; ?> — Period Summary</p>
+            <p class="text-white font-medium text-sm">Gross rent collected across all landlords for the selected period</p>
+        </div>
+        <div class="flex gap-8">
+            <div class="text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gross Rent</p>
+                <p class="text-xl font-black text-white"><?php echo $currency; ?> <?php echo number_format($periodTotalGross); ?></p>
+            </div>
+            <div class="text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Net to Landlords</p>
+                <p class="text-xl font-black text-emerald-400"><?php echo $currency; ?> <?php echo number_format($periodTotalNet); ?></p>
+            </div>
+            <div class="text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Deductions</p>
+                <p class="text-xl font-black text-orange-400"><?php echo $currency; ?> <?php echo number_format($periodTotalGross - $periodTotalNet); ?></p>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if ($success === 'processed' && $doneRef): ?>
     <div class="p-5 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-2xl flex items-start gap-4">

@@ -126,6 +126,68 @@ if ($action === 'revert_unpaid') {
     exit();
 }
 
+// ── Mark unpaid invoice as Overdue ───────────────────────────────────
+if ($action === 'mark_overdue') {
+    $invoiceId = trim($_POST['invoice_id'] ?? '');
+    if (!$invoiceId) { header('Location: ' . $redirect); exit(); }
+
+    try {
+        $pdo->prepare("UPDATE invoices SET status = 'Overdue' WHERE id = ? AND status IN ('Unpaid','Partial')")->execute([$invoiceId]);
+        logAction($pdo, 'invoice_marked_overdue', 'Invoices', $invoiceId, 'Manually marked as Overdue');
+        header('Location: ' . $redirect . '?success=marked_overdue');
+    } catch (PDOException $e) {
+        header('Location: ' . $redirect . '?error=' . urlencode($e->getMessage()));
+    }
+    exit();
+}
+
+// ── Create a single invoice ───────────────────────────────────────────
+if ($action === 'create_invoice') {
+    $tenantId   = trim($_POST['tenant_id']   ?? '');
+    $leaseId    = trim($_POST['lease_id']    ?? '') ?: null;
+    $type       = trim($_POST['invoice_type'] ?? 'Rent');
+    $amount     = (float)($_POST['amount']   ?? 0);
+    $dueDate    = trim($_POST['due_date']    ?? date('Y-m-d', strtotime('+7 days')));
+    $notes      = trim($_POST['notes']       ?? '');
+
+    if (!$tenantId || $amount <= 0) {
+        header('Location: ' . $redirect . '?error=' . urlencode('Tenant and amount are required.'));
+        exit();
+    }
+
+    try {
+        // Self-heal: ensure notes/description column exists on invoices
+        try { $pdo->exec("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS notes TEXT NULL"); } catch (PDOException $e) {}
+
+        $invId = generateUUID();
+        $pdo->prepare("
+            INSERT INTO invoices (id, tenant_id, lease_id, invoice_type, amount, due_date, status, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'Unpaid', ?, NOW())
+        ")->execute([$invId, $tenantId, $leaseId, $type, $amount, $dueDate, $notes ?: null]);
+
+        // Notify tenant
+        $tRow = $pdo->prepare("SELECT user_id, full_name FROM tenants WHERE id = ?");
+        $tRow->execute([$tenantId]);
+        $tData = $tRow->fetch();
+        if (!empty($tData['user_id'])) {
+            createNotification(
+                $pdo, $tData['user_id'],
+                'New Invoice Issued',
+                "A new {$type} invoice of {$currency} " . number_format($amount) . " has been issued, due " . date('d M Y', strtotime($dueDate)) . ".",
+                'info'
+            );
+        }
+
+        logAction($pdo, 'invoice_created', 'Invoices', $invId,
+            "{$type} invoice of {$currency} " . number_format($amount) . " for tenant {$tenantId}");
+
+        header('Location: ' . $redirect . '?success=invoice_created');
+    } catch (PDOException $e) {
+        header('Location: ' . $redirect . '?error=' . urlencode($e->getMessage()));
+    }
+    exit();
+}
+
 header('Location: ' . $redirect);
 exit();
 ?>

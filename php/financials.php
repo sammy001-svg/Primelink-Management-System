@@ -7,6 +7,9 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/includes/settings.php';
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
+
 $user = getCurrentUser($pdo);
 $role = $_SESSION['role'] ?? 'tenant';
 $pageTitle = "Financials";
@@ -203,27 +206,27 @@ if ($role === 'landlord') {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-12">
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Rent Balance</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Rent']); ?></span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Rent']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Water Bill</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Water']); ?></span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Water']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Garbage Fee</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Garbage']); ?></span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Garbage']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Previous Balance</span>
-                        <span class="text-sm font-black text-red-500">KSh <?php echo number_format($balancesBreakdown['Previous']); ?></span>
+                        <span class="text-sm font-black text-red-500"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Previous']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Security Deposit</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Deposit']); ?></span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Deposit']); ?></span>
                     </div>
                     <div class="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span class="text-sm font-bold text-slate-500">Other Utilities</span>
-                        <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($balancesBreakdown['Other']); ?></span>
+                        <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($balancesBreakdown['Other']); ?></span>
                     </div>
                 </div>
             </div>
@@ -232,7 +235,7 @@ if ($role === 'landlord') {
             <div class="bg-slate-900 dark:bg-slate-950 p-8 lg:p-10 flex flex-col justify-center items-center text-center relative overflow-hidden">
                 <div class="relative z-10">
                     <p class="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Total Outstanding</p>
-                    <h2 class="text-4xl font-black text-white mb-8">KSh <?php echo number_format($totalBalance); ?></h2>
+                    <h2 class="text-4xl font-black text-white mb-8"><?php echo $currency; ?> <?php echo number_format($totalBalance); ?></h2>
                     <button onclick="togglePaymentCenter()" class="w-full bg-accent-green hover:bg-green-400 text-slate-950 font-black py-4 px-8 rounded-2xl transition-all shadow-lg shadow-green-500/20 active:scale-95 flex items-center justify-center gap-2">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v20M2 12h20"/></svg>
                         PAY NOW
@@ -250,7 +253,7 @@ if ($role === 'landlord') {
             <div class="flex justify-between items-center mb-8">
                 <div>
                     <h3 class="text-xl font-black text-slate-900 dark:text-white mb-1">Select Payment Method</h3>
-                    <p class="text-sm text-slate-500 font-medium">Choose how you want to settle your KSh <?php echo number_format($totalBalance); ?> balance.</p>
+                    <p class="text-sm text-slate-500 font-medium">Choose how you want to settle your <?php echo $currency; ?> <?php echo number_format($totalBalance); ?> balance.</p>
                 </div>
                 <button onclick="togglePaymentCenter()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -320,11 +323,11 @@ if ($role === 'landlord') {
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="glass-card p-6 border-l-4 border-green-500">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Collection (<?php echo date('M'); ?>)</p>
-            <h3 class="text-3xl font-black mt-1 text-green-600">KSh <?php echo number_format($totalReceived); ?></h3>
+            <h3 class="text-3xl font-black mt-1 text-green-600"><?php echo $currency; ?> <?php echo number_format($totalReceived); ?></h3>
         </div>
         <div class="glass-card p-6 border-l-4 border-orange-400">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Pending</p>
-            <h3 class="text-3xl font-black mt-1 text-orange-500">KSh <?php echo number_format($pendingAmount); ?></h3>
+            <h3 class="text-3xl font-black mt-1 text-orange-500"><?php echo $currency; ?> <?php echo number_format($pendingAmount); ?></h3>
         </div>
         <div class="glass-card p-6 border-l-4 border-blue-500">
             <?php if ($role === 'landlord'): ?>
@@ -333,13 +336,13 @@ if ($role === 'landlord') {
                     $grossEarnings = $totalReceived * 0.9; 
                     $netPayable = $grossEarnings - ($pendingAdvTotal ?? 0);
                 ?>
-                <h3 class="text-3xl font-black mt-1 text-blue-600">KSh <?php echo number_format($netPayable); ?></h3>
+                <h3 class="text-3xl font-black mt-1 text-blue-600"><?php echo $currency; ?> <?php echo number_format($netPayable); ?></h3>
                 <?php if (($pendingAdvTotal ?? 0) > 0): ?>
-                    <p class="text-[9px] font-bold text-red-500 uppercase mt-1 italic">- KSh <?php echo number_format($pendingAdvTotal); ?> Approved Advances</p>
+                    <p class="text-[9px] font-bold text-red-500 uppercase mt-1 italic">– <?php echo $currency; ?> <?php echo number_format($pendingAdvTotal); ?> Approved Advances</p>
                 <?php endif; ?>
             <?php else: ?>
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Monthly Payouts</p>
-                <h3 class="text-3xl font-black mt-1 text-blue-600">KSh <?php echo number_format($totalMonthlyPayouts); ?></h3>
+                <h3 class="text-3xl font-black mt-1 text-blue-600"><?php echo $currency; ?> <?php echo number_format($totalMonthlyPayouts); ?></h3>
             <?php endif; ?>
         </div>
     </div>
@@ -365,7 +368,7 @@ if ($role === 'landlord') {
                 </div>
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (KSh)</label>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (<?php echo htmlspecialchars($currency); ?>)</label>
                         <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
@@ -463,7 +466,7 @@ if ($role === 'landlord') {
                             </div>
                         </td>
                         <td class="font-black text-slate-900 dark:text-white">
-                            KSh <?php echo number_format($inv['amount']); ?>
+                            <?php echo $currency; ?> <?php echo number_format($inv['amount']); ?>
                         </td>
                         <td>
                             <div class="text-sm font-bold <?php echo $isPastDue && !$isPaid ? 'text-red-500' : 'text-slate-600 dark:text-slate-400'; ?>">
@@ -537,7 +540,7 @@ if ($role === 'landlord') {
                             <span class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($tr['transaction_type']); ?></span>
                         </td>
                         <td class="p-6">
-                            <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($tr['amount']); ?></span>
+                            <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($tr['amount']); ?></span>
                         </td>
                         <td class="p-6">
                             <span class="px-3 py-1 <?php 
@@ -581,7 +584,7 @@ if ($role === 'landlord') {
                 <input type="text" name="phone" placeholder="2547XXXXXXXX" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
             </div>
             <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount to Pay (KSh)</label>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount to Pay (<?php echo htmlspecialchars($currency); ?>)</label>
                 <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
             </div>
             <button type="submit" class="btn-green w-full justify-center py-4">Initiate STK Push</button>

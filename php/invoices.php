@@ -84,12 +84,36 @@ foreach ($invoices as $inv) {
     ];
 }
 
+// ── Active leases for Create Invoice modal ────────────────────────────
+$activeLeasesRaw = $pdo->query("
+    SELECT t.id AS tenant_id, t.full_name,
+           l.id AS lease_id, l.monthly_rent,
+           u.unit_number, p.title AS property_title, p.id AS property_id
+    FROM tenants t
+    JOIN leases l ON l.tenant_id = t.id AND l.status = 'Active'
+    JOIN units u ON l.unit_id = u.id
+    JOIN properties p ON u.property_id = p.id
+    ORDER BY t.full_name
+")->fetchAll();
+
+$createLeaseJS = [];
+foreach ($activeLeasesRaw as $r) {
+    $createLeaseJS[$r['tenant_id']] = [
+        'lease_id'  => $r['lease_id'],
+        'rent'      => (float)$r['monthly_rent'],
+        'unit'      => $r['unit_number'],
+        'property'  => $r['property_title'],
+    ];
+}
+
 // ── Flash messages ────────────────────────────────────────────────────
 $flash = $flashErr = '';
 $successMap = [
     'payment_recorded' => 'Payment recorded and invoice status updated.',
     'marked_paid'      => 'Invoice marked as Paid.',
     'reverted'         => 'Invoice reverted to Unpaid.',
+    'marked_overdue'   => 'Invoice marked as Overdue.',
+    'invoice_created'  => 'Invoice created successfully.',
 ];
 if (!empty($_GET['success'])) $flash    = $successMap[$_GET['success']] ?? 'Action completed.';
 if (!empty($_GET['error']))   $flashErr = htmlspecialchars(urldecode($_GET['error']));
@@ -133,10 +157,16 @@ $typeColors = [
             <h1 class="text-3xl font-black text-slate-900 dark:text-white">Invoice Management</h1>
             <p class="text-slate-400 font-medium text-sm mt-1">Record payments, track balances, and manage all tenant invoices.</p>
         </div>
-        <a href="bulk_invoices.php" class="btn-primary gap-2 text-sm self-start sm:self-auto">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
-            Bulk Invoices
-        </a>
+        <div class="flex items-center gap-2 self-start sm:self-auto">
+            <button onclick="openModal('createInvoiceModal')" class="btn-green gap-2 text-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Create Invoice
+            </button>
+            <a href="bulk_invoices.php" class="inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl font-black text-sm text-slate-700 dark:text-slate-300 transition-all">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
+                Bulk Invoices
+            </a>
+        </div>
     </div>
 
     <!-- ── KPI Strip ────────────────────────────────────────────────── -->
@@ -327,6 +357,16 @@ $typeColors = [
                                         Mark Paid
                                     </button>
                                 </form>
+                                <?php if ($isPastDue && $inv['status'] === 'Unpaid'): ?>
+                                <form action="actions/payment_actions.php" method="POST" class="inline">
+                                    <input type="hidden" name="action" value="mark_overdue">
+                                    <input type="hidden" name="invoice_id" value="<?php echo $inv['id']; ?>">
+                                    <input type="hidden" name="_redirect" value="../invoices.php">
+                                    <button type="submit" class="px-3 py-1.5 bg-red-50 dark:bg-red-900/10 hover:bg-red-100 text-red-500 rounded-lg text-[10px] font-black uppercase transition-all whitespace-nowrap">
+                                        Overdue
+                                    </button>
+                                </form>
+                                <?php endif; ?>
                                 <?php else: ?>
                                 <a href="view_invoice.php?id=<?php echo $inv['id']; ?>" target="_blank"
                                    class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-[10px] font-black uppercase transition-all">
@@ -355,6 +395,89 @@ $typeColors = [
     </div>
 
 </div><!-- /space-y-8 -->
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- CREATE INVOICE MODAL                                              -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="createInvoiceModal" style="display:none;" onclick="if(event.target===this)closeModal('createInvoiceModal')">
+    <div class="modal-card max-w-lg" onclick="event.stopPropagation()">
+        <button onclick="closeModal('createInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+
+        <div class="flex items-center gap-3 mb-6">
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
+            </div>
+            <div>
+                <h2 class="text-xl font-black text-slate-900 dark:text-white">Create Invoice</h2>
+                <p class="text-slate-400 text-sm font-medium">Issue a new invoice to a tenant.</p>
+            </div>
+        </div>
+
+        <!-- Tenant info preview -->
+        <div id="ci_tenant_info" class="hidden bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 mb-5 border border-slate-100 dark:border-slate-700/60">
+            <p id="ci_tenant_detail" class="text-xs font-black text-slate-600 dark:text-slate-300"></p>
+        </div>
+
+        <form action="actions/payment_actions.php" method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="create_invoice">
+            <input type="hidden" name="lease_id" id="ci_lease_id">
+            <input type="hidden" name="_redirect" value="../invoices.php?success=invoice_created">
+
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Tenant *</label>
+                <select name="tenant_id" id="ci_tenant_sel" required onchange="ciPickTenant(this.value)" class="form-input">
+                    <option value="">— Select active tenant —</option>
+                    <?php foreach ($activeLeasesRaw as $r): ?>
+                    <option value="<?php echo $r['tenant_id']; ?>">
+                        <?php echo htmlspecialchars($r['full_name']); ?> · Unit <?php echo htmlspecialchars($r['unit_number']); ?> · <?php echo htmlspecialchars($r['property_title']); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Invoice Type *</label>
+                    <select name="invoice_type" id="ci_type" required onchange="ciTypeChanged(this.value)" class="form-input">
+                        <option value="Rent">Rent</option>
+                        <option value="Water">Water</option>
+                        <option value="Garbage">Garbage</option>
+                        <option value="Electricity">Electricity</option>
+                        <option value="Deposit">Deposit</option>
+                        <option value="Service Charge">Service Charge</option>
+                        <option value="Penalty">Penalty</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Amount *</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none"><?php echo htmlspecialchars($currency); ?></span>
+                        <input type="number" name="amount" id="ci_amount" required min="1" step="0.01" placeholder="0.00" class="form-input pl-10">
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Due Date *</label>
+                <input type="date" name="due_date" id="ci_due_date" required class="form-input"
+                       value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>">
+            </div>
+
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Notes <span class="normal-case font-normal text-slate-400">(optional)</span></label>
+                <input type="text" name="notes" class="form-input" placeholder="Optional invoice note…">
+            </div>
+
+            <button type="submit" class="btn-green w-full justify-center py-3.5 mt-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                Generate Invoice
+            </button>
+        </form>
+    </div>
+</div>
 
 <!-- ══════════════════════════════════════════════════════════════════ -->
 <!-- RECORD PAYMENT MODAL                                              -->
@@ -499,8 +622,37 @@ function applyInvFilters() {
 }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal('paymentModal');
+    if (e.key === 'Escape') { closeModal('paymentModal'); closeModal('createInvoiceModal'); }
 });
+
+// ── Create Invoice modal helpers ──────────────────────────────────────
+const ciLeaseData = <?php echo json_encode($createLeaseJS, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+
+function ciPickTenant(tenantId) {
+    const info = document.getElementById('ci_tenant_info');
+    const detail = document.getElementById('ci_tenant_detail');
+    const leaseInput = document.getElementById('ci_lease_id');
+    if (!tenantId || !ciLeaseData[tenantId]) {
+        info.classList.add('hidden');
+        leaseInput.value = '';
+        return;
+    }
+    const d = ciLeaseData[tenantId];
+    leaseInput.value = d.lease_id;
+    detail.textContent = 'Unit ' + d.unit + ' · ' + d.property + ' · Rent: ' + invCur + ' ' + d.rent.toLocaleString();
+    info.classList.remove('hidden');
+    // Auto-fill amount if Rent type is selected
+    if (document.getElementById('ci_type').value === 'Rent') {
+        document.getElementById('ci_amount').value = d.rent;
+    }
+}
+
+function ciTypeChanged(type) {
+    const tenantId = document.getElementById('ci_tenant_sel').value;
+    if (type === 'Rent' && tenantId && ciLeaseData[tenantId]) {
+        document.getElementById('ci_amount').value = ciLeaseData[tenantId].rent;
+    }
+}
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

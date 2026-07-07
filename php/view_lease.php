@@ -14,6 +14,19 @@ if (!$leaseId && !$tenantId) {
     die("Lease Agreement not found.");
 }
 
+// Self-heal optional tenant columns used in the lease document
+foreach ([
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS signature_name    VARCHAR(255) NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS terms_accepted_at DATETIME    NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS id_no             VARCHAR(100) NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS current_address   TEXT         NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS spouse_name       VARCHAR(255) NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS spouse_id_no      VARCHAR(100) NULL",
+    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS spouse_phone      VARCHAR(50)  NULL",
+] as $ddl) {
+    try { $pdo->exec($ddl); } catch (PDOException $e) {}
+}
+
 if ($leaseId) {
     // Fetch Specific Lease Details
     $stmt = $pdo->prepare("
