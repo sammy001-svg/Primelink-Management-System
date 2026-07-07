@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireLogin(['admin']);
+requireRole(['admin']);
 
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/mailer.php';
@@ -28,11 +28,12 @@ if ($action === 'save_company') {
 
 if ($action === 'save_invoice') {
     setSettings($pdo, [
-        'currency_symbol'  => trim($_POST['currency_symbol']  ?? 'KSh'),
-        'invoice_prefix'   => strtoupper(trim($_POST['invoice_prefix']  ?? 'INV')),
-        'invoice_due_days' => (string)(int)($_POST['invoice_due_days'] ?? 7),
-        'invoice_footer'   => trim($_POST['invoice_footer']   ?? ''),
-        'fiscal_year_start'=> (string)max(1, min(12, (int)($_POST['fiscal_year_start'] ?? 1))),
+        'currency_symbol'     => trim($_POST['currency_symbol']  ?? 'KSh'),
+        'invoice_prefix'      => strtoupper(trim($_POST['invoice_prefix']  ?? 'INV')),
+        'invoice_due_days'    => (string)(int)($_POST['invoice_due_days'] ?? 7),
+        'invoice_footer'      => trim($_POST['invoice_footer']   ?? ''),
+        'fiscal_year_start'   => (string)max(1, min(12, (int)($_POST['fiscal_year_start'] ?? 1))),
+        'management_fee_rate' => (string)max(0, min(100, (float)($_POST['management_fee_rate'] ?? 10))),
     ]);
     echo json_encode(['success' => true, 'message' => 'Invoice settings saved.']);
     exit;
@@ -99,6 +100,47 @@ if ($action === 'save_penalties') {
         'penalty_percentage' => (string)max(0, min(100, (float)($_POST['penalty_percentage'] ?? 5))),
     ]);
     echo json_encode(['success' => true, 'message' => 'Penalty settings saved.']);
+    exit;
+}
+
+if ($action === 'save_logo') {
+    if (!isset($_FILES['logo_file']) || $_FILES['logo_file']['error'] !== UPLOAD_ERR_OK) {
+        echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error.']);
+        exit;
+    }
+    $file    = $_FILES['logo_file'];
+    $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowed = ['png', 'jpg', 'jpeg', 'gif', 'svg'];
+    if (!in_array($ext, $allowed, true)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid file type. Use PNG, JPG, GIF, or SVG.']);
+        exit;
+    }
+    if ($file['size'] > 2 * 1024 * 1024) {
+        echo json_encode(['success' => false, 'message' => 'File too large. Maximum 2 MB.']);
+        exit;
+    }
+    // Verify MIME for raster types
+    if ($ext !== 'svg') {
+        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+        $mime     = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        if (!in_array($mime, ['image/png', 'image/jpeg', 'image/gif'], true)) {
+            echo json_encode(['success' => false, 'message' => 'File content does not match the selected image type.']);
+            exit;
+        }
+    }
+    $uploadDir = __DIR__ . '/../../uploads/logos/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+    $filename = 'company_logo.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
+        echo json_encode(['success' => false, 'message' => 'Failed to save file. Check directory permissions.']);
+        exit;
+    }
+    $logoUrl = 'uploads/logos/' . $filename;
+    setSetting($pdo, 'logo_url', $logoUrl);
+    echo json_encode(['success' => true, 'message' => 'Logo uploaded successfully.', 'logo_url' => $logoUrl]);
     exit;
 }
 

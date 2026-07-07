@@ -12,8 +12,8 @@ require_once __DIR__ . '/includes/settings.php';
 $pageTitle = "System Settings";
 
 $s = getSettings($pdo, [
-    'company_name', 'company_email', 'company_phone', 'company_address', 'company_tagline',
-    'currency_symbol', 'invoice_prefix', 'invoice_due_days', 'invoice_footer', 'fiscal_year_start',
+    'company_name', 'company_email', 'company_phone', 'company_address', 'company_tagline', 'logo_url',
+    'currency_symbol', 'invoice_prefix', 'invoice_due_days', 'invoice_footer', 'fiscal_year_start', 'management_fee_rate',
     'mpesa_shortcode', 'mpesa_consumer_key', 'mpesa_consumer_secret',
     'mpesa_passkey', 'mpesa_callback_url', 'mpesa_environment',
     'mail_driver', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
@@ -55,6 +55,8 @@ $defaults = [
     'penalty_type'          => 'fixed',
     'penalty_amount'        => '500',
     'penalty_percentage'    => '5',
+    'management_fee_rate'   => '10',
+    'logo_url'              => '',
 ];
 
 foreach ($defaults as $key => $def) {
@@ -133,6 +135,42 @@ include __DIR__ . '/includes/sidebar.php';
                 <button type="submit" class="btn-green px-8 py-3 font-black">Save Company Profile</button>
             </div>
         </form>
+
+        <!-- Logo Upload -->
+        <form id="form-logo" class="glass-card p-8 space-y-6 mt-6">
+            <input type="hidden" name="action" value="save_logo">
+            <div>
+                <h2 class="text-lg font-black text-slate-900 dark:text-white">Company Logo</h2>
+                <p class="text-xs text-slate-400 font-medium mt-0.5">Shown on invoices, statements, and printed documents.</p>
+            </div>
+
+            <?php if (!empty($s['logo_url'])): ?>
+            <div id="logo-preview-wrap" class="flex items-center gap-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                <img id="logo-preview-img" src="<?php echo htmlspecialchars($s['logo_url']); ?>"
+                     alt="Company Logo" class="h-16 max-w-[180px] object-contain rounded-xl">
+                <div>
+                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Current Logo</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5 break-all"><?php echo htmlspecialchars($s['logo_url']); ?></p>
+                </div>
+            </div>
+            <?php else: ?>
+            <div id="logo-preview-wrap" class="hidden flex items-center gap-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
+                <img id="logo-preview-img" src="" alt="Logo preview" class="h-16 max-w-[180px] object-contain rounded-xl">
+            </div>
+            <?php endif; ?>
+
+            <div class="space-y-2">
+                <label class="field-label">Upload Logo File</label>
+                <input type="file" name="logo_file" accept="image/png,image/jpeg,image/gif,image/svg+xml"
+                       class="field-input py-3 cursor-pointer"
+                       onchange="previewLogo(this)">
+                <p class="text-[10px] text-slate-400 px-2">PNG, JPG, GIF, or SVG &middot; Max 2 MB &middot; Transparent PNG recommended</p>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button type="submit" class="btn-green px-8 py-3 font-black">Upload Logo</button>
+            </div>
+        </form>
     </div>
 
     <!-- ===== TAB: INVOICE ===== -->
@@ -159,6 +197,14 @@ include __DIR__ . '/includes/sidebar.php';
                     <input type="number" name="invoice_due_days" value="<?php echo (int)$s['invoice_due_days']; ?>"
                            min="1" max="90" class="field-input" placeholder="7">
                 </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="field-label">Management Fee Rate (%)</label>
+                <input type="number" name="management_fee_rate"
+                       value="<?php echo number_format((float)$s['management_fee_rate'], 2, '.', ''); ?>"
+                       min="0" max="100" step="0.01" class="field-input" placeholder="10">
+                <p class="text-[10px] text-slate-400 px-2">Percentage deducted from landlord gross rent for payout calculations (e.g. 10 = 10%).</p>
             </div>
 
             <div class="space-y-2">
@@ -560,12 +606,21 @@ include __DIR__ . '/includes/sidebar.php';
 </style>
 
 <script>
+const VALID_TABS = ['company', 'invoice', 'mpesa', 'email', 'system', 'penalties'];
+
 function switchTab(tab) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + tab).classList.remove('hidden');
     document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+    history.replaceState(null, '', '#' + tab);
 }
+
+// Restore active tab from URL hash on load
+(function initTab() {
+    const hash = location.hash.replace('#', '');
+    switchTab(VALID_TABS.includes(hash) ? hash : 'company');
+})();
 
 function updateEnvBadge(val) {
     const badge = document.getElementById('mpesa-env-badge');
@@ -587,6 +642,21 @@ function showToast(msg, ok) {
     setTimeout(() => t.classList.add('hidden'), 3500);
 }
 
+// Logo local preview before upload
+function previewLogo(input) {
+    const wrap = document.getElementById('logo-preview-wrap');
+    const img  = document.getElementById('logo-preview-img');
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = e => {
+            img.src = e.target.result;
+            wrap.classList.remove('hidden');
+            wrap.style.display = 'flex';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
 // SMTP field visibility toggle
 document.querySelectorAll('[name="mail_driver"]').forEach(r => {
     r.addEventListener('change', () => {
@@ -596,35 +666,32 @@ document.querySelectorAll('[name="mail_driver"]').forEach(r => {
 
 // Test email
 async function sendTestEmail() {
-    const res = await fetch('actions/settings_actions.php', {
-        method: 'POST',
-        body: new FormData(document.getElementById('form-email'))
-    });
-    const data = await res.json().catch(() => ({}));
-    // Save first, then send test
     const fr = new FormData();
     fr.append('action', 'test_email');
-    const res2 = await fetch('actions/settings_actions.php', { method: 'POST', body: fr });
-    const data2 = await res2.json().catch(() => ({ message: 'Could not connect.' }));
-    showToast(data2.message, data2.success);
+    const res = await fetch('actions/settings_actions.php', { method: 'POST', body: fr });
+    const data = await res.json().catch(() => ({ message: 'Could not connect.' }));
+    showToast(data.message, data.success);
 }
 
-['company', 'invoice', 'mpesa', 'email', 'penalties'].forEach(name => {
+// Generic form submit handler
+['company', 'invoice', 'mpesa', 'email', 'penalties', 'logo'].forEach(name => {
     const form = document.getElementById('form-' + name);
     if (!form) return;
     form.addEventListener('submit', async e => {
         e.preventDefault();
-        const btn = form.querySelector('[type="submit"]');
+        const btn  = form.querySelector('[type="submit"]');
         const orig = btn.textContent;
         btn.textContent = 'Saving…';
         btn.disabled = true;
         try {
-            const res = await fetch('actions/settings_actions.php', {
-                method: 'POST',
-                body: new FormData(form)
-            });
+            const res  = await fetch('actions/settings_actions.php', { method: 'POST', body: new FormData(form) });
             const data = await res.json();
             showToast(data.message, data.success);
+            // Update logo preview src from server response
+            if (name === 'logo' && data.success && data.logo_url) {
+                const img = document.getElementById('logo-preview-img');
+                if (img) img.src = data.logo_url + '?t=' + Date.now();
+            }
         } catch {
             showToast('Network error — please retry.', false);
         } finally {
