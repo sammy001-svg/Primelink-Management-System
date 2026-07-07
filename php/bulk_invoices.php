@@ -6,7 +6,7 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/includes/settings.php';
 
@@ -45,7 +45,7 @@ $willSkip     = 0;
 
 if ($isPreviewing) {
     $propFilter = '';
-    $propParams = [$selMonth, $selYear, $selType, $selMonth, $selYear];
+    $propParams = [$selType, $selMonth, $selYear];
 
     if ($selProperty !== 'all') {
         $propFilter   = 'AND p.id = ?';
