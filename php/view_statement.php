@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Tenant Statement of Account
  * Primelink Management System
