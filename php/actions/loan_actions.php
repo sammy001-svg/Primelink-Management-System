@@ -48,7 +48,7 @@ $isAdmin  = $_SESSION['role'] === 'admin';
 // ── apply ────────────────────────────────────────────────────────────────
 if ($action === 'apply_loan') {
     $empId       = hrPostStr('employee_id');
-    $loanType    = in_array(pd('loan_type'), ['Loan','Advance']) ? hrPostStr('loan_type') : 'Loan';
+    $loanType    = in_array(hrPostStr('loan_type'), ['Loan','Advance']) ? hrPostStr('loan_type') : 'Loan';
     $amount      = hrPostFlt('amount');
     $purpose     = hrPostStr('purpose');
     $appliedDate = hrPostStr('applied_date') ?: date('Y-m-d');

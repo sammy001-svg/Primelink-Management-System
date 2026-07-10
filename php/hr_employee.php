@@ -95,6 +95,11 @@ $leaveApps = $pdo->prepare(
 );
 $leaveApps->execute([$empId]); $leaveApps = $leaveApps->fetchAll();
 
+// Bank details
+require_once __DIR__ . '/actions/bank_actions.php';
+$bankAccounts = $pdo->prepare("SELECT * FROM employee_bank_details WHERE employee_id=? ORDER BY is_primary DESC, created_at ASC");
+$bankAccounts->execute([$empId]); $bankAccounts = $bankAccounts->fetchAll();
+
 // Tax profile
 $taxProfile = $pdo->prepare("SELECT * FROM employee_tax_profile WHERE employee_id=?");
 $taxProfile->execute([$empId]);
@@ -133,6 +138,10 @@ $toastMap = [
     'leave_rejected'     => 'Leave rejected.',
     'leave_cancelled'    => 'Leave cancelled.',
     'balance_adjusted'   => 'Leave balance adjusted.',
+    'bank_added'         => 'Bank account added.',
+    'bank_updated'       => 'Bank account updated.',
+    'bank_deleted'       => 'Bank account removed.',
+    'bank_primary_set'   => 'Primary bank account updated.',
 ];
 
 $statusColors = [
@@ -207,6 +216,7 @@ include __DIR__ . '/includes/sidebar.php';
             'loans'     => 'Loans & Advances (' . count($loans) . ')',
             'leave'     => 'Leave',
             'payroll'   => 'Payroll',
+            'bank'      => 'Bank Details (' . count($bankAccounts) . ')',
         ];
         foreach ($tabs as $key => $label): ?>
         <button onclick="switchTab('<?php echo $key; ?>')"
@@ -823,6 +833,110 @@ $isAdmin = $_SESSION['role'] === 'admin';
     <?php endif; ?>
 </div>
 
+<!-- ═══════════════════════ BANK DETAILS TAB ═══════════════════════ -->
+<?php
+$kenyaBanks = [
+    'KCB Bank Kenya','Equity Bank Kenya','Co-operative Bank of Kenya','NCBA Bank Kenya',
+    'Absa Bank Kenya','Standard Chartered Bank Kenya','Diamond Trust Bank (DTB)','I&M Bank',
+    'Family Bank','Stanbic Bank Kenya','Prime Bank Kenya','Bank of Africa Kenya',
+    'Sidian Bank','HF Group (Housing Finance)','Guaranty Trust Bank Kenya','SBM Bank Kenya',
+    'M-Pesa Paybill','M-Pesa Till / Buy Goods','Airtel Money','T-Kash',
+];
+sort($kenyaBanks);
+?>
+<div id="tab-bank" class="tab-panel <?php echo $activeTab !== 'bank' ? 'hidden' : ''; ?>">
+
+    <div class="flex items-center justify-between mb-5">
+        <h3 class="text-lg font-black text-slate-900 dark:text-white">Bank &amp; Payment Accounts</h3>
+        <?php if ($isAdmin): ?>
+        <button onclick="openBankModal()" class="btn-primary text-sm">+ Add Account</button>
+        <?php endif; ?>
+    </div>
+
+    <?php if (empty($bankAccounts)): ?>
+    <div class="glass-card p-10 text-center">
+        <svg class="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>
+        </svg>
+        <p class="text-slate-500 font-medium">No bank accounts on record.</p>
+        <?php if ($isAdmin): ?>
+        <button onclick="openBankModal()" class="btn-primary mt-4 text-sm">Add Bank Account</button>
+        <?php endif; ?>
+    </div>
+    <?php else: ?>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <?php foreach ($bankAccounts as $ba): ?>
+        <div class="glass-card p-5 flex flex-col gap-3 relative">
+            <?php if ($ba['is_primary']): ?>
+            <span class="absolute top-4 right-4 badge badge-green text-[10px]">Primary</span>
+            <?php endif; ?>
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-blue-500">
+                        <rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="font-black text-slate-900 dark:text-white text-sm leading-tight"><?php echo htmlspecialchars($ba['bank_name']); ?></p>
+                    <?php if ($ba['branch_name']): ?>
+                    <p class="text-[11px] text-slate-400"><?php echo htmlspecialchars($ba['branch_name']); ?> Branch</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div>
+                    <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Account Name</span>
+                    <p class="font-black text-slate-700 dark:text-slate-200 mt-0.5"><?php echo htmlspecialchars($ba['account_name']); ?></p>
+                </div>
+                <div>
+                    <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Account No.</span>
+                    <p class="font-black text-slate-700 dark:text-slate-200 mt-0.5 font-mono">
+                        <?php
+                        $no = $ba['account_no'];
+                        echo strlen($no) > 4 ? str_repeat('*', strlen($no)-4) . substr($no, -4) : $no;
+                        ?>
+                    </p>
+                </div>
+                <div>
+                    <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Type</span>
+                    <p class="font-black text-slate-700 dark:text-slate-200 mt-0.5"><?php echo htmlspecialchars($ba['account_type']); ?></p>
+                </div>
+                <?php if ($ba['swift_code']): ?>
+                <div>
+                    <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">SWIFT/BIC</span>
+                    <p class="font-black text-slate-700 dark:text-slate-200 mt-0.5 font-mono"><?php echo htmlspecialchars($ba['swift_code']); ?></p>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php if ($isAdmin): ?>
+            <div class="flex gap-2 pt-1 border-t border-slate-100 dark:border-slate-700">
+                <button onclick="openBankModal(<?php echo htmlspecialchars(json_encode($ba)); ?>)"
+                        class="text-[11px] font-black text-blue-500 hover:text-blue-700 transition-colors">Edit</button>
+                <?php if (!$ba['is_primary']): ?>
+                <form method="POST" action="actions/bank_actions.php" class="inline">
+                    <input type="hidden" name="action" value="set_primary">
+                    <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+                    <input type="hidden" name="bank_id" value="<?php echo $ba['id']; ?>">
+                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=bank&success=bank_primary_set">
+                    <button type="submit" class="text-[11px] font-black text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">Set Primary</button>
+                </form>
+                <?php endif; ?>
+                <form method="POST" action="actions/bank_actions.php" class="inline ml-auto"
+                      onsubmit="return confirm('Remove this bank account?')">
+                    <input type="hidden" name="action" value="delete_bank">
+                    <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+                    <input type="hidden" name="bank_id" value="<?php echo $ba['id']; ?>">
+                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=bank&success=bank_deleted">
+                    <button type="submit" class="text-[11px] font-black text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                </form>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
 <!-- ═══════════════════════ LEAVE TAB ═══════════════════════ -->
 <div id="tab-leave" class="tab-panel <?php echo $activeTab !== 'leave' ? 'hidden' : ''; ?>">
 
@@ -1333,5 +1447,126 @@ function updateDocName() {
     document.getElementById('docNameInput').value = docLabels[sel.value] || '';
 }
 </script>
+
+<?php if ($isAdmin): ?>
+<!-- ══════════ BANK ACCOUNT MODAL ══════════ -->
+<div id="bankModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-lg w-full">
+        <button onclick="closeModal('bankModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-xl font-black mb-6" id="bankModalTitle">Add Bank Account</h2>
+        <form method="POST" action="actions/bank_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="save_bank">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=bank&success=bank_added">
+            <input type="hidden" name="bank_id" id="bk_id">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="sm:col-span-2 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Bank / Institution</label>
+                    <select name="bank_name" id="bk_bank_name" required class="form-input w-full">
+                        <option value="">— Select bank —</option>
+                        <?php foreach ($kenyaBanks as $bn): ?>
+                        <option value="<?php echo htmlspecialchars($bn); ?>"><?php echo htmlspecialchars($bn); ?></option>
+                        <?php endforeach; ?>
+                        <option value="__other__">Other (type below)</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-2 space-y-2 hidden" id="bk_other_wrap">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Bank Name (Other)</label>
+                    <input type="text" id="bk_other_name" class="form-input w-full" placeholder="Enter bank or institution name">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Branch</label>
+                    <input type="text" name="branch_name" id="bk_branch" placeholder="e.g. Westlands" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Account Type</label>
+                    <select name="account_type" id="bk_type" class="form-input w-full">
+                        <option value="Savings">Savings</option>
+                        <option value="Current">Current</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Mobile Money">Mobile Money</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-2 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Account Holder Name</label>
+                    <input type="text" name="account_name" id="bk_acname" required placeholder="Full name on account" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Account Number / Phone</label>
+                    <input type="text" name="account_no" id="bk_acno" required placeholder="Account or mobile number" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">SWIFT / BIC Code <span class="font-medium normal-case text-slate-400">(optional)</span></label>
+                    <input type="text" name="swift_code" id="bk_swift" placeholder="e.g. KCBLKENX" class="form-input w-full uppercase">
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer p-3 rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/20">
+                <input type="checkbox" name="is_primary" value="1" id="bk_primary" class="w-4 h-4 rounded accent-green-500">
+                <div>
+                    <p class="text-sm font-black text-slate-900 dark:text-white">Set as Primary Account</p>
+                    <p class="text-[10px] text-slate-400 font-medium">Used for payroll disbursement</p>
+                </div>
+            </label>
+
+            <input type="hidden" name="bank_name" id="bk_bank_name_hidden">
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1" onclick="resolveBankName()">Save Account</button>
+                <button type="button" onclick="closeModal('bankModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openBankModal(acct) {
+    document.getElementById('bankModalTitle').textContent = acct ? 'Edit Bank Account' : 'Add Bank Account';
+    document.getElementById('bk_id').value         = acct ? acct.id : '';
+    document.getElementById('bk_branch').value      = acct ? (acct.branch_name || '') : '';
+    document.getElementById('bk_acname').value      = acct ? acct.account_name : '';
+    document.getElementById('bk_acno').value        = acct ? acct.account_no : '';
+    document.getElementById('bk_swift').value       = acct ? (acct.swift_code || '') : '';
+    document.getElementById('bk_primary').checked   = acct ? acct.is_primary == 1 : false;
+    document.getElementById('bk_other_wrap').classList.add('hidden');
+    document.getElementById('bk_other_name').value  = '';
+
+    const sel = document.getElementById('bk_bank_name');
+    const typeEl = document.getElementById('bk_type');
+    if (acct) {
+        // Try to match existing option
+        const opt = Array.from(sel.options).find(o => o.value === acct.bank_name);
+        if (opt) { sel.value = acct.bank_name; }
+        else { sel.value = '__other__'; document.getElementById('bk_other_name').value = acct.bank_name; document.getElementById('bk_other_wrap').classList.remove('hidden'); }
+        typeEl.value = acct.account_type || 'Savings';
+
+        // When editing show full account number
+        document.getElementById('bk_acno').value = acct.account_no;
+    } else {
+        sel.value = '';
+        typeEl.value = 'Savings';
+    }
+    openModal('bankModal');
+}
+document.getElementById('bk_bank_name').addEventListener('change', function() {
+    const wrap = document.getElementById('bk_other_wrap');
+    if (this.value === '__other__') { wrap.classList.remove('hidden'); }
+    else { wrap.classList.add('hidden'); document.getElementById('bk_other_name').value = ''; }
+});
+function resolveBankName() {
+    const sel = document.getElementById('bk_bank_name');
+    const hidden = document.getElementById('bk_bank_name_hidden');
+    if (sel.value === '__other__') {
+        hidden.name = 'bank_name';
+        sel.name    = '';
+        hidden.value = document.getElementById('bk_other_name').value;
+    } else {
+        sel.name    = 'bank_name';
+        hidden.name = '';
+    }
+}
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

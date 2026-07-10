@@ -235,8 +235,8 @@ if ($action === 'adjust_balance') {
     if (!$isAdmin) { hrFlash($redirect, 'error', 'Unauthorized'); }
     $empId   = hrPostStr('employee_id');
     $typeId  = hrPostStr('leave_type_id');
-    $year    = (int)pd('year', (string)date('Y'));
-    $entitle = (int)pd('entitlement');
+    $year    = (int)hrPostStr('year', (string)date('Y'));
+    $entitle = (int)hrPostStr('entitlement');
 
     seedBalances($pdo, $empId, $year);
     $pdo->prepare("UPDATE leave_balances SET entitlement=? WHERE employee_id=? AND leave_type_id=? AND year=?")
@@ -250,11 +250,11 @@ if ($action === 'save_leave_type') {
     if (!$isAdmin) { hrFlash($redirect, 'error', 'Unauthorized'); }
     $id       = hrPostStr('type_id');
     $name     = hrPostStr('name');
-    $days     = (int)pd('days_per_year');
+    $days     = (int)hrPostStr('days_per_year');
     $color    = hrPostStr('color', 'green');
     $carry    = hrPostStr('carry_forward') === '1' ? 1 : 0;
     $reqApprv = hrPostStr('requires_approval', '1') === '1' ? 1 : 0;
-    $order    = (int)pd('sort_order', '0');
+    $order    = (int)hrPostStr('sort_order', '0');
 
     if (!$name) { hrFlash($redirect, 'error', 'Leave type name required'); }
     if ($id) {
