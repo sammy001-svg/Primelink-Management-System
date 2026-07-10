@@ -1,4 +1,7 @@
 <?php
+if (defined('PRIMELINK_PAYROLL_CALC_LOADED')) return;
+define('PRIMELINK_PAYROLL_CALC_LOADED', true);
+
 /**
  * Kenya Payroll Calculation Engine — Primelink Management System
  * Tax rates: KRA 2024 | NSSF Act 2013 (Tier I+II) | SHIF 2.75% | AHLF 1.5%
