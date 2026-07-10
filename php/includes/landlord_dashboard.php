@@ -19,7 +19,12 @@ if (!$landlordId) { ?>
 <?php return; }
 
 $currency   = getSetting($pdo, 'currency_symbol', 'KSh');
-$feeRate    = (float)getSetting($pdo, 'management_fee_rate', '10');
+
+$llFeeStmt = $pdo->prepare("SELECT management_fee, fee_type FROM landlords WHERE id = ?");
+$llFeeStmt->execute([$landlordId]);
+$llFeeRow   = $llFeeStmt->fetch();
+$feeType    = $llFeeRow['fee_type']    ?? 'percentage';
+$feeSetting = (float)($llFeeRow['management_fee'] ?? 10.0);
 
 // ── KPI queries ────────────────────────────────────────────────────
 $totalProps = $pdo->prepare("SELECT COUNT(*) FROM properties WHERE landlord_id = ?");
@@ -268,13 +273,18 @@ $lastPayout = $payouts[0] ?? null;
                     <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">YTD Gross Income</p>
                     <p class="text-lg font-black text-slate-900 dark:text-white mt-1"><?php echo $currency; ?> <?php echo number_format($ytdIncome); ?></p>
                 </div>
+                <?php
+                $ytdFee = $feeType === 'fixed' ? $feeSetting : round($ytdIncome * $feeSetting / 100, 2);
+                $ytdNet = $ytdIncome - $ytdFee;
+                $feeLabel = $feeType === 'fixed' ? 'Fixed' : $feeSetting . '%';
+                ?>
                 <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mgmt Fee (<?php echo $feeRate; ?>%)</p>
-                    <p class="text-lg font-black text-red-500 mt-1">- <?php echo $currency; ?> <?php echo number_format($ytdIncome * $feeRate / 100); ?></p>
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mgmt Fee (<?php echo $feeLabel; ?>)</p>
+                    <p class="text-lg font-black text-red-500 mt-1">- <?php echo $currency; ?> <?php echo number_format($ytdFee); ?></p>
                 </div>
                 <div class="p-4 bg-accent-green/5 border border-accent-green/20 rounded-2xl">
                     <p class="text-[9px] font-black text-accent-green uppercase tracking-widest">Net (After Fee)</p>
-                    <p class="text-lg font-black text-accent-green mt-1"><?php echo $currency; ?> <?php echo number_format($ytdIncome * (1 - $feeRate / 100)); ?></p>
+                    <p class="text-lg font-black text-accent-green mt-1"><?php echo $currency; ?> <?php echo number_format($ytdNet); ?></p>
                 </div>
                 <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-between items-center">
                     <div>

@@ -15,7 +15,6 @@ $printMode  = isset($_GET['print']) && $_GET['print'] === '1';
 if (!$landlordId) { header("Location: dashboard.php"); exit(); }
 
 $currency   = getSetting($pdo, 'currency_symbol', 'KSh');
-$feeRate    = (float)getSetting($pdo, 'management_fee_rate', '10');
 $companyName    = getSetting($pdo, 'company_name',    'Primelink Management System');
 $companyEmail   = getSetting($pdo, 'company_email',   '');
 $companyPhone   = getSetting($pdo, 'company_phone',   '');
@@ -58,6 +57,10 @@ $llStmt = $pdo->prepare("SELECT * FROM landlords WHERE id = ?");
 $llStmt->execute([$landlordId]);
 $landlord = $llStmt->fetch();
 
+$feeType    = $landlord['fee_type']     ?? 'percentage';
+$feeSetting = (float)($landlord['management_fee'] ?? 10.0);
+$feeLabelStr = $feeType === 'fixed' ? 'Fixed' : $feeSetting . '%';
+
 // ── Per-property income ────────────────────────────────────────────
 $dateWhere = $dateFrom ? "AND DATE(tr.transaction_date) BETWEEN ? AND ?" : "";
 $propStmt  = $pdo->prepare("
@@ -83,8 +86,8 @@ $propStmt->execute($propParams);
 $propertyRows = $propStmt->fetchAll();
 
 // ── Totals ─────────────────────────────────────────────────────────
-$grossIncome  = array_sum(array_column($propertyRows, 'income'));
-$managementFee = $grossIncome * $feeRate / 100;
+$grossIncome   = array_sum(array_column($propertyRows, 'income'));
+$managementFee = $feeType === 'fixed' ? $feeSetting : round($grossIncome * $feeSetting / 100, 2);
 $netPayable    = $grossIncome - $managementFee;
 
 // ── Payout history for the period ─────────────────────────────────
@@ -241,7 +244,7 @@ if ($printMode) {
         <h2>Fee Calculation &amp; Net Payable</h2>
         <div class="fee-table">
             <div class="fee-row"><span>Gross Income</span><span class="fw9"><?php echo $currency; ?> <?php echo number_format($grossIncome, 2); ?></span></div>
-            <div class="fee-row alt"><span>Management Fee (<?php echo $feeRate; ?>%)</span><span class="fw9 c-red">- <?php echo $currency; ?> <?php echo number_format($managementFee, 2); ?></span></div>
+            <div class="fee-row alt"><span>Management Fee (<?php echo $feeLabelStr; ?>)</span><span class="fw9 c-red">- <?php echo $currency; ?> <?php echo number_format($managementFee, 2); ?></span></div>
             <div class="fee-row total"><span>Net Payable to Landlord</span><span class="c-green"><?php echo $currency; ?> <?php echo number_format($netPayable, 2); ?></span></div>
         </div>
     </section>
@@ -363,7 +366,7 @@ include __DIR__ . '/includes/sidebar.php';
             <p class="text-xl font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($grossIncome); ?></p>
         </div>
         <div class="glass-card p-6 border-l-4 border-red-400">
-            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Management Fee (<?php echo $feeRate; ?>%)</p>
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Management Fee (<?php echo $feeLabelStr; ?>)</p>
             <p class="text-xl font-black text-red-500">- <?php echo $currency; ?> <?php echo number_format($managementFee); ?></p>
         </div>
         <div class="glass-card p-6 border-l-4 border-accent-green">
@@ -429,7 +432,7 @@ include __DIR__ . '/includes/sidebar.php';
                 <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($grossIncome); ?></span>
             </div>
             <div class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-xl">
-                <span class="text-sm font-bold text-slate-600 dark:text-slate-300">Management Fee (<?php echo $feeRate; ?>%)</span>
+                <span class="text-sm font-bold text-slate-600 dark:text-slate-300">Management Fee (<?php echo $feeLabelStr; ?>)</span>
                 <span class="text-sm font-black text-red-500">– <?php echo $currency; ?> <?php echo number_format($managementFee); ?></span>
             </div>
             <div class="flex justify-between items-center p-3 bg-accent-green/5 border border-accent-green/20 rounded-xl">

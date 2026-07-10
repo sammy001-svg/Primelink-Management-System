@@ -32,7 +32,7 @@ $defaults = [
     'currency_symbol'       => 'KSh',
     'invoice_prefix'        => 'INV',
     'invoice_due_days'      => '7',
-    'invoice_footer'        => 'Thank you for your payment. For inquiries contact us at the above details.',
+    'invoice_footer'        => 'For inquiries and payment confirmation, please contact us at the above details.',
     'fiscal_year_start'     => '1',
     'mpesa_shortcode'       => '',
     'mpesa_consumer_key'    => '',
@@ -211,7 +211,8 @@ include __DIR__ . '/includes/sidebar.php';
                 <label class="field-label">Invoice Footer Text</label>
                 <textarea name="invoice_footer" rows="3"
                           class="field-input resize-none"
-                          placeholder="Thank you for your payment..."><?php echo htmlspecialchars($s['invoice_footer']); ?></textarea>
+                          placeholder="e.g. For inquiries, contact us at the above details."><?php echo htmlspecialchars($s['invoice_footer']); ?></textarea>
+                <p class="text-[11px] text-slate-400 mt-1">The due date is always shown automatically on invoices. Use this field for contact info, terms, or any additional note.</p>
             </div>
 
             <div class="space-y-2">

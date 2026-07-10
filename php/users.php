@@ -9,8 +9,9 @@ requireRole(['admin']);
 
 $pageTitle = "User Management";
 
-// Self-heal: add status column if missing
+// Self-heal: add columns if missing
 try { $pdo->exec("ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Active'"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE profiles ADD COLUMN job_title VARCHAR(100) NULL"); } catch (PDOException $e) {}
 
 $success = $_GET['success'] ?? '';
 $error   = $_GET['error']   ?? '';
@@ -18,7 +19,7 @@ $error   = $_GET['error']   ?? '';
 // Fetch all admin/staff users with their profile
 $users = $pdo->query(
     "SELECT u.id, u.email, u.role, u.status, u.created_at,
-            p.full_name, p.phone, p.profile_image
+            p.full_name, p.phone, p.profile_image, p.job_title
      FROM users u
      LEFT JOIN profiles p ON p.email = u.email
      WHERE u.role IN ('admin','staff')
@@ -107,7 +108,11 @@ include __DIR__ . '/includes/sidebar.php';
                                 </div>
                                 <div>
                                     <p class="font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($u['full_name'] ?? '—'); ?></p>
+                                    <?php if (!empty($u['job_title'])): ?>
+                                    <p class="text-[10px] text-accent-green font-black uppercase tracking-widest"><?php echo htmlspecialchars($u['job_title']); ?></p>
+                                    <?php else: ?>
                                     <p class="text-[10px] text-slate-400 font-medium"><?php echo htmlspecialchars($u['email']); ?></p>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </td>
@@ -169,9 +174,14 @@ include __DIR__ . '/includes/sidebar.php';
                 <input type="email" name="email" required placeholder="john@primelink.co.ke"
                        class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
             </div>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Job Title</label>
+                <input type="text" name="job_title" placeholder="e.g. Property Manager, Accounts Clerk"
+                       class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Role</label>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">System Role</label>
                     <select name="role" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         <option value="staff">Staff</option>
                         <option value="admin">Admin</option>
@@ -208,9 +218,14 @@ include __DIR__ . '/includes/sidebar.php';
                 <input type="text" name="full_name" id="edit_full_name" required
                        class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
             </div>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Job Title</label>
+                <input type="text" name="job_title" id="edit_job_title" placeholder="e.g. Property Manager, Accounts Clerk"
+                       class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Role</label>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">System Role</label>
                     <select name="role" id="edit_role" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         <option value="staff">Staff</option>
                         <option value="admin">Admin</option>
@@ -234,10 +249,11 @@ include __DIR__ . '/includes/sidebar.php';
 
 <script>
 function openEditModal(user) {
-    document.getElementById('edit_user_id').value  = user.id;
+    document.getElementById('edit_user_id').value   = user.id;
     document.getElementById('edit_full_name').value = user.full_name || '';
-    document.getElementById('edit_phone').value    = user.phone || '';
-    document.getElementById('edit_role').value     = user.role;
+    document.getElementById('edit_job_title').value = user.job_title || '';
+    document.getElementById('edit_phone').value     = user.phone || '';
+    document.getElementById('edit_role').value      = user.role;
     openModal('editUserModal');
 }
 </script>

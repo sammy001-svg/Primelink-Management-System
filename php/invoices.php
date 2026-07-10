@@ -14,13 +14,14 @@ $pageTitle = 'Invoice Management';
 
 // ── Schema self-heal ──────────────────────────────────────────────────
 try { $pdo->exec("ALTER TABLE invoices MODIFY COLUMN status ENUM('Unpaid','Paid','Partial','Overdue','Cancelled') NOT NULL DEFAULT 'Unpaid'"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS description TEXT NULL"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS description TEXT NULL"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_number VARCHAR(255) NULL"); } catch (PDOException $e) {}
 
 // ── Invoices with payment totals ──────────────────────────────────────
 $invoices = $pdo->query("
     SELECT
-        i.id, i.amount, i.due_date, i.status, i.invoice_type, i.created_at, i.lease_id,
+        i.id, i.amount, i.due_date, i.status, i.invoice_type, i.created_at, i.lease_id, i.description,
         t.id AS tenant_id, t.full_name AS tenant_name, t.phone AS tenant_phone,
         u.unit_number,
         p.title AS property_title, p.id AS property_id,
@@ -81,6 +82,7 @@ foreach ($invoices as $inv) {
         'due_date'     => $inv['due_date'],
         'unit'         => $inv['unit_number'] ?? '',
         'property'     => $inv['property_title'] ?? '',
+        'description'  => $inv['description'] ?? '',
     ];
 }
 
@@ -114,6 +116,8 @@ $successMap = [
     'reverted'         => 'Invoice reverted to Unpaid.',
     'marked_overdue'   => 'Invoice marked as Overdue.',
     'invoice_created'  => 'Invoice created successfully.',
+    'invoice_edited'   => 'Invoice corrected successfully.',
+    'payment_edited'   => 'Payment receipt corrected successfully.',
 ];
 if (!empty($_GET['success'])) $flash    = $successMap[$_GET['success']] ?? 'Action completed.';
 if (!empty($_GET['error']))   $flashErr = htmlspecialchars(urldecode($_GET['error']));
@@ -381,6 +385,10 @@ $typeColors = [
                                     </button>
                                 </form>
                                 <?php endif; ?>
+                                <button onclick="openEditModal('<?php echo $inv['id']; ?>')"
+                                    class="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-500 rounded-lg text-[10px] font-black uppercase transition-all whitespace-nowrap">
+                                    Edit
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -567,6 +575,95 @@ $typeColors = [
     </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- EDIT INVOICE MODAL                                                -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="editInvoiceModal" style="display:none;" onclick="if(event.target===this)closeModal('editInvoiceModal')">
+    <div class="modal-card max-w-lg" onclick="event.stopPropagation()">
+        <button onclick="closeModal('editInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+
+        <div class="flex items-center gap-3 mb-6">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+            </div>
+            <div>
+                <h2 class="text-xl font-black text-slate-900 dark:text-white">Correct Invoice</h2>
+                <p id="ei_subtitle" class="text-slate-400 text-sm font-medium">Edit invoice details.</p>
+            </div>
+        </div>
+
+        <form action="actions/invoice_actions.php" method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="edit_invoice">
+            <input type="hidden" name="invoice_id" id="ei_invoice_id">
+            <input type="hidden" name="_redirect" value="../invoices.php">
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Invoice Type</label>
+                    <select name="invoice_type" id="ei_type" class="form-input">
+                        <option value="Rent">Rent</option>
+                        <option value="Water">Water</option>
+                        <option value="Garbage">Garbage</option>
+                        <option value="Electricity">Electricity</option>
+                        <option value="Deposit">Deposit</option>
+                        <option value="Service Charge">Service Charge</option>
+                        <option value="Penalty">Penalty</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Status</label>
+                    <select name="status" id="ei_status" class="form-input">
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Paid">Paid</option>
+                        <option value="Partial">Partial</option>
+                        <option value="Overdue">Overdue</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Amount *</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none"><?php echo htmlspecialchars($currency); ?></span>
+                        <input type="number" name="amount" id="ei_amount" required min="1" step="0.01" class="form-input pl-10">
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Due Date *</label>
+                    <input type="date" name="due_date" id="ei_due_date" required class="form-input">
+                </div>
+            </div>
+
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Notes <span class="normal-case font-normal text-slate-400">(optional)</span></label>
+                <textarea name="description" id="ei_description" rows="2" class="form-input resize-none" placeholder="Invoice notes or description…"></textarea>
+            </div>
+
+            <div class="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 space-y-3 border border-slate-100 dark:border-slate-700/60">
+                <label class="flex items-center gap-3 cursor-pointer select-none">
+                    <input type="checkbox" name="notify_tenant" id="ei_notify" value="1" onchange="toggleEiReason(this.checked)"
+                        class="w-4 h-4 rounded border-slate-300 text-blue-500 accent-blue-500 cursor-pointer">
+                    <span class="text-sm font-bold text-slate-700 dark:text-slate-200">Email tenant a corrected invoice notification</span>
+                </label>
+                <div id="ei_reason_wrap" class="hidden space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Reason for Correction <span class="normal-case font-normal">(shown in email)</span></label>
+                    <textarea name="correction_reason" id="ei_reason" rows="2" class="form-input resize-none" placeholder="e.g. Incorrect amount entered, wrong due date, etc."></textarea>
+                </div>
+            </div>
+
+            <button type="submit" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 mt-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                Save Correction
+            </button>
+        </form>
+    </div>
+</div>
+
 <script>
 const invData   = <?php echo json_encode($invPanelData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
 const invCur    = <?php echo json_encode($currency); ?>;
@@ -621,8 +718,32 @@ function applyInvFilters() {
     if (emptyEl) emptyEl.classList.toggle('hidden', visible > 0);
 }
 
+function openEditModal(id) {
+    const inv = invData[id];
+    if (!inv) return;
+    document.getElementById('ei_invoice_id').value  = inv.id;
+    document.getElementById('ei_subtitle').textContent = inv.tenant_name + ' · ' + inv.invoice_type + (inv.unit ? ' · Unit ' + inv.unit : '');
+    document.getElementById('ei_type').value         = inv.invoice_type;
+    document.getElementById('ei_status').value       = inv.status;
+    document.getElementById('ei_amount').value       = inv.amount;
+    document.getElementById('ei_due_date').value     = inv.due_date;
+    document.getElementById('ei_description').value  = inv.description || '';
+    document.getElementById('ei_notify').checked     = false;
+    document.getElementById('ei_reason').value       = '';
+    document.getElementById('ei_reason_wrap').classList.add('hidden');
+    openModal('editInvoiceModal');
+}
+
+function toggleEiReason(checked) {
+    document.getElementById('ei_reason_wrap').classList.toggle('hidden', !checked);
+}
+
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal('paymentModal'); closeModal('createInvoiceModal'); }
+    if (e.key === 'Escape') {
+        closeModal('paymentModal');
+        closeModal('createInvoiceModal');
+        closeModal('editInvoiceModal');
+    }
 });
 
 // ── Create Invoice modal helpers ──────────────────────────────────────

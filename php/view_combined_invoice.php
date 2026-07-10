@@ -62,7 +62,7 @@ $companyPhone   = getSetting($pdo, 'company_phone',   '');
 $companyTagline = getSetting($pdo, 'company_tagline', '');
 $currency       = getSetting($pdo, 'currency_symbol', 'KSh');
 $invoiceDueDays = (int)getSetting($pdo, 'invoice_due_days', '7');
-$invoiceFooter  = getSetting($pdo, 'invoice_footer',  'Thank you for your payment. For inquiries contact us at the above details.');
+$invoiceFooter  = getSetting($pdo, 'invoice_footer',  'For inquiries and payment confirmation, please contact us at the above details.');
 $mpesaShortcode = getSetting($pdo, 'mpesa_shortcode', '—');
 
 $invoiceRef = 'BDL-' . strtoupper(substr($batchId, 0, 8));
@@ -238,7 +238,12 @@ $invoiceRef = 'BDL-' . strtoupper(substr($batchId, 0, 8));
 
         <!-- Footer -->
         <div class="mt-4 text-center border-t pt-10">
-            <p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2"><?php echo htmlspecialchars($invoiceFooter); ?></p>
+            <p class="text-[11px] font-black uppercase tracking-widest text-red-500 mb-1">
+                Payment due by <?php echo date('F d, Y', strtotime($dueDate)); ?>
+            </p>
+            <?php if ($invoiceFooter): ?>
+            <p class="text-[10px] font-medium text-slate-400 mb-2"><?php echo htmlspecialchars($invoiceFooter); ?></p>
+            <?php endif; ?>
             <p class="text-[8px] text-slate-300 font-medium italic">This is a computer-generated invoice. No signature required. Batch: <?php echo $invoiceRef; ?></p>
         </div>
     </div>

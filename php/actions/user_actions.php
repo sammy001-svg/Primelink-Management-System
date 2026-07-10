@@ -5,7 +5,9 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireLogin(['admin']);
+requireRole(['admin']);
+
+try { $pdo->exec("ALTER TABLE profiles ADD COLUMN job_title VARCHAR(100) NULL"); } catch (PDOException $e) {}
 
 require_once __DIR__ . '/../includes/audit.php';
 
@@ -19,6 +21,7 @@ if ($action === 'create') {
     $email    = strtolower(trim($_POST['email'] ?? ''));
     $role     = in_array($_POST['role'] ?? '', ['admin', 'staff']) ? $_POST['role'] : 'staff';
     $phone    = trim($_POST['phone'] ?? '');
+    $jobTitle = trim($_POST['job_title'] ?? '');
     $password = $_POST['password'] ?? '';
 
     if (strlen($password) < 8) {
@@ -41,8 +44,8 @@ if ($action === 'create') {
         ->execute([$userId, $email, $hash, $role]);
 
     // Create profile
-    $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone) VALUES (?, ?, ?, ?)")
-        ->execute([$userId, $fullName, $email, $phone]);
+    $pdo->prepare("INSERT INTO profiles (id, full_name, email, phone, job_title) VALUES (?, ?, ?, ?, ?)")
+        ->execute([$userId, $fullName, $email, $phone, $jobTitle]);
 
     logAction($pdo, 'user_created', 'Users', $userId, "{$role} — {$email}");
 
@@ -58,6 +61,7 @@ if ($action === 'update') {
     $fullName = trim($_POST['full_name'] ?? '');
     $role     = in_array($_POST['role'] ?? '', ['admin', 'staff']) ? $_POST['role'] : 'staff';
     $phone    = trim($_POST['phone'] ?? '');
+    $jobTitle = trim($_POST['job_title'] ?? '');
     $password = $_POST['password'] ?? '';
 
     // Prevent demoting self
@@ -69,8 +73,8 @@ if ($action === 'update') {
     $pdo->prepare("UPDATE users SET role = ? WHERE id = ?")
         ->execute([$role, $userId]);
 
-    $pdo->prepare("UPDATE profiles SET full_name = ?, phone = ? WHERE id = ?")
-        ->execute([$fullName, $phone, $userId]);
+    $pdo->prepare("UPDATE profiles SET full_name = ?, phone = ?, job_title = ? WHERE id = ?")
+        ->execute([$fullName, $phone, $jobTitle, $userId]);
 
     if (!empty($password) && strlen($password) >= 8) {
         $hash = password_hash($password, PASSWORD_BCRYPT);

@@ -47,7 +47,7 @@ $doneRef = $_GET['ref'] ?? '';
 $success = $_GET['success'] ?? '';
 
 // ── Fetch all landlords ───────────────────────────────────────────────
-$landlordRows = $pdo->query("SELECT id, full_name, email, phone, management_fee FROM landlords ORDER BY full_name")->fetchAll();
+$landlordRows = $pdo->query("SELECT id, full_name, email, phone, management_fee, fee_type FROM landlords ORDER BY full_name")->fetchAll();
 
 // ── Per-landlord calculations ─────────────────────────────────────────
 $calcStmtRent = $pdo->prepare("
@@ -103,16 +103,17 @@ foreach ($landlordRows as $ll) {
     $calcStmtAdv->execute([$ll['id']]);
     $advDed = (float)$calcStmtAdv->fetchColumn();
 
-    $feeRate  = (float)($ll['management_fee'] ?? 10.0);
-    $feeDed   = round($gross * $feeRate / 100, 2);
-    $net      = max(0, $gross - $feeDed - $maintDed - $expDed - $advDed);
+    $feeType    = $ll['fee_type'] ?? 'percentage';
+    $feeSetting = (float)($ll['management_fee'] ?? 10.0);
+    $feeDed     = $feeType === 'fixed' ? $feeSetting : round($gross * $feeSetting / 100, 2);
+    $net        = max(0, $gross - $feeDed - $maintDed - $expDed - $advDed);
 
     // Has this landlord already been paid for this period?
     $paidStmt = $pdo->prepare("SELECT COUNT(*) FROM landlord_payouts WHERE landlord_id = ? AND period_month = ? AND period_year = ?");
     $paidStmt->execute([$ll['id'], (int)$selMonth, $selYear]);
     $alreadyPaid = (int)$paidStmt->fetchColumn() > 0;
 
-    $calcs[$ll['id']] = compact('gross','feeDed','feeRate','maintDed','expDed','advDed','net','alreadyPaid');
+    $calcs[$ll['id']] = compact('gross','feeDed','feeType','feeSetting','maintDed','expDed','advDed','net','alreadyPaid');
 }
 
 // ── Payout history ────────────────────────────────────────────────────
@@ -266,7 +267,11 @@ include __DIR__ . '/includes/sidebar.php';
                 <tr class="<?php echo !$hasActivity ? 'opacity-40' : ''; ?>">
                     <td>
                         <p class="font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars($ll['full_name']); ?></p>
-                        <p class="text-[11px] text-slate-400"><?php echo $c['feeRate']; ?>% mgmt fee</p>
+                        <p class="text-[11px] text-slate-400">
+                            <?php echo $c['feeType'] === 'fixed'
+                                ? $currency . ' ' . number_format($c['feeSetting']) . ' fixed mgmt fee'
+                                : $c['feeSetting'] . '% mgmt fee'; ?>
+                        </p>
                     </td>
                     <td class="text-right font-black text-slate-900 dark:text-white">
                         <?php echo $c['gross'] > 0 ? $currency . ' ' . number_format($c['gross']) : '—'; ?>
@@ -295,7 +300,8 @@ include __DIR__ . '/includes/sidebar.php';
                             'name'    => $ll['full_name'],
                             'gross'   => $c['gross'],
                             'feeDed'  => $c['feeDed'],
-                            'feeRate' => $c['feeRate'],
+                            'feeType'    => $c['feeType'],
+                            'feeSetting' => $c['feeSetting'],
                             'maint'   => $c['maintDed'],
                             'exp'     => $c['expDed'],
                             'adv'     => $c['advDed'],
@@ -432,7 +438,7 @@ function openPayoutModal(data) {
     const fmt = n => cur + ' ' + n.toLocaleString('en-KE', {minimumFractionDigits: 0, maximumFractionDigits: 0});
     const rows = [
         ['Gross Rent Collected', fmt(data.gross), 'text-slate-900 dark:text-white'],
-        ['Management Fee (' + data.feeRate + '%)', '– ' + fmt(data.feeDed), 'text-orange-500'],
+        ['Management Fee (' + (data.feeType === 'fixed' ? 'Fixed' : data.feeSetting + '%') + ')', '– ' + fmt(data.feeDed), 'text-orange-500'],
     ];
     if (data.maint > 0) rows.push(['Maintenance Costs', '– ' + fmt(data.maint), 'text-red-400']);
     if (data.exp > 0)   rows.push(['Property Expenses', '– ' + fmt(data.exp),   'text-red-400']);

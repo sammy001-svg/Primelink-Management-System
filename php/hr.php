@@ -10,8 +10,19 @@ requireRole('staff');
 $user = getCurrentUser($pdo);
 $pageTitle = "Personnel (HR)";
 
-// Fetch employees
-$stmt = $pdo->query("SELECT * FROM employees ORDER BY hire_date DESC");
+// Self-heal: add job_title to profiles if missing
+try { $pdo->exec("ALTER TABLE profiles ADD COLUMN job_title VARCHAR(100) NULL"); } catch (PDOException $e) {}
+
+// Fetch employees, joined to profiles/users for linked system accounts
+$stmt = $pdo->query("
+    SELECT e.*,
+           p.job_title   AS system_job_title,
+           u.role        AS system_role
+    FROM employees e
+    LEFT JOIN users u ON u.email = e.email
+    LEFT JOIN profiles p ON p.email = e.email
+    ORDER BY e.hire_date DESC
+");
 $employees = $stmt->fetchAll();
 
 include __DIR__ . '/includes/header.php';
@@ -56,8 +67,8 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <div class="grid grid-cols-2 gap-6">
                     <div class="space-y-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Role</label>
-                        <input type="text" name="role_title" required placeholder="Manager" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Job Title</label>
+                        <input type="text" name="role_title" required placeholder="e.g. Property Manager" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Salary (KSh)</label>
@@ -75,7 +86,7 @@ include __DIR__ . '/includes/sidebar.php';
             <thead>
                 <tr class="bg-slate-50 dark:bg-slate-800/50">
                     <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Employee</th>
-                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Role/Dept</th>
+                    <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Job Title / Dept</th>
                     <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Salary</th>
                     <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                     <th class="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
@@ -101,8 +112,20 @@ include __DIR__ . '/includes/sidebar.php';
                             </div>
                         </td>
                         <td class="p-6">
-                            <p class="text-sm font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($emp['role']); ?></p>
-                            <p class="text-[10px] text-slate-400 uppercase tracking-widest"><?php echo htmlspecialchars($emp['department'] ?: 'N/A'); ?></p>
+                            <?php
+                            $jobTitle = !empty($emp['system_job_title'])
+                                ? $emp['system_job_title']
+                                : ($emp['role'] ?? '—');
+                            ?>
+                            <p class="text-sm font-bold text-slate-900 dark:text-white"><?php echo htmlspecialchars($jobTitle); ?></p>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <p class="text-[10px] text-slate-400 uppercase tracking-widest"><?php echo htmlspecialchars($emp['department'] ?: 'N/A'); ?></p>
+                                <?php if (!empty($emp['system_role'])): ?>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest <?php echo $emp['system_role'] === 'admin' ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-500'; ?>">
+                                    <?php echo ucfirst($emp['system_role']); ?>
+                                </span>
+                                <?php endif; ?>
+                            </div>
                         </td>
                         <td class="p-6">
                             <span class="text-sm font-black text-slate-900 dark:text-white">KSh <?php echo number_format($emp['salary']); ?></span>

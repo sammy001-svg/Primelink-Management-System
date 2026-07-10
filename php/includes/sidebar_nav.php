@@ -73,6 +73,8 @@ if ($user_role === 'tenant') {
                 ['href' => 'late_penalties.php',   'label' => 'Late Penalties'],
                 ['href' => 'landlord_payouts.php', 'label' => 'Landlords & Payouts'],
                 ['href' => 'expenses.php',         'label' => 'Business Expenses'],
+                ['href' => 'journals.php',         'label' => 'Journal Entries'],
+                ['href' => 'accounts.php',         'label' => 'Chart of Accounts'],
                 ['href' => 'reports.php',          'label' => 'Reports & Analytics'],
             ]
         ],
