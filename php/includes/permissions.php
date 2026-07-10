@@ -28,6 +28,7 @@ const PERM_MODULES = [
     'reports'        => ['view'],
     'landlords'      => ['view', 'create', 'edit', 'delete'],
     'hr'             => ['view', 'create', 'edit', 'delete'],
+    'payroll'        => ['view', 'create', 'edit'],
     'announcements'  => ['view', 'create', 'edit', 'delete'],
 ];
 
@@ -54,6 +55,7 @@ const PERM_MODULE_LABELS = [
     'reports'        => 'Reports & Analytics',
     'landlords'      => 'Landlords Registry',
     'hr'             => 'HR & Personnel',
+    'payroll'        => 'Payroll',
     'announcements'  => 'Announcements',
 ];
 
@@ -63,7 +65,7 @@ const PERM_GROUPS = [
     'Property Management'  => ['properties', 'tenants', 'leases', 'vacancies'],
     'Operations'           => ['maintenance', 'tokens', 'documents'],
     'Finance'              => ['financials', 'invoices', 'bulk_invoices', 'late_penalties', 'payments', 'payouts', 'expenses', 'journals', 'accounts', 'reports'],
-    'Administration'       => ['landlords', 'hr', 'announcements'],
+    'Administration'       => ['landlords', 'hr', 'payroll', 'announcements'],
 ];
 
 // Map: sidebar href → permission module key
@@ -94,6 +96,8 @@ const PERM_PAGE_MAP = [
     'landlords.php'         => 'landlords',
     'hr.php'                => 'hr',
     'hr_employee.php'       => 'hr',
+    'payroll.php'           => 'payroll',
+    'payroll_period.php'    => 'payroll',
     'announcements.php'     => 'announcements',
 ];
 

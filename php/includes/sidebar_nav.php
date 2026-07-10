@@ -98,6 +98,7 @@ if ($user_role === 'tenant') {
     $adLinks = [];
     $addLink($adLinks, ['href' => 'landlords.php', 'label' => 'Landlords Registry', 'module' => 'landlords', 'icon' => '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 7V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2"/><path d="M5 21V7"/><path d="M19 21V7"/><path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/></svg>']);
     $addLink($adLinks, ['href' => 'hr.php',        'label' => 'HR & Personnel',     'module' => 'hr',        'icon' => '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>']);
+    $addLink($adLinks, ['href' => 'payroll.php',   'label' => 'Payroll',            'module' => 'payroll',   'icon' => '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>']);
     // Admin-only links
     if ($_isAdmin) {
         $adLinks[] = ['href' => 'users.php',       'label' => 'Users',              'icon' => '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M19 8a3 3 0 0 1 0 6"/><path d="M21 20c0-3-2-5.5-5-6.3"/></svg>'];

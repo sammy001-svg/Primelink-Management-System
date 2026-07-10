@@ -6,6 +6,8 @@
 require_once __DIR__ . '/includes/auth.php';
 requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/payroll_calc.php';
+ensurePayrollTables($pdo);
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
@@ -69,6 +71,20 @@ $salaryHistory->execute([$empId]); $salaryHistory = $salaryHistory->fetchAll();
 $warnings = $pdo->prepare("SELECT * FROM employee_warnings WHERE employee_id=? ORDER BY warning_date DESC");
 $warnings->execute([$empId]); $warnings = $warnings->fetchAll();
 
+// Tax profile
+$taxProfile = $pdo->prepare("SELECT * FROM employee_tax_profile WHERE employee_id=?");
+$taxProfile->execute([$empId]);
+$taxProfile = $taxProfile->fetch() ?: [];
+
+// Recent payslips (last 6 finalised periods this employee appeared in)
+$payslips = $pdo->prepare(
+    "SELECT pe.id entry_id, pp.period_year, pp.period_month, pe.gross_pay, pe.net_pay, pe.paye
+     FROM payroll_entries pe JOIN payroll_periods pp ON pp.id = pe.period_id
+     WHERE pe.employee_id = ? AND pp.status = 'Finalised'
+     ORDER BY pp.period_year DESC, pp.period_month DESC LIMIT 12"
+);
+$payslips->execute([$empId]); $payslips = $payslips->fetchAll();
+
 $activeTab = $_GET['tab'] ?? 'profile';
 $toast     = $_GET['success'] ?? '';
 $error     = $_GET['error']   ?? '';
@@ -80,8 +96,9 @@ $toastMap = [
     'contact_added'   => 'Contact added.',
     'contact_deleted' => 'Contact removed.',
     'salary_added'    => 'Salary review recorded.',
-    'warning_added'   => 'Warning letter recorded.',
-    'warning_deleted' => 'Warning letter removed.',
+    'warning_added'      => 'Warning letter recorded.',
+    'warning_deleted'    => 'Warning letter removed.',
+    'tax_profile_saved'  => 'Tax profile saved.',
 ];
 
 $statusColors = [
@@ -153,6 +170,7 @@ include __DIR__ . '/includes/sidebar.php';
             'contacts'  => 'Contacts (' . count($contacts) . ')',
             'salary'    => 'Salary History',
             'warnings'  => 'Warnings (' . count($warnings) . ')',
+            'payroll'   => 'Payroll',
         ];
         foreach ($tabs as $key => $label): ?>
         <button onclick="switchTab('<?php echo $key; ?>')"
@@ -492,6 +510,156 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
             </div>
             <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ═══════════════════════ PAYROLL TAB ═══════════════════════ -->
+<div id="tab-payroll" class="tab-panel <?php echo $activeTab !== 'payroll' ? 'hidden' : ''; ?>">
+
+    <!-- Tax / Statutory Profile -->
+    <div class="glass-card p-8 mb-6">
+        <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-5">Statutory & Tax Profile</h3>
+        <form action="actions/payroll_actions.php" method="POST" class="space-y-6">
+            <input type="hidden" name="action" value="save_tax_profile">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="_redirect" value="../hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=payroll&success=tax_profile_saved">
+
+            <!-- IDs -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">KRA PIN</label>
+                    <input type="text" name="kra_pin" value="<?php echo htmlspecialchars($taxProfile['kra_pin'] ?? ''); ?>" placeholder="A0123456789B" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">NSSF Member No.</label>
+                    <input type="text" name="nssf_number" value="<?php echo htmlspecialchars($taxProfile['nssf_number'] ?? ''); ?>" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">SHIF/NHIF No.</label>
+                    <input type="text" name="shif_number" value="<?php echo htmlspecialchars($taxProfile['shif_number'] ?? ''); ?>" class="form-input w-full">
+                </div>
+            </div>
+
+            <!-- Deduction type toggles -->
+            <div class="grid grid-cols-2 gap-5">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">NSSF Scheme</label>
+                    <select name="nssf_type" class="form-input w-full">
+                        <option value="new" <?php echo ($taxProfile['nssf_type'] ?? 'new') === 'new' ? 'selected' : ''; ?>>New (Tier I+II — 2023)</option>
+                        <option value="old" <?php echo ($taxProfile['nssf_type'] ?? 'new') === 'old' ? 'selected' : ''; ?>>Old (KSh 200 flat)</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Health Levy</label>
+                    <select name="use_shif" class="form-input w-full">
+                        <option value="1" <?php echo ($taxProfile['use_shif'] ?? 1) ? 'selected' : ''; ?>>SHIF (2.75% of gross)</option>
+                        <option value="0" <?php echo !($taxProfile['use_shif'] ?? 1) ? 'selected' : ''; ?>>Old NHIF (tiered)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Regular allowances -->
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Regular Allowances (added to basic salary each month)</p>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <?php foreach ([
+                        ['house_allowance',     'House Allowance'],
+                        ['transport_allowance', 'Transport Allow.'],
+                        ['medical_allowance',   'Medical Allow.'],
+                        ['other_allowances',    'Other Allowances'],
+                    ] as [$fname, $flabel]): ?>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1"><?php echo $flabel; ?></label>
+                        <input type="number" name="<?php echo $fname; ?>" step="0.01" min="0"
+                               value="<?php echo number_format((float)($taxProfile[$fname] ?? 0), 2, '.', ''); ?>"
+                               class="form-input w-full">
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <!-- Recurring deductions -->
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Recurring Monthly Deductions</p>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <?php foreach ([
+                        ['helb_amount',  'HELB (monthly)'],
+                        ['loan_amount',  'Loan Repayment'],
+                    ] as [$fname, $flabel]): ?>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1"><?php echo $flabel; ?></label>
+                        <input type="number" name="<?php echo $fname; ?>" step="0.01" min="0"
+                               value="<?php echo number_format((float)($taxProfile[$fname] ?? 0), 2, '.', ''); ?>"
+                               class="form-input w-full">
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <!-- Relief amounts -->
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Tax Relief (monthly amounts)</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Insurance Premiums (15% relief)</label>
+                        <input type="number" name="insurance_premiums" step="0.01" min="0"
+                               value="<?php echo number_format((float)($taxProfile['insurance_premiums'] ?? 0), 2, '.', ''); ?>"
+                               class="form-input w-full" placeholder="Total premium paid">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Mortgage Interest (max KSh 25,000)</label>
+                        <input type="number" name="mortgage_interest" step="0.01" min="0"
+                               value="<?php echo number_format((float)($taxProfile['mortgage_interest'] ?? 0), 2, '.', ''); ?>"
+                               class="form-input w-full">
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-2">
+                <button type="submit" class="btn-green px-8 py-2.5">Save Tax Profile</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Payslip history -->
+    <div class="glass-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <h3 class="font-bold text-slate-900 dark:text-white">Payslip History</h3>
+            <a href="p9.php?year=<?php echo date('Y'); ?>&employee_id=<?php echo urlencode($empId); ?>" target="_blank"
+               class="text-xs text-blue-500 hover:underline font-bold">📄 P9 (<?php echo date('Y'); ?>)</a>
+        </div>
+        <?php if (!$payslips): ?>
+        <div class="p-8 text-center text-slate-400 text-sm">No finalised payslips yet.</div>
+        <?php else: ?>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-xs text-slate-500 uppercase tracking-wide">
+                        <th class="px-5 py-2 text-left">Period</th>
+                        <th class="px-5 py-2 text-right">Gross</th>
+                        <th class="px-5 py-2 text-right">PAYE</th>
+                        <th class="px-5 py-2 text-right font-bold">Net Pay</th>
+                        <th class="px-5 py-2"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($payslips as $ps): ?>
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/20">
+                        <td class="px-5 py-2 font-semibold text-slate-900 dark:text-white">
+                            <?php echo monthName((int)$ps['period_month']) . ' ' . $ps['period_year']; ?>
+                        </td>
+                        <td class="px-5 py-2 text-right text-slate-500"><?php echo number_format($ps['gross_pay'], 2); ?></td>
+                        <td class="px-5 py-2 text-right text-red-500"><?php echo number_format($ps['paye'], 2); ?></td>
+                        <td class="px-5 py-2 text-right font-bold text-green-600 dark:text-green-400"><?php echo number_format($ps['net_pay'], 2); ?></td>
+                        <td class="px-5 py-2 text-right">
+                            <a href="payslip.php?entry_id=<?php echo $ps['entry_id']; ?>" target="_blank" class="text-xs text-blue-500 hover:underline">View</a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
         <?php endif; ?>
     </div>
