@@ -6,6 +6,7 @@
 require_once __DIR__ . '/includes/auth.php';
 requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/audit.php';
 require_once __DIR__ . '/includes/payroll_calc.php';
 ensurePayrollTables($pdo);
 
@@ -71,6 +72,29 @@ $salaryHistory->execute([$empId]); $salaryHistory = $salaryHistory->fetchAll();
 $warnings = $pdo->prepare("SELECT * FROM employee_warnings WHERE employee_id=? ORDER BY warning_date DESC");
 $warnings->execute([$empId]); $warnings = $warnings->fetchAll();
 
+// Loans & Advances
+require_once __DIR__ . '/actions/loan_actions.php';
+$loans = $pdo->prepare("SELECT * FROM employee_loans WHERE employee_id=? ORDER BY applied_date DESC");
+$loans->execute([$empId]); $loans = $loans->fetchAll();
+
+// Leave
+require_once __DIR__ . '/actions/leave_actions.php';
+$leaveYear   = (int)($_GET['leave_year'] ?? date('Y'));
+$leaveTypes  = $pdo->query("SELECT * FROM leave_types ORDER BY sort_order, name")->fetchAll();
+seedBalances($pdo, $empId, $leaveYear);
+$leaveBalances = $pdo->prepare(
+    "SELECT lb.*, lt.name lt_name, lt.color lt_color, lt.days_per_year
+     FROM leave_balances lb JOIN leave_types lt ON lt.id = lb.leave_type_id
+     WHERE lb.employee_id=? AND lb.year=? ORDER BY lt.sort_order, lt.name"
+);
+$leaveBalances->execute([$empId, $leaveYear]); $leaveBalances = $leaveBalances->fetchAll();
+$leaveApps = $pdo->prepare(
+    "SELECT la.*, lt.name lt_name, lt.color lt_color
+     FROM leave_applications la JOIN leave_types lt ON lt.id = la.leave_type_id
+     WHERE la.employee_id=? ORDER BY la.applied_at DESC LIMIT 20"
+);
+$leaveApps->execute([$empId]); $leaveApps = $leaveApps->fetchAll();
+
 // Tax profile
 $taxProfile = $pdo->prepare("SELECT * FROM employee_tax_profile WHERE employee_id=?");
 $taxProfile->execute([$empId]);
@@ -99,6 +123,16 @@ $toastMap = [
     'warning_added'      => 'Warning letter recorded.',
     'warning_deleted'    => 'Warning letter removed.',
     'tax_profile_saved'  => 'Tax profile saved.',
+    'loan_applied'       => 'Loan/Advance application submitted.',
+    'loan_approved'      => 'Loan approved.',
+    'loan_rejected'      => 'Application rejected.',
+    'loan_repaid'        => 'Repayment recorded.',
+    'loan_closed'        => 'Loan marked as completed.',
+    'leave_applied'      => 'Leave application submitted.',
+    'leave_approved'     => 'Leave approved.',
+    'leave_rejected'     => 'Leave rejected.',
+    'leave_cancelled'    => 'Leave cancelled.',
+    'balance_adjusted'   => 'Leave balance adjusted.',
 ];
 
 $statusColors = [
@@ -170,6 +204,8 @@ include __DIR__ . '/includes/sidebar.php';
             'contacts'  => 'Contacts (' . count($contacts) . ')',
             'salary'    => 'Salary History',
             'warnings'  => 'Warnings (' . count($warnings) . ')',
+            'loans'     => 'Loans & Advances (' . count($loans) . ')',
+            'leave'     => 'Leave',
             'payroll'   => 'Payroll',
         ];
         foreach ($tabs as $key => $label): ?>
@@ -664,6 +700,442 @@ include __DIR__ . '/includes/sidebar.php';
         <?php endif; ?>
     </div>
 </div>
+
+<!-- ═══════════════════════ LOANS & ADVANCES TAB ═══════════════════════ -->
+<?php
+$colorMap = [
+    'green'  => 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+    'orange' => 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
+    'blue'   => 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+    'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
+    'purple' => 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
+    'pink'   => 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-400',
+    'indigo' => 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400',
+    'slate'  => 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400',
+];
+$isAdmin = $_SESSION['role'] === 'admin';
+?>
+<div id="tab-loans" class="tab-panel <?php echo $activeTab !== 'loans' ? 'hidden' : ''; ?>">
+    <!-- Summary cards -->
+    <?php
+    $activeLoans = array_filter($loans, fn($l) => $l['status'] === 'Active');
+    $totalBalance = array_sum(array_column($activeLoans, 'balance_remaining'));
+    $pendingLoans = count(array_filter($loans, fn($l) => $l['status'] === 'Pending'));
+    ?>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="glass-card p-4 text-center">
+            <p class="text-xs text-slate-500 mb-1">Active Loans</p>
+            <p class="text-2xl font-black text-blue-400"><?php echo count($activeLoans); ?></p>
+        </div>
+        <div class="glass-card p-4 text-center">
+            <p class="text-xs text-slate-500 mb-1">Total Outstanding</p>
+            <p class="text-xl font-black text-red-400">KSh <?php echo number_format($totalBalance, 2); ?></p>
+        </div>
+        <div class="glass-card p-4 text-center">
+            <p class="text-xs text-slate-500 mb-1">Pending</p>
+            <p class="text-2xl font-black text-orange-400"><?php echo $pendingLoans; ?></p>
+        </div>
+    </div>
+
+    <div class="flex justify-end mb-4">
+        <button onclick="openModal('applyLoanModal')" class="btn-primary">+ Apply Loan/Advance</button>
+    </div>
+
+    <?php if (!$loans): ?>
+    <div class="glass-card p-12 text-center text-slate-400">
+        <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <p>No loan or advance records yet.</p>
+    </div>
+    <?php else: ?>
+    <div class="space-y-3">
+        <?php foreach ($loans as $l):
+            $stCls = match($l['status']) {
+                'Active'    => 'badge badge-blue',
+                'Completed' => 'badge badge-green',
+                'Rejected'  => 'badge badge-red',
+                default     => 'badge badge-orange',
+            };
+            $pct = ($l['approved_amount'] > 0)
+                ? min(100, round((($l['approved_amount'] - $l['balance_remaining']) / $l['approved_amount']) * 100))
+                : 0;
+        ?>
+        <div class="glass-card p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="badge <?php echo $l['loan_type'] === 'Advance' ? 'badge-orange' : 'badge-blue'; ?>"><?php echo $l['loan_type']; ?></span>
+                        <span class="<?php echo $stCls; ?>"><?php echo $l['status']; ?></span>
+                    </div>
+                    <p class="font-bold text-slate-900 dark:text-white">KSh <?php echo number_format($l['amount'], 2); ?> applied<?php if ($l['approved_amount']): ?> · KSh <?php echo number_format($l['approved_amount'], 2); ?> approved<?php endif; ?></p>
+                    <?php if ($l['purpose']): ?><p class="text-xs text-slate-500 mt-0.5"><?php echo htmlspecialchars($l['purpose']); ?></p><?php endif; ?>
+                </div>
+                <div class="text-right text-xs text-slate-400">
+                    <p>Applied: <?php echo date('d M Y', strtotime($l['applied_date'])); ?></p>
+                    <?php if ($l['disbursed_date']): ?><p>Disbursed: <?php echo date('d M Y', strtotime($l['disbursed_date'])); ?></p><?php endif; ?>
+                    <?php if ($l['monthly_deduction'] > 0): ?><p class="font-semibold text-orange-500">KSh <?php echo number_format($l['monthly_deduction'], 2); ?>/month</p><?php endif; ?>
+                </div>
+            </div>
+
+            <?php if ($l['status'] === 'Active'): ?>
+            <div class="mb-3">
+                <div class="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>Repaid: KSh <?php echo number_format($l['approved_amount'] - $l['balance_remaining'], 2); ?></span>
+                    <span>Remaining: <strong class="text-red-500">KSh <?php echo number_format($l['balance_remaining'], 2); ?></strong></span>
+                </div>
+                <div class="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-green-500 rounded-full transition-all" style="width:<?php echo $pct; ?>%"></div>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-0.5 text-right"><?php echo $pct; ?>% repaid</p>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($isAdmin): ?>
+            <div class="flex gap-2 flex-wrap">
+                <?php if ($l['status'] === 'Pending'): ?>
+                <button onclick="openApproveLoan('<?php echo $l['id']; ?>', <?php echo $l['amount']; ?>)" class="text-xs font-bold text-green-500 hover:underline">Approve</button>
+                <form method="POST" action="actions/loan_actions.php" onsubmit="return confirm('Reject this application?')" class="inline">
+                    <input type="hidden" name="action" value="reject_loan">
+                    <input type="hidden" name="loan_id" value="<?php echo $l['id']; ?>">
+                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans&success=loan_rejected">
+                    <button class="text-xs font-bold text-red-500 hover:underline">Reject</button>
+                </form>
+                <form method="POST" action="actions/loan_actions.php" onsubmit="return confirm('Delete this application?')" class="inline">
+                    <input type="hidden" name="action" value="delete_loan">
+                    <input type="hidden" name="loan_id" value="<?php echo $l['id']; ?>">
+                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans">
+                    <button class="text-xs font-bold text-slate-400 hover:text-red-500">Delete</button>
+                </form>
+                <?php elseif ($l['status'] === 'Active'): ?>
+                <button onclick="openRepayLoan('<?php echo $l['id']; ?>', <?php echo $l['balance_remaining']; ?>)" class="text-xs font-bold text-blue-500 hover:underline">Record Repayment</button>
+                <form method="POST" action="actions/loan_actions.php" onsubmit="return confirm('Mark as fully paid?')" class="inline">
+                    <input type="hidden" name="action" value="close_loan">
+                    <input type="hidden" name="loan_id" value="<?php echo $l['id']; ?>">
+                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans&success=loan_closed">
+                    <button class="text-xs font-bold text-slate-400 hover:underline">Mark Complete</button>
+                </form>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+            <?php if ($l['notes']): ?><p class="text-[10px] text-slate-400 mt-2 italic"><?php echo htmlspecialchars($l['notes']); ?></p><?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
+<!-- ═══════════════════════ LEAVE TAB ═══════════════════════ -->
+<div id="tab-leave" class="tab-panel <?php echo $activeTab !== 'leave' ? 'hidden' : ''; ?>">
+
+    <!-- Year selector -->
+    <div class="flex items-center justify-between mb-5">
+        <div class="flex items-center gap-2">
+            <a href="?id=<?php echo urlencode($empId); ?>&tab=leave&leave_year=<?php echo $leaveYear-1; ?>"
+               class="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-all">‹</a>
+            <span class="font-black text-slate-900 dark:text-white text-lg w-16 text-center"><?php echo $leaveYear; ?></span>
+            <a href="?id=<?php echo urlencode($empId); ?>&tab=leave&leave_year=<?php echo $leaveYear+1; ?>"
+               class="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-all">›</a>
+        </div>
+        <button onclick="openModal('applyLeaveEmpModal')" class="btn-primary text-sm">+ Apply Leave</button>
+    </div>
+
+    <!-- Leave balance cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+        <?php foreach ($leaveBalances as $b):
+            $remaining = $b['entitlement'] - $b['used'];
+            $pct = $b['entitlement'] > 0 ? min(100, round(($b['used'] / $b['entitlement']) * 100)) : 0;
+            $ltc = $colorMap[$b['lt_color']] ?? $colorMap['slate'];
+        ?>
+        <div class="glass-card p-4">
+            <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold <?php echo $ltc; ?> block mb-2 w-fit"><?php echo htmlspecialchars($b['lt_name']); ?></span>
+            <?php if ($b['days_per_year'] > 0): ?>
+            <p class="text-xs text-slate-500 mb-0.5">Entitlement: <strong class="text-slate-700 dark:text-slate-200"><?php echo $b['entitlement']; ?> days</strong></p>
+            <p class="text-xs text-slate-500 mb-2">Used: <strong class="text-orange-500"><?php echo $b['used']; ?></strong> · Left: <strong class="<?php echo $remaining > 5 ? 'text-green-600 dark:text-green-400' : 'text-red-500'; ?>"><?php echo $remaining; ?></strong></p>
+            <div class="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div class="h-full <?php echo $pct > 80 ? 'bg-red-500' : 'bg-green-500'; ?> rounded-full" style="width:<?php echo $pct; ?>%"></div>
+            </div>
+            <?php if ($isAdmin): ?>
+            <button onclick="openAdjustBalance('<?php echo $b['leave_type_id']; ?>', '<?php echo htmlspecialchars($b['lt_name'], ENT_QUOTES); ?>', <?php echo $b['entitlement']; ?>)" class="text-[10px] text-blue-500 hover:underline mt-1 block font-bold">Adjust</button>
+            <?php endif; ?>
+            <?php else: ?>
+            <p class="text-xs text-slate-500">Unpaid / Unlimited</p>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Leave history -->
+    <div class="glass-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white">
+            Leave History
+        </div>
+        <?php if (!$leaveApps): ?>
+        <div class="p-8 text-center text-slate-400 text-sm">No leave applications yet.</div>
+        <?php else: ?>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-[10px] text-slate-500 uppercase tracking-wide bg-slate-50 dark:bg-slate-800/50">
+                        <th class="px-4 py-2 text-left">Type</th>
+                        <th class="px-4 py-2 text-left">From</th>
+                        <th class="px-4 py-2 text-left">To</th>
+                        <th class="px-4 py-2 text-right">Days</th>
+                        <th class="px-4 py-2 text-left">Status</th>
+                        <th class="px-4 py-2 text-left">Reviewed By</th>
+                        <th class="px-4 py-2"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <?php foreach ($leaveApps as $a):
+                        $ltc = $colorMap[$a['lt_color']] ?? $colorMap['slate'];
+                        $stCls = match($a['status']) {
+                            'Approved'  => 'badge badge-green',
+                            'Rejected'  => 'badge badge-red',
+                            'Cancelled' => 'badge badge-slate',
+                            default     => 'badge badge-orange',
+                        };
+                    ?>
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/20 transition-colors">
+                        <td class="px-4 py-2"><span class="px-2 py-0.5 rounded-lg text-[10px] font-bold <?php echo $ltc; ?>"><?php echo htmlspecialchars($a['lt_name']); ?></span></td>
+                        <td class="px-4 py-2 text-xs"><?php echo date('d M Y', strtotime($a['start_date'])); ?></td>
+                        <td class="px-4 py-2 text-xs"><?php echo date('d M Y', strtotime($a['end_date'])); ?></td>
+                        <td class="px-4 py-2 text-right font-bold text-xs"><?php echo $a['days_requested']; ?></td>
+                        <td class="px-4 py-2"><span class="<?php echo $stCls; ?>"><?php echo $a['status']; ?></span></td>
+                        <td class="px-4 py-2 text-xs text-slate-400"><?php echo htmlspecialchars($a['reviewed_by'] ?: '—'); ?></td>
+                        <td class="px-4 py-2">
+                            <?php if ($a['status'] === 'Pending' && $isAdmin): ?>
+                            <div class="flex gap-2">
+                                <form method="POST" action="actions/leave_actions.php" class="inline">
+                                    <input type="hidden" name="action" value="approve_leave">
+                                    <input type="hidden" name="application_id" value="<?php echo $a['id']; ?>">
+                                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=leave&success=leave_approved">
+                                    <button class="text-[10px] font-bold text-green-500 hover:underline">✓ Approve</button>
+                                </form>
+                                <form method="POST" action="actions/leave_actions.php" class="inline">
+                                    <input type="hidden" name="action" value="reject_leave">
+                                    <input type="hidden" name="application_id" value="<?php echo $a['id']; ?>">
+                                    <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=leave&success=leave_rejected">
+                                    <button class="text-[10px] font-bold text-red-500 hover:underline">✗ Reject</button>
+                                </form>
+                            </div>
+                            <?php elseif (in_array($a['status'], ['Pending','Approved'])): ?>
+                            <form method="POST" action="actions/leave_actions.php" onsubmit="return confirm('Cancel this leave?')" class="inline">
+                                <input type="hidden" name="action" value="cancel_leave">
+                                <input type="hidden" name="application_id" value="<?php echo $a['id']; ?>">
+                                <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=leave&success=leave_cancelled">
+                                <button class="text-[10px] font-bold text-slate-400 hover:text-red-500">Cancel</button>
+                            </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ══════════ LOAN APPLICATION MODAL ══════════ -->
+<div id="applyLoanModal" class="modal-overlay hidden">
+    <div class="modal-card max-w-md w-full">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Apply Loan / Advance</h3>
+            <button onclick="closeModal('applyLoanModal')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="actions/loan_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="apply_loan">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans&success=loan_applied">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Type</label>
+                    <select name="loan_type" class="form-input w-full">
+                        <option value="Loan">Staff Loan</option>
+                        <option value="Advance">Salary Advance</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Amount (KSh)</label>
+                    <input type="number" name="amount" step="0.01" min="1" required class="form-input w-full" placeholder="0.00">
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Applied Date</label>
+                <input type="date" name="applied_date" class="form-input w-full" value="<?php echo date('Y-m-d'); ?>">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Purpose / Reason</label>
+                <textarea name="purpose" rows="3" class="form-input w-full" placeholder="Reason for the loan or advance..."></textarea>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1">Submit Application</button>
+                <button type="button" onclick="closeModal('applyLoanModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════ APPROVE LOAN MODAL ══════════ -->
+<div id="approveLoanModal" class="modal-overlay hidden">
+    <div class="modal-card max-w-md w-full">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-bold text-green-600 dark:text-green-400">Approve Loan</h3>
+            <button onclick="closeModal('approveLoanModal')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="actions/loan_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="approve_loan">
+            <input type="hidden" name="loan_id" id="approve_loan_id">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans&success=loan_approved">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Approved Amount (KSh)</label>
+                <input type="number" name="approved_amount" id="approve_loan_amount" step="0.01" min="1" required class="form-input w-full">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Monthly Deduction</label>
+                    <input type="number" name="monthly_deduction" step="0.01" min="0" class="form-input w-full" placeholder="0.00">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Disburse Date</label>
+                    <input type="date" name="disbursed_date" class="form-input w-full" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Approved By</label>
+                <input type="text" name="approved_by" class="form-input w-full" placeholder="Approver name">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Notes</label>
+                <textarea name="notes" rows="2" class="form-input w-full"></textarea>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-green flex-1">Approve</button>
+                <button type="button" onclick="closeModal('approveLoanModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════ REPAY LOAN MODAL ══════════ -->
+<div id="repayLoanModal" class="modal-overlay hidden">
+    <div class="modal-card max-w-md w-full">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-bold text-blue-600 dark:text-blue-400">Record Repayment</h3>
+            <button onclick="closeModal('repayLoanModal')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="actions/loan_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="repay_loan">
+            <input type="hidden" name="loan_id" id="repay_loan_id">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=loans&success=loan_repaid">
+            <p class="text-sm text-slate-500">Balance remaining: <strong id="repay_balance" class="text-red-500"></strong></p>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Repayment Amount (KSh)</label>
+                <input type="number" name="amount" id="repay_amount" step="0.01" min="0.01" required class="form-input w-full" placeholder="0.00">
+            </div>
+            <div class="flex gap-3">
+                <button type="submit" class="btn-primary flex-1">Record</button>
+                <button type="button" onclick="closeModal('repayLoanModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════ APPLY LEAVE MODAL (employee tab) ══════════ -->
+<div id="applyLeaveEmpModal" class="modal-overlay hidden">
+    <div class="modal-card max-w-lg w-full">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Apply for Leave</h3>
+            <button onclick="closeModal('applyLeaveEmpModal')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="actions/leave_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="apply_leave">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=leave&leave_year=<?php echo $leaveYear; ?>&success=leave_applied">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Leave Type</label>
+                <select name="leave_type_id" required class="form-input w-full">
+                    <option value="">— Select Type —</option>
+                    <?php foreach ($leaveTypes as $lt):
+                        $bal = array_values(array_filter($leaveBalances, fn($b) => $b['leave_type_id'] === $lt['id']));
+                        $rem = $bal ? ($bal[0]['entitlement'] - $bal[0]['used']) : $lt['days_per_year'];
+                    ?>
+                    <option value="<?php echo $lt['id']; ?>">
+                        <?php echo htmlspecialchars($lt['name']); ?> (<?php echo $lt['days_per_year'] > 0 ? $rem . ' days left' : 'Unpaid'; ?>)
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Start Date</label>
+                    <input type="date" name="start_date" required class="form-input w-full" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">End Date</label>
+                    <input type="date" name="end_date" required class="form-input w-full" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Reason</label>
+                <textarea name="reason" rows="3" class="form-input w-full" placeholder="Brief reason for leave..."></textarea>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1">Submit</button>
+                <button type="button" onclick="closeModal('applyLeaveEmpModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════ ADJUST BALANCE MODAL ══════════ -->
+<?php if ($isAdmin): ?>
+<div id="adjustBalanceModal" class="modal-overlay hidden">
+    <div class="modal-card max-w-sm w-full">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Adjust Leave Balance</h3>
+            <button onclick="closeModal('adjustBalanceModal')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="actions/leave_actions.php" class="space-y-4">
+            <input type="hidden" name="action" value="adjust_balance">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="year" value="<?php echo $leaveYear; ?>">
+            <input type="hidden" name="_redirect" value="hr_employee.php?id=<?php echo urlencode($empId); ?>&tab=leave&leave_year=<?php echo $leaveYear; ?>&success=balance_adjusted">
+            <input type="hidden" name="leave_type_id" id="adj_type_id">
+            <p class="text-sm text-slate-600 dark:text-slate-400">Adjusting <strong id="adj_type_name"></strong> entitlement for <?php echo $leaveYear; ?></p>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Entitlement (days)</label>
+                <input type="number" name="entitlement" id="adj_entitlement" min="0" required class="form-input w-full">
+            </div>
+            <div class="flex gap-3">
+                <button type="submit" class="btn-primary flex-1">Save</button>
+                <button type="button" onclick="closeModal('adjustBalanceModal')" class="btn-secondary flex-1">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openAdjustBalance(typeId, typeName, entitlement) {
+    document.getElementById('adj_type_id').value    = typeId;
+    document.getElementById('adj_type_name').textContent = typeName;
+    document.getElementById('adj_entitlement').value = entitlement;
+    openModal('adjustBalanceModal');
+}
+</script>
+<?php endif; ?>
+
+<script>
+function openApproveLoan(loanId, amount) {
+    document.getElementById('approve_loan_id').value    = loanId;
+    document.getElementById('approve_loan_amount').value = amount;
+    openModal('approveLoanModal');
+}
+function openRepayLoan(loanId, balance) {
+    document.getElementById('repay_loan_id').value = loanId;
+    document.getElementById('repay_balance').textContent = 'KSh ' + parseFloat(balance).toLocaleString('en-KE', {minimumFractionDigits:2});
+    document.getElementById('repay_amount').value = balance;
+    openModal('repayLoanModal');
+}
+</script>
 
 <!-- ══════════ UPLOAD DOCUMENT MODAL ══════════ -->
 <div id="uploadDocModal" class="modal-overlay" style="display:none;">

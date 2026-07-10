@@ -29,6 +29,7 @@ const PERM_MODULES = [
     'landlords'      => ['view', 'create', 'edit', 'delete'],
     'hr'             => ['view', 'create', 'edit', 'delete'],
     'payroll'        => ['view', 'create', 'edit'],
+    'leave'          => ['view', 'create', 'edit'],
     'announcements'  => ['view', 'create', 'edit', 'delete'],
 ];
 
@@ -56,6 +57,7 @@ const PERM_MODULE_LABELS = [
     'landlords'      => 'Landlords Registry',
     'hr'             => 'HR & Personnel',
     'payroll'        => 'Payroll',
+    'leave'          => 'Leave Management',
     'announcements'  => 'Announcements',
 ];
 
@@ -65,7 +67,7 @@ const PERM_GROUPS = [
     'Property Management'  => ['properties', 'tenants', 'leases', 'vacancies'],
     'Operations'           => ['maintenance', 'tokens', 'documents'],
     'Finance'              => ['financials', 'invoices', 'bulk_invoices', 'late_penalties', 'payments', 'payouts', 'expenses', 'journals', 'accounts', 'reports'],
-    'Administration'       => ['landlords', 'hr', 'payroll', 'announcements'],
+    'Administration'       => ['landlords', 'hr', 'payroll', 'leave', 'announcements'],
 ];
 
 // Map: sidebar href → permission module key
@@ -98,6 +100,7 @@ const PERM_PAGE_MAP = [
     'hr_employee.php'       => 'hr',
     'payroll.php'           => 'payroll',
     'payroll_period.php'    => 'payroll',
+    'leave.php'             => 'leave',
     'announcements.php'     => 'announcements',
 ];
 
@@ -163,7 +166,6 @@ function requirePermission(PDO $pdo, string $module, string $action = 'view'): v
     if (canDo($pdo, $module, $action)) return;
 
     http_response_code(403);
-    $back = htmlspecialchars($_SERVER['HTTP_REFERER'] ?? 'dashboard.php');
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
         <title>Access Denied — Primelink</title>
         <script src="https://cdn.tailwindcss.com"></script></head>

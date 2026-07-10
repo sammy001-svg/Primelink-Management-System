@@ -36,6 +36,7 @@ $_breadcrumbMap = [
     'payroll_period.php'     => ['Payroll Period',      'Payroll',         'payroll.php'],
     'payslip.php'            => ['Payslip',             'Payroll',         'payroll.php'],
     'p9.php'                 => ['P9 Tax Form',         'Payroll',         'payroll.php'],
+    'leave.php'              => ['Leave Management',    'Dashboard',       'dashboard.php'],
     'profile.php'            => ['My Profile',          'Dashboard',       'dashboard.php'],
     'notifications.php'      => ['Notifications',       'Dashboard',       'dashboard.php'],
     'vacancies.php'          => ['Vacancy Forecasting',  'Leases',          'leases.php'],
