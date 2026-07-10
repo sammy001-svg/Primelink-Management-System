@@ -33,16 +33,27 @@ function hasRole($role) {
 }
 
 /**
- * Require specific role (accepts string or array of allowed roles)
+ * Require specific role (accepts string or array of allowed roles).
+ * For staff users, also enforces module-level view permission automatically
+ * based on the current page mapped in PERM_PAGE_MAP.
  */
 function requireRole($roles) {
     requireLogin();
     $allowed = is_array($roles) ? $roles : [$roles];
-    // admin/staff always passes through any requireRole check
     $role = $_SESSION['role'] ?? '';
     if (!in_array($role, $allowed) && !in_array($role, ['admin', 'staff'])) {
         header("Location: dashboard.php?error=unauthorized");
         exit();
+    }
+
+    // Auto permission check for staff: if this page has a module mapping, verify view access
+    if ($role === 'staff') {
+        require_once __DIR__ . '/permissions.php';
+        $pdo  = $GLOBALS['pdo'];
+        $page = basename($_SERVER['PHP_SELF']);
+        if (isset(PERM_PAGE_MAP[$page])) {
+            requirePermission($pdo, PERM_PAGE_MAP[$page], 'view');
+        }
     }
 }
 

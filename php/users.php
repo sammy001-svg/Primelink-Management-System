@@ -130,6 +130,13 @@ include __DIR__ . '/includes/sidebar.php';
                         </td>
                         <td class="px-6 py-4 text-right">
                             <div class="flex items-center justify-end gap-2">
+                                <?php if ($u['role'] === 'staff'): ?>
+                                <a href="permissions.php?user_id=<?php echo urlencode($u['id']); ?>"
+                                   class="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-accent-green px-3 py-1.5 rounded-lg hover:bg-accent-green/10 transition-all flex items-center gap-1">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                    Permissions
+                                </a>
+                                <?php endif; ?>
                                 <button onclick="openEditModal(<?php echo htmlspecialchars(json_encode($u)); ?>)"
                                         class="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
                                     Edit
