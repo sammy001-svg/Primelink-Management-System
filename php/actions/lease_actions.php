@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
-requireRole('staff');
+requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/notify.php';
@@ -98,19 +98,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("UPDATE leases SET status = 'Terminated', termination_date = ?, termination_reason = ? WHERE id = ?");
             $stmt->execute([$date, $reason, $lease_id]);
             logAction($pdo, 'lease_terminated', 'Leases', $lease_id, "Terminated on {$date}. Reason: {$reason}");
-            header("Location: ../leases.php?success=terminated");
+            header("Location: ../leases.php?success=terminated&deposit_lease=" . urlencode($lease_id));
             exit();
         } catch (PDOException $e) {
             if ($e->getCode() == '42S22') {
                 $pdo->exec("ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `termination_date` DATE NULL AFTER `signed_lease_url` ");
                 $pdo->exec("ALTER TABLE `leases` ADD COLUMN IF NOT EXISTS `termination_reason` TEXT NULL AFTER `termination_date` ");
-                // Retry
                 $stmt = $pdo->prepare("UPDATE leases SET status = 'Terminated', termination_date = ?, termination_reason = ? WHERE id = ?");
                 $stmt->execute([$date, $reason, $lease_id]);
-                header("Location: ../leases.php?success=terminated");
+                header("Location: ../leases.php?success=terminated&deposit_lease=" . urlencode($lease_id));
                 exit();
             }
             die("Error terminating lease: " . $e->getMessage());
+        }
+    }
+
+    else if ($action === 'process_deposit') {
+        $leaseId        = trim($_POST['lease_id']         ?? '');
+        $tenantId       = trim($_POST['tenant_id']        ?? '');
+        $totalDeposit   = (float)($_POST['total_deposit'] ?? 0);
+        $dedArrears     = (float)($_POST['deduct_arrears']     ?? 0);
+        $dedMaint       = (float)($_POST['deduct_maintenance'] ?? 0);
+        $dedCleaning    = (float)($_POST['deduct_cleaning']    ?? 0);
+        $dedDamages     = (float)($_POST['deduct_damages']     ?? 0);
+        $dedOther       = (float)($_POST['deduct_other']       ?? 0);
+        $dedNotes       = trim($_POST['deduct_notes']     ?? '');
+        $netRefund      = (float)($_POST['net_refund']    ?? 0);
+        $scheduledDate  = trim($_POST['scheduled_date']   ?? '');
+        $refundMethod   = trim($_POST['refund_method']    ?? 'Bank Transfer');
+        $refundRef      = trim($_POST['refund_reference'] ?? '');
+        $notes          = trim($_POST['notes']            ?? '');
+        $totalDeductions= $dedArrears + $dedMaint + $dedCleaning + $dedDamages + $dedOther;
+
+        // Self-heal deposit table
+        try { $pdo->exec("CREATE TABLE IF NOT EXISTS lease_deposits (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            lease_id VARCHAR(36) NOT NULL,
+            tenant_id VARCHAR(36) NOT NULL,
+            total_deposit DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_arrears DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_maintenance DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_cleaning DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_damages DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_other DECIMAL(15,2) NOT NULL DEFAULT 0,
+            deduct_notes TEXT NULL,
+            total_deductions DECIMAL(15,2) NOT NULL DEFAULT 0,
+            net_refund DECIMAL(15,2) NOT NULL DEFAULT 0,
+            scheduled_date DATE NULL,
+            refund_method VARCHAR(50) NULL DEFAULT 'Bank Transfer',
+            refund_reference VARCHAR(100) NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'Scheduled',
+            notes TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (PDOException $e) {}
+
+        try {
+            // Upsert: replace if already exists for this lease
+            $existing = $pdo->prepare("SELECT id FROM lease_deposits WHERE lease_id = ?");
+            $existing->execute([$leaseId]);
+            $existingId = $existing->fetchColumn();
+
+            if ($existingId) {
+                $pdo->prepare("UPDATE lease_deposits SET
+                    total_deposit=?, deduct_arrears=?, deduct_maintenance=?, deduct_cleaning=?,
+                    deduct_damages=?, deduct_other=?, deduct_notes=?, total_deductions=?,
+                    net_refund=?, scheduled_date=?, refund_method=?, refund_reference=?, notes=?
+                    WHERE id=?"
+                )->execute([$totalDeposit, $dedArrears, $dedMaint, $dedCleaning, $dedDamages,
+                    $dedOther, $dedNotes ?: null, $totalDeductions, $netRefund,
+                    $scheduledDate ?: null, $refundMethod, $refundRef ?: null, $notes ?: null, $existingId]);
+            } else {
+                require_once __DIR__ . '/../includes/auth.php';
+                $pdo->prepare("INSERT INTO lease_deposits
+                    (id, lease_id, tenant_id, total_deposit, deduct_arrears, deduct_maintenance,
+                     deduct_cleaning, deduct_damages, deduct_other, deduct_notes, total_deductions,
+                     net_refund, scheduled_date, refund_method, refund_reference, notes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                )->execute([generateUUID(), $leaseId, $tenantId, $totalDeposit, $dedArrears, $dedMaint,
+                    $dedCleaning, $dedDamages, $dedOther, $dedNotes ?: null, $totalDeductions, $netRefund,
+                    $scheduledDate ?: null, $refundMethod, $refundRef ?: null, $notes ?: null]);
+            }
+
+            logAction($pdo, 'deposit_processed', 'Leases', $leaseId,
+                "Deposit refund scheduled: net KSh " . number_format($netRefund, 2) . " on {$scheduledDate}");
+            header("Location: ../leases.php?success=deposit_saved");
+            exit();
+        } catch (PDOException $e) {
+            die("Error saving deposit refund: " . $e->getMessage());
+        }
+    }
+
+    else if ($action === 'mark_deposit_paid') {
+        $leaseId = trim($_POST['lease_id'] ?? '');
+        try {
+            $pdo->prepare("UPDATE lease_deposits SET status='Paid' WHERE lease_id=?")->execute([$leaseId]);
+            logAction($pdo, 'deposit_paid', 'Leases', $leaseId, 'Deposit refund marked as paid');
+            header("Location: ../leases.php?success=deposit_paid");
+            exit();
+        } catch (PDOException $e) {
+            header("Location: ../leases.php?error=" . urlencode($e->getMessage()));
+            exit();
         }
     }
 

@@ -18,8 +18,11 @@ if ($action === 'create') {
     $category = $_POST['category'] ?? '';
     $electricityMeter = $_POST['electricity_meter'] ?? '';
     $waterMeter = $_POST['water_meter'] ?? '';
-    $monthlyRent = $_POST['monthly_rent'] ?? $_POST['rent_amount'] ?? 0;
-    $depositAmount = $_POST['deposit_amount'] ?? 0;
+    $monthlyRent       = $_POST['monthly_rent']       ?? $_POST['rent_amount'] ?? 0;
+    $depositAmount     = $_POST['deposit_amount']     ?? 0;
+    $waterDeposit      = $_POST['water_deposit']      ?? 0;
+    $electricityDeposit= $_POST['electricity_deposit']?? 0;
+    $goodwill          = $_POST['goodwill']            ?? 0;
     $status = $_POST['status'] ?? 'Available';
 
     // Handle Image Uploads
@@ -42,12 +45,19 @@ if ($action === 'create') {
     $id = bin2hex(random_bytes(18));
     $imagesJson = json_encode($imageUrls);
 
+    // Self-heal new deposit columns
+    foreach ([
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_deposit`       DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `deposit_amount`",
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_deposit` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_deposit`",
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `goodwill`            DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `electricity_deposit`",
+    ] as $_ddl) { try { $pdo->exec($_ddl); } catch (PDOException $_ex) {} }
+
     try {
         $stmt = $pdo->prepare("
-            INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, deposit_amount, status, images)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, deposit_amount, water_deposit, electricity_deposit, goodwill, status, images)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson]);
+        $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $waterDeposit, $electricityDeposit, $goodwill, $status, $imagesJson]);
         header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_created"));
     } catch (PDOException $e) {
         // Self-healing: category, images, or rent_amount naming drift
@@ -66,10 +76,10 @@ if ($action === 'create') {
                 }
 
                 $stmt = $pdo->prepare("
-                    INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, deposit_amount, status, images)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO units (id, property_id, unit_number, floor_number, unit_type, category, electricity_meter, water_meter, monthly_rent, deposit_amount, water_deposit, electricity_deposit, goodwill, status, images)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
-                $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson]);
+                $stmt->execute([$id, $propertyId, $unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $waterDeposit, $electricityDeposit, $goodwill, $status, $imagesJson]);
                 header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_created"));
                 exit();
             } catch (PDOException $subE) {
@@ -124,8 +134,11 @@ else if ($action === 'update') {
     $category = $_POST['category'];
     $electricityMeter = $_POST['electricity_meter'] ?? '';
     $waterMeter = $_POST['water_meter'] ?? '';
-    $monthlyRent = $_POST['monthly_rent'] ?? $_POST['rent_amount'] ?? 0;
-    $depositAmount = $_POST['deposit_amount'] ?? 0;
+    $monthlyRent        = $_POST['monthly_rent']        ?? $_POST['rent_amount'] ?? 0;
+    $depositAmount      = $_POST['deposit_amount']      ?? 0;
+    $waterDeposit       = $_POST['water_deposit']       ?? 0;
+    $electricityDeposit = $_POST['electricity_deposit'] ?? 0;
+    $goodwill           = $_POST['goodwill']            ?? 0;
     $status = $_POST['status'];
 
     // Fetch existing images
@@ -153,12 +166,14 @@ else if ($action === 'update') {
     $imagesJson = json_encode($imageUrls);
 
     $stmt = $pdo->prepare("
-        UPDATE units 
-        SET unit_number = ?, floor_number = ?, unit_type = ?, category = ?, electricity_meter = ?, water_meter = ?, monthly_rent = ?, deposit_amount = ?, status = ?, images = ?
+        UPDATE units
+        SET unit_number = ?, floor_number = ?, unit_type = ?, category = ?, electricity_meter = ?, water_meter = ?,
+            monthly_rent = ?, deposit_amount = ?, water_deposit = ?, electricity_deposit = ?, goodwill = ?,
+            status = ?, images = ?
         WHERE id = ?
     ");
-    
-    if ($stmt->execute([$unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $status, $imagesJson, $unitId])) {
+
+    if ($stmt->execute([$unitNumber, $floorNumber, $unitType, $category, $electricityMeter, $waterMeter, $monthlyRent, $depositAmount, $waterDeposit, $electricityDeposit, $goodwill, $status, $imagesJson, $unitId])) {
         header("Location: " . ($_redir ?? "../property_details.php?id=$propertyId&success=unit_updated"));
     } else {
         header("Location: ../property_details.php?id=$propertyId&error=update_failed");

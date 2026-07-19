@@ -35,6 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nokRelationship = $_POST['nok_relationship'] ?? null;
         $altPhone = trim($_POST['alt_phone'] ?? '');
 
+        if (empty($idNo)) {
+            die("Error: National ID number is required to register a tenant.");
+        }
+
         $userId = generateUUID();
         $tenantId = generateUUID();
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
@@ -283,17 +287,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit();
     }
 
-    // ── delete: permanently remove tenant with no lease history ───────
+    // ── delete: permanently remove tenant ───────────────────────────
     if ($action === 'delete') {
         $tenantId = trim($_POST['tenant_id'] ?? '');
+        $isAdmin  = ($_SESSION['role'] ?? '') === 'admin';
         if (!$tenantId) { header('Location: ../tenants.php'); exit(); }
 
-        // Block delete if tenant has any lease (active or historical)
-        $leaseCheck = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ?");
-        $leaseCheck->execute([$tenantId]);
-        if ((int)$leaseCheck->fetchColumn() > 0) {
-            header('Location: ../tenants.php?error=has_lease');
-            exit();
+        // Non-admin: block if any lease history exists
+        if (!$isAdmin) {
+            $leaseCheck = $pdo->prepare("SELECT COUNT(*) FROM leases WHERE tenant_id = ?");
+            $leaseCheck->execute([$tenantId]);
+            if ((int)$leaseCheck->fetchColumn() > 0) {
+                header('Location: ../tenants.php?error=has_lease');
+                exit();
+            }
         }
 
         $row = $pdo->prepare("SELECT user_id, full_name FROM tenants WHERE id = ?");
@@ -303,10 +310,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $pdo->beginTransaction();
-            // Clean up related records first
+
+            // Free any units occupied by this tenant's active leases
+            $activeLeases = $pdo->prepare("SELECT unit_id FROM leases WHERE tenant_id = ? AND status = 'Active' AND unit_id IS NOT NULL");
+            $activeLeases->execute([$tenantId]);
+            foreach ($activeLeases->fetchAll() as $al) {
+                $pdo->prepare("UPDATE units SET status = 'Available' WHERE id = ?")->execute([$al['unit_id']]);
+            }
+
+            // Cascade delete all tenant data
+            $pdo->prepare("DELETE FROM leases               WHERE tenant_id = ?")->execute([$tenantId]);
             $pdo->prepare("DELETE FROM maintenance_requests WHERE tenant_id = ?")->execute([$tenantId]);
-            $pdo->prepare("DELETE FROM invoices            WHERE tenant_id = ?")->execute([$tenantId]);
-            $pdo->prepare("DELETE FROM tenants             WHERE id        = ?")->execute([$tenantId]);
+            $pdo->prepare("DELETE FROM invoices             WHERE tenant_id = ?")->execute([$tenantId]);
+            $pdo->prepare("DELETE FROM tenants              WHERE id        = ?")->execute([$tenantId]);
+
             if ($tenant['user_id']) {
                 $pdo->prepare("DELETE FROM notifications WHERE user_id = ?")->execute([$tenant['user_id']]);
                 $pdo->prepare("DELETE FROM profiles      WHERE id      = ?")->execute([$tenant['user_id']]);

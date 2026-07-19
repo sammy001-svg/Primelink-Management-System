@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-requireLogin(['admin', 'staff']);
+requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
 
 $pageTitle  = "Tenant Payments & Invoices";
@@ -10,9 +10,17 @@ $filter     = $_GET['filter'] ?? '';   // 'overdue' to show only overdue
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
-// Fetch all tenants (with their active leases if any)
+// Fetch all tenants with lease, unit, and balance details for auto-population
 $tenants = $pdo->query("
-    SELECT t.id, t.full_name, t.phone, u.unit_number, p.title as property_title, l.monthly_rent
+    SELECT t.id, t.full_name, t.phone, t.email,
+           u.unit_number, u.id AS unit_id,
+           p.title AS property_title,
+           l.id AS lease_id, l.monthly_rent, l.start_date, l.end_date,
+           COALESCE((
+               SELECT SUM(i.amount)
+               FROM invoices i
+               WHERE i.tenant_id = t.id AND i.status NOT IN ('Paid','Cancelled')
+           ), 0) AS arrears
     FROM tenants t
     LEFT JOIN leases l ON t.id = l.tenant_id AND l.status = 'Active'
     LEFT JOIN units u ON l.unit_id = u.id
@@ -20,6 +28,21 @@ $tenants = $pdo->query("
     WHERE t.status = 'Active'
     ORDER BY t.full_name
 ")->fetchAll();
+
+// Build JS-friendly map keyed by tenant id
+$tenantPayMap = [];
+foreach ($tenants as $t) {
+    $tenantPayMap[$t['id']] = [
+        'name'          => $t['full_name'],
+        'phone'         => $t['phone']          ?? '',
+        'email'         => $t['email']          ?? '',
+        'unit_number'   => $t['unit_number']    ?? '—',
+        'property'      => $t['property_title'] ?? '—',
+        'monthly_rent'  => (float)($t['monthly_rent'] ?? 0),
+        'arrears'       => (float)($t['arrears']       ?? 0),
+        'lease_end'     => $t['end_date']       ?? '',
+    ];
+}
 
 // Overdue summary stats
 $overdueInvoiceCount = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
@@ -222,26 +245,57 @@ include __DIR__ . '/includes/sidebar.php';
 
 <!-- Record Payment Modal -->
 <div id="recordPaymentModal" class="modal-overlay" style="display:none;">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width:540px;">
         <button onclick="closeModal('recordPaymentModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-2xl font-black mb-8">Record Manual Payment</h2>
-        <form action="actions/financial_actions.php" method="POST" class="space-y-6">
+        <h2 class="text-2xl font-black mb-6">Record Manual Payment</h2>
+        <form action="actions/financial_actions.php" method="POST" class="space-y-5">
             <input type="hidden" name="action" value="create">
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Select Tenant</label>
-                <select name="tenant_id" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    <option value="">Select Tenant...</option>
+                <select name="tenant_id" id="pay_tenant_sel" required onchange="onPayTenantChange(this.value)"
+                    class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <option value="">— Select tenant —</option>
                     <?php foreach ($tenants as $t): ?>
-                        <option value="<?php echo $t['id']; ?>"><?php echo htmlspecialchars((string)$t['full_name']); ?> (<?php echo htmlspecialchars((string)$t['unit_number']); ?>)</option>
+                        <option value="<?php echo $t['id']; ?>">
+                            <?php echo htmlspecialchars((string)$t['full_name']); ?>
+                            <?php if ($t['unit_number']): ?> · Unit <?php echo htmlspecialchars((string)$t['unit_number']); ?><?php endif; ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="grid grid-cols-2 gap-6">
+
+            <!-- Tenant Info Card (hidden until a tenant is selected) -->
+            <div id="pay_tenant_card" class="hidden rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 overflow-hidden">
+                <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white font-black text-sm shrink-0" id="pay_tc_avatar"></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-black text-slate-900 dark:text-white text-sm truncate" id="pay_tc_name"></p>
+                        <p class="text-[10px] text-slate-400 font-medium truncate" id="pay_tc_unit"></p>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Monthly Rent</p>
+                        <p class="font-black text-slate-700 dark:text-slate-200 text-sm" id="pay_tc_rent"></p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700">
+                    <div class="px-4 py-3">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Rent Arrears</p>
+                        <p class="font-black text-sm" id="pay_tc_arrears"></p>
+                    </div>
+                    <div class="px-4 py-3">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Property</p>
+                        <p class="font-bold text-slate-600 dark:text-slate-400 text-xs truncate" id="pay_tc_property"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (KSh)</label>
-                    <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (<?php echo $currency; ?>)</label>
+                    <input type="number" name="amount" id="pay_amount" required min="0" step="0.01"
+                        class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Category</label>
@@ -254,7 +308,7 @@ include __DIR__ . '/includes/sidebar.php';
                     </select>
                 </div>
             </div>
-            <div class="grid grid-cols-2 gap-6">
+            <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Method</label>
                     <select name="payment_method" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
@@ -266,17 +320,46 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Payment Date</label>
-                    <input type="date" name="transaction_date" value="<?php echo date('Y-m-d'); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+                    <input type="date" name="transaction_date" value="<?php echo date('Y-m-d'); ?>"
+                        class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
             </div>
             <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Notes</label>
-                <textarea name="description" rows="2" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none"></textarea>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Notes / Reference</label>
+                <textarea name="description" rows="2" placeholder="M-Pesa ref, bank slip no., etc."
+                    class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
             </div>
             <button type="submit" class="btn-green w-full justify-center py-4">Confirm Payment Receipt</button>
         </form>
     </div>
 </div>
+
+<script>
+const _tenantPayData = <?php echo json_encode($tenantPayMap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+const _payCurrency   = '<?php echo addslashes($currency); ?>';
+
+function onPayTenantChange(id) {
+    const card = document.getElementById('pay_tenant_card');
+    if (!id || !_tenantPayData[id]) { card.classList.add('hidden'); return; }
+    const t = _tenantPayData[id];
+    const fmt = v => _payCurrency + ' ' + parseFloat(v).toLocaleString('en-KE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    document.getElementById('pay_tc_avatar').textContent   = t.name[0].toUpperCase();
+    document.getElementById('pay_tc_name').textContent     = t.name;
+    document.getElementById('pay_tc_unit').textContent     = t.unit_number !== '—' ? 'Unit ' + t.unit_number + ' · ' + t.property : t.property;
+    document.getElementById('pay_tc_rent').textContent     = fmt(t.monthly_rent);
+    document.getElementById('pay_tc_property').textContent = t.property;
+
+    const arrearsEl = document.getElementById('pay_tc_arrears');
+    arrearsEl.textContent  = fmt(t.arrears);
+    arrearsEl.className    = 'font-black text-sm ' + (t.arrears > 0 ? 'text-red-500' : 'text-green-500');
+
+    // Pre-fill amount: arrears if any, otherwise monthly rent
+    document.getElementById('pay_amount').value = t.arrears > 0 ? t.arrears.toFixed(2) : t.monthly_rent.toFixed(2);
+
+    card.classList.remove('hidden');
+}
+</script>
 
 <!-- New Invoice Modal -->
 <div id="newInvoiceModal" class="modal-overlay" style="display:none;">

@@ -577,7 +577,7 @@ $errorMsg = match($error) {
                     <div class="grid grid-cols-2 gap-4 pl-9">
                         <div class="space-y-1.5">
                             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Number</label>
-                            <input type="text" name="id_no" placeholder="3XXXXXXX"
+                            <input type="text" name="id_no" placeholder="3XXXXXXX" required
                                 class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         </div>
                         <div class="space-y-1.5">
@@ -1114,7 +1114,7 @@ function openResetPassModal(id, name) {
 
 /* ── Delete Tenant ──────────────────────────── */
 function confirmDelete(id, name) {
-    if (!confirm(`Permanently delete "${name}"?\n\nThis cannot be undone. Tenants with any lease history cannot be deleted — terminate the lease first.`)) return;
+    if (!confirm(`Permanently delete "${name}"?\n\nThis will remove all records including lease history, invoices and user account. This cannot be undone.`)) return;
     document.getElementById('deleteTenant_id').value = id;
     document.getElementById('deleteForm').submit();
 }

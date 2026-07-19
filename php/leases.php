@@ -60,14 +60,16 @@ if ($role === 'landlord') {
     $leases = $leases->fetchAll();
     $canCreateLease = false;
 } else {
-    requireRole(['staff']);
+    requireRole(['admin', 'staff']);
     $leases = $pdo->query("
-        SELECT l.*, t.full_name as tenant_name, t.email as tenant_email,
-               p.title as property_title, p.location as property_location,
+        SELECT l.*, t.id AS tenant_id_val, t.full_name AS tenant_name, t.email AS tenant_email,
+               p.title AS property_title, p.location AS property_location,
+               u.unit_number, u.water_deposit, u.electricity_deposit, u.goodwill,
                l.renewal_status
         FROM leases l
         JOIN tenants t ON l.tenant_id = t.id
         JOIN properties p ON l.property_id = p.id
+        LEFT JOIN units u ON l.unit_id = u.id
         ORDER BY l.created_at DESC
     ")->fetchAll();
     $canCreateLease = true;
@@ -75,6 +77,60 @@ if ($role === 'landlord') {
 
 $allTenants    = $pdo->query("SELECT id, full_name FROM tenants ORDER BY full_name")->fetchAll();
 $allProperties = $pdo->query("SELECT id, title, location FROM properties ORDER BY title")->fetchAll();
+
+// ── Deposit refunds: self-heal table + fetch existing records ─────────────
+try { $pdo->exec("CREATE TABLE IF NOT EXISTS lease_deposits (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    lease_id VARCHAR(36) NOT NULL,
+    tenant_id VARCHAR(36) NOT NULL,
+    total_deposit DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_arrears DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_maintenance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_cleaning DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_damages DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_other DECIMAL(15,2) NOT NULL DEFAULT 0,
+    deduct_notes TEXT NULL,
+    total_deductions DECIMAL(15,2) NOT NULL DEFAULT 0,
+    net_refund DECIMAL(15,2) NOT NULL DEFAULT 0,
+    scheduled_date DATE NULL,
+    refund_method VARCHAR(50) NULL DEFAULT 'Bank Transfer',
+    refund_reference VARCHAR(100) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Scheduled',
+    notes TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (PDOException $_ex) {}
+
+$depositsByLease = [];
+try {
+    foreach ($pdo->query("SELECT * FROM lease_deposits")->fetchAll() as $dr) {
+        $depositsByLease[$dr['lease_id']] = $dr;
+    }
+} catch (PDOException $_ex) {}
+
+// ── Pre-fetch data for deposit modal (after termination redirect) ─────────
+$depositLeaseId   = trim($_GET['deposit_lease'] ?? '');
+$depositLeaseData = null;
+if ($depositLeaseId && $role !== 'tenant') {
+    $dlq = $pdo->prepare("
+        SELECT l.id, l.deposit_amount, l.tenant_id, l.monthly_rent,
+               t.full_name AS tenant_name, t.id AS tenant_id_val,
+               u.unit_number,
+               COALESCE(u.water_deposit, 0)       AS water_deposit,
+               COALESCE(u.electricity_deposit, 0) AS electricity_deposit,
+               COALESCE(u.goodwill, 0)            AS goodwill,
+               COALESCE((SELECT SUM(amount) FROM invoices
+                         WHERE tenant_id = t.id AND status NOT IN ('Paid','Cancelled')), 0) AS arrears
+        FROM leases l
+        JOIN tenants t ON l.tenant_id = t.id
+        LEFT JOIN units u ON l.unit_id = u.id
+        WHERE l.id = ?
+    ");
+    $dlq->execute([$depositLeaseId]);
+    $depositLeaseData = $dlq->fetch() ?: null;
+}
+
+require_once __DIR__ . '/includes/settings.php';
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -84,14 +140,16 @@ include __DIR__ . '/includes/sidebar.php';
     <?php if (isset($_GET['success'])): ?>
     <?php
     $toastMsg = match($_GET['success']) {
-        'created'   => 'Lease created successfully!',
-        'renewed'   => 'Lease renewed successfully — new period activated.',
-        'terminated'=> 'Lease terminated.',
-        'uploaded'  => 'Signed lease document uploaded.',
-        'offered'   => 'Renewal offer marked — tenant will be notified.',
-        'accepted'  => 'Renewal offer marked as accepted.',
-        'declined'  => 'Renewal declined. Consider relisting the unit.',
-        default     => 'Action completed successfully.',
+        'created'       => 'Lease created successfully!',
+        'renewed'       => 'Lease renewed successfully — new period activated.',
+        'terminated'    => 'Lease terminated. Please schedule the deposit refund below.',
+        'uploaded'      => 'Signed lease document uploaded.',
+        'offered'       => 'Renewal offer marked — tenant will be notified.',
+        'accepted'      => 'Renewal offer marked as accepted.',
+        'declined'      => 'Renewal declined. Consider relisting the unit.',
+        'deposit_saved' => 'Deposit refund schedule saved.',
+        'deposit_paid'  => 'Deposit marked as paid to tenant.',
+        default         => 'Action completed successfully.',
     };
     ?>
     <div class="p-4 bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 rounded-2xl font-bold text-sm">
@@ -139,6 +197,7 @@ include __DIR__ . '/includes/sidebar.php';
                         <th>Renewal</th>
                         <th>Document</th>
                         <th>Status</th>
+                        <th>Deposit</th>
                         <th class="text-right">Actions</th>
                     </tr>
                 </thead>
@@ -204,6 +263,31 @@ include __DIR__ . '/includes/sidebar.php';
                             <?php endif; ?>
                         </td>
                         <td><span class="badge <?php echo $statusBadge; ?>"><?php echo $statusText; ?></span></td>
+                        <td>
+                            <?php
+                            $dep = $depositsByLease[$lease['id']] ?? null;
+                            if ($isTerminated && $canCreateLease):
+                                if (!$dep): ?>
+                                    <button onclick="openDepositModal('<?php echo $lease['id']; ?>')"
+                                        class="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-orange-100 dark:bg-orange-900/30 text-orange-600 hover:bg-orange-200 transition-colors whitespace-nowrap">
+                                        Process Deposit
+                                    </button>
+                                <?php elseif ($dep['status'] === 'Paid'): ?>
+                                    <span class="badge badge-green text-[10px]">Refund Paid</span>
+                                <?php else: ?>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="badge badge-blue text-[10px]">Scheduled</span>
+                                        <form method="POST" action="actions/lease_actions.php" class="inline">
+                                            <input type="hidden" name="action" value="mark_deposit_paid">
+                                            <input type="hidden" name="lease_id" value="<?php echo $lease['id']; ?>">
+                                            <button type="submit" class="text-[9px] font-black text-green-500 hover:text-green-700 uppercase tracking-wider" title="Mark refund as paid">✓ Paid</button>
+                                        </form>
+                                    </div>
+                                <?php endif;
+                            else: ?>
+                                <span class="text-[10px] text-slate-300 dark:text-slate-700">—</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="text-right">
                             <div class="flex items-center justify-end gap-2">
                                 <a href="view_lease.php?lease_id=<?php echo $lease['id']; ?>" target="_blank" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-slate-900 dark:hover:text-white" title="View Full Terms">
@@ -218,6 +302,11 @@ include __DIR__ . '/includes/sidebar.php';
                                 </button>
                                 <button onclick="setTerminateLeaseId('<?php echo $lease['id']; ?>')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-red-500" title="Terminate">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 6-12 12"/><path d="m6 6 12 12"/></svg>
+                                </button>
+                                <?php endif; ?>
+                                <?php if ($isTerminated && $canCreateLease && isset($depositsByLease[$lease['id']])): ?>
+                                <button onclick="openDepositModal('<?php echo $lease['id']; ?>')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-orange-500" title="Edit Deposit Refund">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                                 </button>
                                 <?php endif; ?>
                             </div>

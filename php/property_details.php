@@ -82,10 +82,13 @@ foreach ($units as $u) {
         'floor_number'      => $u['floor_number']      ?? 'G',
         'category'          => $u['category']          ?? '',
         'status'            => $u['status'],
-        'monthly_rent'      => (float)$u['monthly_rent'],
-        'deposit_amount'    => (float)$u['deposit_amount'],
-        'electricity_meter' => $u['electricity_meter'] ?? '',
-        'water_meter'       => $u['water_meter']       ?? '',
+        'monthly_rent'        => (float)$u['monthly_rent'],
+        'deposit_amount'      => (float)$u['deposit_amount'],
+        'water_deposit'       => (float)($u['water_deposit']       ?? 0),
+        'electricity_deposit' => (float)($u['electricity_deposit'] ?? 0),
+        'goodwill'            => (float)($u['goodwill']            ?? 0),
+        'electricity_meter'   => $u['electricity_meter'] ?? '',
+        'water_meter'         => $u['water_meter']       ?? '',
         'lease_start'       => $u['lease_start']       ?? null,
         'lease_end'         => $u['lease_end']         ?? null,
         'tenant_id'         => $u['tenant_id']         ?? null,
@@ -1049,11 +1052,25 @@ $tabs = [
             <div class="grid grid-cols-2 gap-6">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent (<?php echo $currency; ?>)</label>
-                    <input type="number" name="monthly_rent" required class="form-input">
+                    <input type="number" name="monthly_rent" required min="0" step="0.01" class="form-input">
                 </div>
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Deposit Amount (<?php echo $currency; ?>)</label>
-                    <input type="number" name="deposit_amount" required class="form-input">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit Deposit (<?php echo $currency; ?>)</label>
+                    <input type="number" name="deposit_amount" min="0" step="0.01" value="0" class="form-input">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Water Deposit</label>
+                    <input type="number" name="water_deposit" min="0" step="0.01" value="0" placeholder="0.00" class="form-input">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Electricity Deposit</label>
+                    <input type="number" name="electricity_deposit" min="0" step="0.01" value="0" placeholder="0.00" class="form-input">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Goodwill</label>
+                    <input type="number" name="goodwill" min="0" step="0.01" value="0" placeholder="0.00" class="form-input">
                 </div>
             </div>
             <div class="space-y-2">
@@ -1121,11 +1138,25 @@ $tabs = [
             <div class="grid grid-cols-2 gap-6">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Monthly Rent (<?php echo $currency; ?>)</label>
-                    <input type="number" name="monthly_rent" id="edit_rent_amount" required class="form-input">
+                    <input type="number" name="monthly_rent" id="edit_rent_amount" required min="0" step="0.01" class="form-input">
                 </div>
                 <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Deposit Amount (<?php echo $currency; ?>)</label>
-                    <input type="number" name="deposit_amount" id="edit_deposit_amount" required class="form-input">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Unit Deposit (<?php echo $currency; ?>)</label>
+                    <input type="number" name="deposit_amount" id="edit_deposit_amount" min="0" step="0.01" class="form-input">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Water Deposit</label>
+                    <input type="number" name="water_deposit" id="edit_water_deposit" min="0" step="0.01" class="form-input">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Electricity Deposit</label>
+                    <input type="number" name="electricity_deposit" id="edit_electricity_deposit" min="0" step="0.01" class="form-input">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Goodwill</label>
+                    <input type="number" name="goodwill" id="edit_goodwill" min="0" step="0.01" class="form-input">
                 </div>
             </div>
             <div class="space-y-2">
@@ -1171,8 +1202,22 @@ $tabs = [
                     <p class="text-xl font-black text-slate-900 dark:text-white" id="panel_rent"></p>
                 </div>
                 <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Deposit</p>
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Unit Deposit</p>
                     <p class="text-xl font-black text-slate-900 dark:text-white" id="panel_deposit"></p>
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2" id="panel_extra_deposits">
+                <div class="p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-xl">
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Water Dep.</p>
+                    <p class="text-sm font-black text-slate-700 dark:text-slate-300" id="panel_water_deposit"></p>
+                </div>
+                <div class="p-3 bg-yellow-500/5 border border-yellow-500/10 rounded-xl">
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Elec. Dep.</p>
+                    <p class="text-sm font-black text-slate-700 dark:text-slate-300" id="panel_elec_deposit"></p>
+                </div>
+                <div class="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl">
+                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Goodwill</p>
+                    <p class="text-sm font-black text-slate-700 dark:text-slate-300" id="panel_goodwill"></p>
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
@@ -1321,16 +1366,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ── Edit unit modal ─────────────────────────────────────────────── */
 function openEditUnitModal(unit) {
-    document.getElementById('edit_unit_id').value           = unit.id;
-    document.getElementById('edit_unit_number').value       = unit.unit_number;
-    document.getElementById('edit_floor_number').value      = unit.floor_number;
-    document.getElementById('edit_unit_type').value         = unit.unit_type;
-    document.getElementById('edit_category').value          = unit.category || '';
-    document.getElementById('edit_electricity_meter').value = unit.electricity_meter || '';
-    document.getElementById('edit_water_meter').value       = unit.water_meter || '';
-    document.getElementById('edit_rent_amount').value       = unit.monthly_rent;
-    document.getElementById('edit_deposit_amount').value    = unit.deposit_amount;
-    document.getElementById('edit_status').value            = unit.status;
+    document.getElementById('edit_unit_id').value                = unit.id;
+    document.getElementById('edit_unit_number').value            = unit.unit_number;
+    document.getElementById('edit_floor_number').value           = unit.floor_number;
+    document.getElementById('edit_unit_type').value              = unit.unit_type;
+    document.getElementById('edit_category').value               = unit.category || '';
+    document.getElementById('edit_electricity_meter').value      = unit.electricity_meter || '';
+    document.getElementById('edit_water_meter').value            = unit.water_meter || '';
+    document.getElementById('edit_rent_amount').value            = unit.monthly_rent;
+    document.getElementById('edit_deposit_amount').value         = unit.deposit_amount;
+    document.getElementById('edit_water_deposit').value          = unit.water_deposit || 0;
+    document.getElementById('edit_electricity_deposit').value    = unit.electricity_deposit || 0;
+    document.getElementById('edit_goodwill').value               = unit.goodwill || 0;
+    document.getElementById('edit_status').value                 = unit.status;
     openModal('editUnitModal');
 }
 
@@ -1344,10 +1392,14 @@ function openUnitPanel(unitId) {
     document.getElementById('panel_unit_title').textContent = 'Unit ' + u.unit_number;
     document.getElementById('panel_unit_type').textContent  = u.unit_type || '—';
     document.getElementById('panel_floor').textContent      = 'Floor ' + (u.floor_number || 'G');
-    document.getElementById('panel_rent').textContent       = '<?php echo $currency; ?> ' + parseFloat(u.monthly_rent).toLocaleString();
-    document.getElementById('panel_deposit').textContent    = '<?php echo $currency; ?> ' + parseFloat(u.deposit_amount).toLocaleString();
-    document.getElementById('panel_elec').textContent       = u.electricity_meter || '—';
-    document.getElementById('panel_water').textContent      = u.water_meter || '—';
+    const fmt = v => '<?php echo $currency; ?> ' + parseFloat(v || 0).toLocaleString();
+    document.getElementById('panel_rent').textContent          = fmt(u.monthly_rent);
+    document.getElementById('panel_deposit').textContent       = fmt(u.deposit_amount);
+    document.getElementById('panel_water_deposit').textContent = fmt(u.water_deposit);
+    document.getElementById('panel_elec_deposit').textContent  = fmt(u.electricity_deposit);
+    document.getElementById('panel_goodwill').textContent      = fmt(u.goodwill);
+    document.getElementById('panel_elec').textContent          = u.electricity_meter || '—';
+    document.getElementById('panel_water').textContent         = u.water_meter || '—';
 
     const sb = document.getElementById('panel_status_badge');
     const sc = {

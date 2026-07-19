@@ -14,21 +14,35 @@ if (isLoggedIn()) {
 $error = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = $_POST['email'] ?? '';
-    $password = $_POST['password'] ?? '';
+    $identifier = trim($_POST['identifier'] ?? '');
+    $password   = $_POST['password'] ?? '';
 
-    if (!empty($email) && !empty($password)) {
+    if (!empty($identifier) && !empty($password)) {
+        $user = null;
+
+        // 1. Try email lookup (all roles)
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        $stmt->execute([$identifier]);
+        $user = $stmt->fetch() ?: null;
+
+        // 2. If not found by email, try ID number lookup via tenants table
+        if (!$user) {
+            $stmt = $pdo->prepare(
+                "SELECT u.* FROM users u
+                 JOIN tenants t ON t.user_id = u.id
+                 WHERE t.id_no = ? LIMIT 1"
+            );
+            $stmt->execute([$identifier]);
+            $user = $stmt->fetch() ?: null;
+        }
 
         if ($user && password_verify($password, $user['password'])) {
             $_SESSION['user_id'] = $user['id'];
-            $_SESSION['role'] = $user['role'];
+            $_SESSION['role']    = $user['role'];
             header("Location: dashboard.php");
             exit();
         } else {
-            $error = "Invalid email or password.";
+            $error = "Invalid credentials. Tenants may log in with their ID number or email.";
         }
     } else {
         $error = "Please fill in all fields.";
@@ -123,16 +137,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <form action="login.php" method="POST" class="space-y-4">
                         <div class="space-y-2 text-left">
-                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Email Address</label>
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Email or ID Number</label>
                             <div class="relative group">
                                 <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-green transition-colors">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10Z"/><path d="m22 7-10 7L2 7"/></svg>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                                 </span>
-                                <input 
-                                    type="email" 
-                                    name="email"
-                                    placeholder="name@company.com" 
+                                <input
+                                    type="text"
+                                    name="identifier"
+                                    placeholder="Email or National ID Number"
                                     required
+                                    autocomplete="username"
                                     class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 shadow-sm"
                                 />
                             </div>
@@ -146,13 +161,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-accent-green transition-colors">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                                 </span>
-                                <input 
-                                    type="password" 
+                                <input
+                                    type="password"
                                     name="password"
+                                    id="passwordField"
                                     placeholder="••••••••"
                                     required
-                                    class="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20 transition-all placeholder:text-slate-300"
+                                    autocomplete="current-password"
+                                    class="w-full pl-12 pr-12 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-green/20 transition-all placeholder:text-slate-300"
                                 />
+                                <button type="button" id="togglePassword"
+                                    onclick="togglePasswordVisibility()"
+                                    class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-accent-green transition-colors"
+                                    tabindex="-1" aria-label="Toggle password visibility">
+                                    <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    <svg id="eyeOffIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+                                </button>
                             </div>
                         </div>
 
@@ -186,5 +210,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </div>
+<script>
+function togglePasswordVisibility() {
+    const field   = document.getElementById('passwordField');
+    const eyeOn   = document.getElementById('eyeIcon');
+    const eyeOff  = document.getElementById('eyeOffIcon');
+    if (field.type === 'password') {
+        field.type = 'text';
+        eyeOn.classList.add('hidden');
+        eyeOff.classList.remove('hidden');
+    } else {
+        field.type = 'password';
+        eyeOn.classList.remove('hidden');
+        eyeOff.classList.add('hidden');
+    }
+}
+</script>
 </body>
 </html>
