@@ -61,6 +61,13 @@ if ($role === 'landlord') {
     $canCreateLease = false;
 } else {
     requireRole(['admin', 'staff']);
+    // Self-heal unit deposit columns (may not exist on older installs)
+    foreach ([
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `water_deposit`       DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `deposit_amount`",
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `electricity_deposit` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_deposit`",
+        "ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `goodwill`            DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `electricity_deposit`",
+    ] as $_ddl) { try { $pdo->exec($_ddl); } catch (PDOException $_ex) {} }
+
     $leases = $pdo->query("
         SELECT l.*, t.id AS tenant_id_val, t.full_name AS tenant_name, t.email AS tenant_email,
                p.title AS property_title, p.location AS property_location,
@@ -429,6 +436,234 @@ include __DIR__ . '/includes/sidebar.php';
         </form>
     </div>
 </div>
+
+<!-- ══════════ DEPOSIT REFUND MODAL ══════════ -->
+<?php if ($canCreateLease): ?>
+<div id="depositRefundModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" style="max-width:600px;">
+        <button onclick="closeModal('depositRefundModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-1">Deposit Refund</h2>
+        <p class="text-slate-400 text-sm font-medium mb-6" id="dep_subtitle">Schedule deposit refund and record deductions</p>
+
+        <form action="actions/lease_actions.php" method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="process_deposit">
+            <input type="hidden" name="lease_id" id="dep_lease_id">
+            <input type="hidden" name="tenant_id" id="dep_tenant_id">
+            <input type="hidden" name="total_deposit" id="dep_total_deposit_hidden">
+            <input type="hidden" name="net_refund" id="dep_net_refund_hidden">
+
+            <!-- Tenant + Deposit Summary -->
+            <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 space-y-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white font-black text-sm shrink-0" id="dep_avatar"></div>
+                    <div>
+                        <p class="font-black text-slate-900 dark:text-white text-sm" id="dep_tenant_name"></p>
+                        <p class="text-[11px] text-slate-400" id="dep_unit_label"></p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-4 gap-2 pt-1">
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-center">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Unit Dep.</p>
+                        <p class="text-xs font-black text-slate-700 dark:text-slate-200" id="dep_unit_dep"></p>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-center">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Water Dep.</p>
+                        <p class="text-xs font-black text-slate-700 dark:text-slate-200" id="dep_water_dep"></p>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-center">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Elec. Dep.</p>
+                        <p class="text-xs font-black text-slate-700 dark:text-slate-200" id="dep_elec_dep"></p>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-center">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Goodwill</p>
+                        <p class="text-xs font-black text-slate-700 dark:text-slate-200" id="dep_goodwill"></p>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Deposits Held</span>
+                    <span class="font-black text-slate-900 dark:text-white" id="dep_total_display"></span>
+                </div>
+            </div>
+
+            <!-- Deductions -->
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Deductions from Deposit</p>
+                <div class="space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Rent Arrears</label>
+                            <input type="number" name="deduct_arrears" id="dep_ded_arrears" min="0" step="0.01" value="0"
+                                oninput="recalcDeposit()" class="form-input text-sm py-2.5">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Maintenance / Repairs</label>
+                            <input type="number" name="deduct_maintenance" id="dep_ded_maint" min="0" step="0.01" value="0"
+                                oninput="recalcDeposit()" class="form-input text-sm py-2.5">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Cleaning</label>
+                            <input type="number" name="deduct_cleaning" id="dep_ded_clean" min="0" step="0.01" value="0"
+                                oninput="recalcDeposit()" class="form-input text-sm py-2.5">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Damages</label>
+                            <input type="number" name="deduct_damages" id="dep_ded_damages" min="0" step="0.01" value="0"
+                                oninput="recalcDeposit()" class="form-input text-sm py-2.5">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Other Deductions</label>
+                            <input type="number" name="deduct_other" id="dep_ded_other" min="0" step="0.01" value="0"
+                                oninput="recalcDeposit()" class="form-input text-sm py-2.5">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Deduction Notes</label>
+                            <input type="text" name="deduct_notes" id="dep_ded_notes" placeholder="e.g. broken window, 3 months arrears"
+                                class="form-input text-sm py-2.5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Net Refund Summary -->
+            <div class="p-4 rounded-2xl border-2 border-accent-green/20 bg-accent-green/5 flex items-center justify-between">
+                <div>
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Deductions</p>
+                    <p class="font-black text-red-500 text-lg" id="dep_total_ded">KSh 0</p>
+                </div>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-300"><path d="M5 12h14"/></svg>
+                <div class="text-right">
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Refund to Tenant</p>
+                    <p class="font-black text-accent-green text-2xl" id="dep_net_refund">KSh 0</p>
+                </div>
+            </div>
+
+            <!-- Refund Schedule -->
+            <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Refund Schedule</p>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Refund Date</label>
+                        <input type="date" name="scheduled_date" id="dep_sched_date" class="form-input text-sm py-2.5"
+                            value="<?php echo date('Y-m-d', strtotime('+14 days')); ?>">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Payment Method</label>
+                        <select name="refund_method" class="form-input text-sm py-2.5">
+                            <option>Bank Transfer</option>
+                            <option>M-Pesa</option>
+                            <option>Cash</option>
+                            <option>Check</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1.5 sm:col-span-2">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Reference / Notes</label>
+                        <input type="text" name="refund_reference" placeholder="Bank ref, M-Pesa no., etc." class="form-input text-sm py-2.5">
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-green w-full justify-center py-3.5 font-black">Save Deposit Refund Schedule →</button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- Embed lease data for JS deposit modal -->
+<?php if ($canCreateLease):
+$_leaseDepData = [];
+foreach ($leases as $l) {
+    $_leaseDepData[$l['id']] = [
+        'tenant_name'         => $l['tenant_name']         ?? '',
+        'tenant_id'           => $l['tenant_id_val']       ?? $l['tenant_id'] ?? '',
+        'unit_number'         => $l['unit_number']         ?? '—',
+        'deposit_amount'      => (float)($l['deposit_amount']      ?? 0),
+        'water_deposit'       => (float)($l['water_deposit']       ?? 0),
+        'electricity_deposit' => (float)($l['electricity_deposit'] ?? 0),
+        'goodwill'            => (float)($l['goodwill']            ?? 0),
+    ];
+}
+// Merge existing deposit records for pre-fill
+$_existingDep = $depositsByLease;
+?>
+<script>
+const _leaseDepData  = <?php echo json_encode($_leaseDepData,  JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
+const _existingDep   = <?php echo json_encode($_existingDep,   JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
+const _depCurrency   = '<?php echo addslashes($currency); ?>';
+
+function fmt(v) { return _depCurrency + ' ' + parseFloat(v||0).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function openDepositModal(leaseId) {
+    const d = _leaseDepData[leaseId];
+    if (!d) return;
+
+    // Totals
+    const unitDep  = d.deposit_amount;
+    const waterDep = d.water_deposit;
+    const elecDep  = d.electricity_deposit;
+    const gwill    = d.goodwill;
+    const total    = unitDep + waterDep + elecDep + gwill;
+
+    // Populate header
+    document.getElementById('dep_lease_id').value         = leaseId;
+    document.getElementById('dep_tenant_id').value        = d.tenant_id;
+    document.getElementById('dep_total_deposit_hidden').value = total.toFixed(2);
+    document.getElementById('dep_avatar').textContent     = (d.tenant_name[0]||'?').toUpperCase();
+    document.getElementById('dep_tenant_name').textContent= d.tenant_name;
+    document.getElementById('dep_unit_label').textContent = 'Unit ' + d.unit_number;
+    document.getElementById('dep_subtitle').textContent   = 'Lease: ' + leaseId.slice(0,8).toUpperCase();
+    document.getElementById('dep_unit_dep').textContent   = fmt(unitDep);
+    document.getElementById('dep_water_dep').textContent  = fmt(waterDep);
+    document.getElementById('dep_elec_dep').textContent   = fmt(elecDep);
+    document.getElementById('dep_goodwill').textContent   = fmt(gwill);
+    document.getElementById('dep_total_display').textContent = fmt(total);
+
+    // Pre-fill from existing record or defaults
+    const ex = _existingDep[leaseId];
+    document.getElementById('dep_ded_arrears').value  = ex ? ex.deduct_arrears  : 0;
+    document.getElementById('dep_ded_maint').value    = ex ? ex.deduct_maintenance : 0;
+    document.getElementById('dep_ded_clean').value    = ex ? ex.deduct_cleaning  : 0;
+    document.getElementById('dep_ded_damages').value  = ex ? ex.deduct_damages   : 0;
+    document.getElementById('dep_ded_other').value    = ex ? ex.deduct_other     : 0;
+    document.getElementById('dep_ded_notes').value    = ex ? (ex.deduct_notes||'') : '';
+    if (ex && ex.scheduled_date) document.getElementById('dep_sched_date').value = ex.scheduled_date;
+
+    recalcDeposit();
+    openModal('depositRefundModal');
+}
+
+function recalcDeposit() {
+    const total   = parseFloat(document.getElementById('dep_total_deposit_hidden').value) || 0;
+    const arrears = parseFloat(document.getElementById('dep_ded_arrears').value)  || 0;
+    const maint   = parseFloat(document.getElementById('dep_ded_maint').value)    || 0;
+    const clean   = parseFloat(document.getElementById('dep_ded_clean').value)    || 0;
+    const damages = parseFloat(document.getElementById('dep_ded_damages').value)  || 0;
+    const other   = parseFloat(document.getElementById('dep_ded_other').value)    || 0;
+
+    const totalDed = arrears + maint + clean + damages + other;
+    const net      = Math.max(0, total - totalDed);
+
+    document.getElementById('dep_total_ded').textContent   = fmt(totalDed);
+    document.getElementById('dep_net_refund').textContent  = fmt(net);
+    document.getElementById('dep_net_refund_hidden').value = net.toFixed(2);
+}
+
+// Auto-open modal if redirected from termination
+<?php if ($depositLeaseData): ?>
+window.addEventListener('DOMContentLoaded', function() {
+    // Pre-fill arrears from server data
+    _leaseDepData[<?php echo json_encode($depositLeaseId); ?>] = _leaseDepData[<?php echo json_encode($depositLeaseId); ?>] || {};
+    openDepositModal(<?php echo json_encode($depositLeaseId); ?>);
+    // Set arrears to server-computed value
+    document.getElementById('dep_ded_arrears').value = <?php echo (float)($depositLeaseData['arrears'] ?? 0); ?>;
+    recalcDeposit();
+});
+<?php endif; ?>
+</script>
+<?php endif; ?>
 
 <script>
 function setUploadLeaseId(id) {
