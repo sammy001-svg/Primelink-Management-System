@@ -5,6 +5,9 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/corrections.php';
+
+ensureCorrectionSchema($pdo);
 
 $currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 $pageTitle = "My Payments";
@@ -144,11 +147,17 @@ include __DIR__ . '/includes/sidebar.php';
                     <th class="text-right">Receipt</th>
                 </tr></thead>
                 <tbody>
-                <?php foreach ($transactions as $tx): ?>
+                <?php foreach ($transactions as $tx):
+                    $txRev = (int)($tx['revision_no'] ?? 0);
+                ?>
                 <tr>
                     <td class="font-medium text-slate-500 whitespace-nowrap"><?php echo date('M j, Y', strtotime($tx['transaction_date'])); ?></td>
                     <td>
                         <p class="font-bold text-sm"><?php echo htmlspecialchars($tx['transaction_type']); ?></p>
+                        <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars(docNumber(DOC_RECEIPT, $tx['id'], $txRev)); ?></p>
+                        <?php if ($txRev > 0): ?>
+                        <div class="mt-1"><?php echo correctedBadge($txRev); ?></div>
+                        <?php endif; ?>
                         <?php if (!empty($tx['description'])): ?>
                         <p class="text-[10px] text-slate-400 truncate max-w-xs"><?php echo htmlspecialchars($tx['description']); ?></p>
                         <?php endif; ?>

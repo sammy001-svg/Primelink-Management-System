@@ -5,6 +5,9 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/corrections.php';
+
+ensureCorrectionSchema($pdo);
 
 $currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 $pageTitle = "My Invoices";
@@ -53,7 +56,7 @@ if ($tenantId) {
     }
 
     $stmt = $pdo->prepare("
-        SELECT i.id, i.invoice_type, i.amount, i.due_date, i.status, i.created_at,
+        SELECT i.id, i.invoice_type, i.amount, i.due_date, i.status, i.created_at, i.revision_no,
                u.unit_number, p.title as property_title,
                COALESCE(SUM(tx.amount), 0) as paid_amount
         FROM invoices i
@@ -175,6 +178,7 @@ $typeBadge   = ['Rent' => 'badge-blue', 'Water' => 'bg-cyan-100 text-cyan-700 da
                 </tr></thead>
                 <tbody>
                 <?php foreach ($invoices as $inv):
+                    $invRev   = (int)($inv['revision_no'] ?? 0);
                     $badge    = $statusBadge[$inv['status']] ?? 'badge';
                     $typeCls  = $typeBadge[$inv['invoice_type']] ?? 'badge';
                     $isPastDue = strtotime($inv['due_date']) < time();
@@ -183,7 +187,13 @@ $typeBadge   = ['Rent' => 'badge-blue', 'Water' => 'bg-cyan-100 text-cyan-700 da
                 <tr>
                     <td>
                         <span class="badge <?php echo $typeCls; ?>"><?php echo $inv['invoice_type']; ?></span>
-                        <p class="text-[10px] text-slate-400 mt-1"><?php echo date('d M Y', strtotime($inv['created_at'])); ?></p>
+                        <p class="text-[10px] text-slate-400 mt-1">
+                            <?php echo htmlspecialchars(docNumber(DOC_INVOICE, $inv['id'], $invRev)); ?>
+                            &middot; <?php echo date('d M Y', strtotime($inv['created_at'])); ?>
+                        </p>
+                        <?php if ($invRev > 0): ?>
+                        <div class="mt-1"><?php echo correctedBadge($invRev); ?></div>
+                        <?php endif; ?>
                     </td>
                     <td class="text-sm text-slate-500 font-medium">
                         <?php if ($inv['property_title']): ?>

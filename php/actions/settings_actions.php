@@ -30,6 +30,7 @@ if ($action === 'save_invoice') {
     setSettings($pdo, [
         'currency_symbol'     => trim($_POST['currency_symbol']  ?? 'KSh'),
         'invoice_prefix'      => strtoupper(trim($_POST['invoice_prefix']  ?? 'INV')),
+        'receipt_prefix'      => strtoupper(trim($_POST['receipt_prefix']  ?? 'RCT')),
         'invoice_due_days'    => (string)(int)($_POST['invoice_due_days'] ?? 7),
         'invoice_footer'      => trim($_POST['invoice_footer']   ?? ''),
         'fiscal_year_start'   => (string)max(1, min(12, (int)($_POST['fiscal_year_start'] ?? 1))),

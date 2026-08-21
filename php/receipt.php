@@ -7,6 +7,9 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/includes/corrections.php';
+ensureCorrectionSchema($pdo);
+
 $transaction_id = $_GET['id'] ?? '';
 if (empty($transaction_id)) {
     die("Transaction ID required.");
@@ -56,13 +59,17 @@ if ($_SESSION['role'] === 'tenant') {
         die("Unauthorized access.");
     }
 }
+
+$isStaff  = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
+$revision = (int)($txn['revision_no'] ?? 0);
+$docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Receipt - <?php echo $txn['id']; ?></title>
+    <title><?php echo htmlspecialchars($docNo); ?><?php echo $revision > 0 ? ' (Corrected)' : ''; ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @media print {
@@ -72,8 +79,14 @@ if ($_SESSION['role'] === 'tenant') {
         }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
-    <div class="max-w-2xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden receipt-card">
+<body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4">
+    <?php echo renderCorrectionWatermark($txn); ?>
+
+    <?php if ($revision > 0): ?>
+    <div class="max-w-2xl w-full mb-4"><?php echo renderCorrectionBanner($txn, DOC_RECEIPT); ?></div>
+    <?php endif; ?>
+
+    <div class="max-w-2xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden receipt-card relative z-[2]">
         <!-- Receipt Header -->
         <div class="bg-slate-900 text-white p-8 lg:p-10 flex justify-between items-center">
             <div>
@@ -82,7 +95,10 @@ if ($_SESSION['role'] === 'tenant') {
             </div>
             <div class="text-right">
                 <p class="text-xs font-bold text-slate-400 uppercase">Receipt No</p>
-                <p class="font-mono text-sm"><?php echo substr($txn['id'], 0, 8); ?></p>
+                <p class="font-mono text-sm <?php echo $revision > 0 ? 'text-red-400' : ''; ?>"><?php echo htmlspecialchars($docNo); ?></p>
+                <?php if ($revision > 0): ?>
+                <p class="text-[9px] font-black text-red-400 uppercase tracking-widest mt-0.5">Corrected copy</p>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -157,5 +173,9 @@ if ($_SESSION['role'] === 'tenant') {
             </div>
         </div>
     </div>
+
+    <?php if ($revision > 0): ?>
+    <div class="max-w-2xl w-full relative z-[2]"><?php echo renderRevisionHistory($pdo, DOC_RECEIPT, $txn['id'], $isStaff); ?></div>
+    <?php endif; ?>
 </body>
 </html>

@@ -59,6 +59,9 @@ foreach ([
     try { $pdo->exec($_ddl); } catch (PDOException $_e) {}
 }
 
+require_once __DIR__ . '/includes/corrections.php';
+ensureCorrectionSchema($pdo);
+
 // ── Invoices ─────────────────────────────────────────────────────
 $stmt = $pdo->prepare("
     SELECT i.*
@@ -611,11 +614,15 @@ include __DIR__ . '/includes/sidebar.php';
                         <?php else: ?>
                         <?php foreach ($invoices as $inv): ?>
                         <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                            <?php $invRev = (int)($inv['revision_no'] ?? 0); ?>
                             <td class="px-5 py-3">
-                                <p class="text-xs font-black text-slate-900 dark:text-white">INV-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?></p>
+                                <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars(docNumber(DOC_INVOICE, $inv['id'], $invRev)); ?></p>
                                 <p class="text-[10px] text-slate-400"><?php echo date('M d, Y', strtotime($inv['created_at'])); ?></p>
                                 <?php if (!empty($inv['batch_id'])): ?>
                                 <p class="text-[9px] text-slate-300">Bundle</p>
+                                <?php endif; ?>
+                                <?php if ($invRev > 0): ?>
+                                <div class="mt-1"><?php echo correctedBadge($invRev); ?></div>
                                 <?php endif; ?>
                             </td>
                             <td class="px-5 py-3 text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($inv['invoice_type'] ?? 'Rent'); ?></td>

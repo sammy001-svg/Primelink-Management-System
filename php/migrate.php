@@ -158,7 +158,7 @@ $migrations = [
     // Add garbage_fee to properties table
     "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0",
     // Ensure invoices.status supports Overdue (in case column was created before this value was added)
-    "ALTER TABLE `invoices` MODIFY COLUMN `status` ENUM('Unpaid','Paid','Overdue') NOT NULL DEFAULT 'Unpaid'",
+    "ALTER TABLE `invoices` MODIFY COLUMN `status` ENUM('Unpaid','Paid','Partial','Overdue','Cancelled') NOT NULL DEFAULT 'Unpaid'",
     // Add status to users table
     "ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `status` ENUM('Active','Inactive') NOT NULL DEFAULT 'Active' AFTER `role`",
     // Audit log table
@@ -175,7 +175,35 @@ $migrations = [
         INDEX `idx_module` (`module`),
         INDEX `idx_user`   (`user_id`),
         INDEX `idx_created`(`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // ── Document corrections: posted invoices/receipts are revised, never overwritten ──
+    "CREATE TABLE IF NOT EXISTS `document_revisions` (
+        `id`              VARCHAR(36) PRIMARY KEY,
+        `doc_type`        VARCHAR(20)  NOT NULL,
+        `doc_id`          VARCHAR(36)  NOT NULL,
+        `revision_no`     INT          NOT NULL DEFAULT 1,
+        `reason`          TEXT         NULL,
+        `changes_json`    LONGTEXT     NULL,
+        `snapshot_json`   LONGTEXT     NULL,
+        `tenant_notified` TINYINT(1)   NOT NULL DEFAULT 0,
+        `notified_at`     DATETIME     NULL,
+        `changed_by`      VARCHAR(36)  NULL,
+        `changed_by_name` VARCHAR(255) NULL,
+        `ip_address`      VARCHAR(64)  NULL,
+        `created_at`      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_docrev_doc` (`doc_type`, `doc_id`),
+        INDEX `idx_docrev_date` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "ALTER TABLE `invoices`     ADD COLUMN IF NOT EXISTS `revision_no` INT NOT NULL DEFAULT 0",
+    "ALTER TABLE `invoices`     ADD COLUMN IF NOT EXISTS `last_corrected_at` DATETIME NULL",
+    "ALTER TABLE `invoices`     ADD COLUMN IF NOT EXISTS `last_correction_reason` TEXT NULL",
+    "ALTER TABLE `invoices`     ADD COLUMN IF NOT EXISTS `corrected_by` VARCHAR(36) NULL",
+    "ALTER TABLE `invoices`     ADD COLUMN IF NOT EXISTS `description` TEXT NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `revision_no` INT NOT NULL DEFAULT 0",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `last_corrected_at` DATETIME NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `last_correction_reason` TEXT NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `corrected_by` VARCHAR(36) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `reference_number` VARCHAR(255) NULL"
 ];
 
 $results = [];

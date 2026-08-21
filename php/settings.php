@@ -13,7 +13,7 @@ $pageTitle = "System Settings";
 
 $s = getSettings($pdo, [
     'company_name', 'company_email', 'company_phone', 'company_address', 'company_tagline', 'logo_url',
-    'currency_symbol', 'invoice_prefix', 'invoice_due_days', 'invoice_footer', 'fiscal_year_start', 'management_fee_rate',
+    'currency_symbol', 'invoice_prefix', 'receipt_prefix', 'invoice_due_days', 'invoice_footer', 'fiscal_year_start', 'management_fee_rate',
     'mpesa_shortcode', 'mpesa_consumer_key', 'mpesa_consumer_secret',
     'mpesa_passkey', 'mpesa_callback_url', 'mpesa_environment',
     'mail_driver', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
@@ -31,6 +31,7 @@ $defaults = [
     'company_tagline'       => 'Premium Property Management',
     'currency_symbol'       => 'KSh',
     'invoice_prefix'        => 'INV',
+    'receipt_prefix'        => 'RCT',
     'invoice_due_days'      => '7',
     'invoice_footer'        => 'For inquiries and payment confirmation, please contact us at the above details.',
     'fiscal_year_start'     => '1',
@@ -190,7 +191,13 @@ include __DIR__ . '/includes/sidebar.php';
                     <label class="field-label">Invoice Number Prefix</label>
                     <input type="text" name="invoice_prefix" value="<?php echo htmlspecialchars($s['invoice_prefix']); ?>"
                            class="field-input" placeholder="INV">
-                    <p class="text-[10px] text-slate-400 px-2">E.g. INV-2025-001</p>
+                    <p class="text-[10px] text-slate-400 px-2">E.g. INV-A1B2C3D4 &middot; corrected copies gain -R1, -R2 &hellip;</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="field-label">Receipt Number Prefix</label>
+                    <input type="text" name="receipt_prefix" value="<?php echo htmlspecialchars($s['receipt_prefix']); ?>"
+                           class="field-input" placeholder="RCT">
+                    <p class="text-[10px] text-slate-400 px-2">E.g. RCT-A1B2C3D4</p>
                 </div>
                 <div class="space-y-2">
                     <label class="field-label">Payment Due (days)</label>

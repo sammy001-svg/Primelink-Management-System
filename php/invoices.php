@@ -8,6 +8,7 @@ require_once __DIR__ . '/includes/auth.php';
 requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/corrections.php';
 $currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 $invPrefix = getSetting($pdo, 'invoice_prefix', 'INV');
 $pageTitle = 'Invoice Management';
@@ -17,11 +18,13 @@ try { $pdo->exec("ALTER TABLE invoices MODIFY COLUMN status ENUM('Unpaid','Paid'
 try { $pdo->exec("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS description TEXT NULL"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS description TEXT NULL"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_number VARCHAR(255) NULL"); } catch (PDOException $e) {}
+ensureCorrectionSchema($pdo);
 
 // ── Invoices with payment totals ──────────────────────────────────────
 $invoices = $pdo->query("
     SELECT
         i.id, i.amount, i.due_date, i.status, i.invoice_type, i.created_at, i.lease_id, i.description,
+        i.revision_no, i.last_corrected_at, i.last_correction_reason,
         t.id AS tenant_id, t.full_name AS tenant_name, t.phone AS tenant_phone,
         u.unit_number,
         p.title AS property_title, p.id AS property_id,
@@ -83,6 +86,8 @@ foreach ($invoices as $inv) {
         'unit'         => $inv['unit_number'] ?? '',
         'property'     => $inv['property_title'] ?? '',
         'description'  => $inv['description'] ?? '',
+        'revision_no'  => (int)($inv['revision_no'] ?? 0),
+        'doc_no_next'  => docNumber(DOC_INVOICE, $inv['id'], (int)($inv['revision_no'] ?? 0) + 1),
     ];
 }
 
@@ -119,8 +124,12 @@ $successMap = [
     'invoice_edited'   => 'Invoice corrected successfully.',
     'payment_edited'   => 'Payment receipt corrected successfully.',
 ];
-if (!empty($_GET['success'])) $flash    = $successMap[$_GET['success']] ?? 'Action completed.';
-if (!empty($_GET['error']))   $flashErr = htmlspecialchars(urldecode($_GET['error']));
+if (!empty($_GET['success'])) {
+    $raw   = urldecode((string)$_GET['success']);
+    $flash = $successMap[$_GET['success']] ?? (strlen($raw) > 20 ? $raw : 'Action completed.');
+}
+if (!empty($_GET['info']))    $flash    = urldecode((string)$_GET['info']);
+if (!empty($_GET['error']))   $flashErr = htmlspecialchars(urldecode((string)$_GET['error']));
 
 include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
@@ -279,6 +288,7 @@ $typeColors = [
                 </thead>
                 <tbody>
                     <?php foreach ($invoices as $inv):
+                        $invRev    = (int)($inv['revision_no'] ?? 0);
                         $balance   = (float)$inv['balance'];
                         $amtPaid   = (float)$inv['amount_paid'];
                         $isPaid    = $inv['status'] === 'Paid';
@@ -302,9 +312,12 @@ $typeColors = [
                         data-search="<?php echo strtolower(htmlspecialchars($inv['tenant_name'] . ' ' . $inv['unit_number'] . ' ' . $inv['invoice_type'] . ' ' . $invPrefix . '-' . substr($inv['id'], 0, 8))); ?>">
                         <td>
                             <a href="view_invoice.php?id=<?php echo $inv['id']; ?>" target="_blank" class="font-black text-slate-900 dark:text-white hover:text-accent-green transition-colors text-sm">
-                                <?php echo $invPrefix; ?>-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?>
+                                <?php echo htmlspecialchars(docNumber(DOC_INVOICE, $inv['id'], $invRev)); ?>
                             </a>
                             <div class="text-[10px] text-slate-400"><?php echo date('M j, Y', strtotime($inv['created_at'])); ?></div>
+                            <?php if ($invRev > 0): ?>
+                            <div class="mt-1"><?php echo correctedBadge($invRev); ?></div>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <a href="tenant_details.php?id=<?php echo $inv['tenant_id']; ?>" class="font-bold text-slate-900 dark:text-white hover:text-accent-green transition-colors">
@@ -387,7 +400,7 @@ $typeColors = [
                                 <?php endif; ?>
                                 <button onclick="openEditModal('<?php echo $inv['id']; ?>')"
                                     class="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-500 rounded-lg text-[10px] font-black uppercase transition-all whitespace-nowrap">
-                                    Edit
+                                    Correct
                                 </button>
                             </div>
                         </td>
@@ -594,6 +607,14 @@ $typeColors = [
             </div>
         </div>
 
+        <div id="ei_notice" class="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-2xl px-4 py-3 mb-4">
+            <p class="text-[11.5px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                This invoice has already been issued. Saving creates <strong id="ei_next_rev">a new revision</strong>,
+                stamps every copy as <strong>CORRECTED</strong>, and records the change on the audit trail.
+            </p>
+            <p id="ei_paid_warning" class="hidden text-[11.5px] text-amber-800 dark:text-amber-300 mt-1.5"></p>
+        </div>
+
         <form action="actions/invoice_actions.php" method="POST" class="space-y-4">
             <input type="hidden" name="action" value="edit_invoice">
             <input type="hidden" name="invoice_id" id="ei_invoice_id">
@@ -644,16 +665,23 @@ $typeColors = [
                 <textarea name="description" id="ei_description" rows="2" class="form-input resize-none" placeholder="Invoice notes or description…"></textarea>
             </div>
 
-            <div class="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 space-y-3 border border-slate-100 dark:border-slate-700/60">
-                <label class="flex items-center gap-3 cursor-pointer select-none">
-                    <input type="checkbox" name="notify_tenant" id="ei_notify" value="1" onchange="toggleEiReason(this.checked)"
-                        class="w-4 h-4 rounded border-slate-300 text-blue-500 accent-blue-500 cursor-pointer">
-                    <span class="text-sm font-bold text-slate-700 dark:text-slate-200">Email tenant a corrected invoice notification</span>
+            <div class="space-y-1.5">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">
+                    Reason for Correction * <span class="normal-case font-normal tracking-normal">(audit trail &amp; tenant notice)</span>
                 </label>
-                <div id="ei_reason_wrap" class="hidden space-y-1.5">
-                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Reason for Correction <span class="normal-case font-normal">(shown in email)</span></label>
-                    <textarea name="correction_reason" id="ei_reason" rows="2" class="form-input resize-none" placeholder="e.g. Incorrect amount entered, wrong due date, etc."></textarea>
-                </div>
+                <textarea name="correction_reason" id="ei_reason" rows="2" required minlength="5" class="form-input resize-none"
+                          placeholder="e.g. Water charge billed at the wrong meter reading."></textarea>
+            </div>
+
+            <div class="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/60">
+                <label class="flex items-center gap-3 cursor-pointer select-none">
+                    <input type="checkbox" name="notify_tenant" id="ei_notify" value="1" checked
+                        class="w-4 h-4 rounded border-slate-300 text-blue-500 accent-blue-500 cursor-pointer">
+                    <span class="text-sm font-bold text-slate-700 dark:text-slate-200">Issue the tenant a corrected invoice notice</span>
+                </label>
+                <p class="text-[11px] text-slate-400 mt-2 ml-7 leading-relaxed">
+                    Emails the tenant a CORRECTED invoice showing every change, and posts an in-app notification.
+                </p>
             </div>
 
             <button type="submit" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 mt-2">
@@ -728,14 +756,27 @@ function openEditModal(id) {
     document.getElementById('ei_amount').value       = inv.amount;
     document.getElementById('ei_due_date').value     = inv.due_date;
     document.getElementById('ei_description').value  = inv.description || '';
-    document.getElementById('ei_notify').checked     = false;
+    document.getElementById('ei_notify').checked     = true;
     document.getElementById('ei_reason').value       = '';
-    document.getElementById('ei_reason_wrap').classList.add('hidden');
-    openModal('editInvoiceModal');
-}
 
-function toggleEiReason(checked) {
-    document.getElementById('ei_reason_wrap').classList.toggle('hidden', !checked);
+    // Revision context — what this correction will produce
+    const nextRev = (inv.revision_no || 0) + 1;
+    document.getElementById('ei_next_rev').textContent = 'revision ' + nextRev + ' (' + inv.doc_no_next + ')';
+
+    // Already-receipted amounts set the floor for a correction
+    const paidWarn = document.getElementById('ei_paid_warning');
+    const amountEl = document.getElementById('ei_amount');
+    if (inv.amount_paid > 0) {
+        paidWarn.textContent = invCur + ' ' + inv.amount_paid.toLocaleString()
+            + ' has already been receipted against it — the amount cannot be reduced below this.';
+        paidWarn.classList.remove('hidden');
+        amountEl.min = inv.amount_paid;
+    } else {
+        paidWarn.classList.add('hidden');
+        amountEl.min = 1;
+    }
+
+    openModal('editInvoiceModal');
 }
 
 document.addEventListener('keydown', e => {
