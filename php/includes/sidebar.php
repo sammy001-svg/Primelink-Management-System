@@ -10,42 +10,44 @@ require_once __DIR__ . '/notify.php';
 $_unreadCount = getUnreadCount($pdo, $_SESSION['user_id'] ?? '');
 ?>
 <!-- ===== DESKTOP SIDEBAR ===== -->
-<aside id="mainSidebar" class="main-sidebar min-h-screen sticky top-0 hidden lg:flex flex-col bg-white dark:bg-slate-950 border-r border-slate-200/80 dark:border-slate-800/80" style="height:100vh;overflow-y:auto;overflow-x:hidden;">
+<aside id="mainSidebar" class="main-sidebar hidden lg:flex">
 
-    <!-- Logo -->
-    <div class="flex items-center gap-3 px-5 py-5 border-b border-slate-100 dark:border-slate-800/50 shrink-0">
-        <div class="w-9 h-9 bg-accent-green rounded-xl flex items-center justify-center text-slate-900 shadow-lg shadow-green-400/20 shrink-0">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <!-- Brand -->
+    <div class="flex items-center gap-2.5 px-4 shrink-0" style="height:52px;border-bottom:1px solid var(--border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style="background:var(--accent-green);color:#fff;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         </div>
-        <div class="sidebar-logo-text">
-            <h1 class="text-[16px] font-black tracking-tight text-slate-900 dark:text-white leading-none">PRIMELINK</h1>
-            <p class="text-[8px] font-black text-accent-green uppercase tracking-[0.22em]">Management</p>
+        <div class="sidebar-logo-text leading-tight min-w-0">
+            <p class="text-[13.5px] font-semibold tracking-tight truncate" style="color:var(--text)">Primelink</p>
+            <p class="text-[10.5px] truncate" style="color:var(--text-subtle)">Management</p>
         </div>
     </div>
 
     <!-- Navigation -->
-    <div class="flex-1 px-3 py-4 overflow-y-auto">
+    <div class="flex-1 px-2.5 py-3 overflow-y-auto">
         <?php include __DIR__ . '/sidebar_nav.php'; ?>
     </div>
 
     <!-- User footer -->
-    <div class="border-t border-slate-100 dark:border-slate-800/50 p-3 shrink-0">
-        <a href="profile.php" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all group cursor-pointer mb-1">
+    <div class="p-2.5 shrink-0" style="border-top:1px solid var(--border);">
+        <a href="profile.php" class="sidebar-link group">
             <div class="relative shrink-0">
-                <div class="w-8 h-8 rounded-xl bg-linear-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-black text-sm shadow-md">
+                <div class="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-semibold"
+                     style="background:var(--accent-green-light);color:var(--accent-green);">
                     <?php echo $userInitial; ?>
                 </div>
-                <span class="online-dot"></span>
             </div>
-            <div class="flex-1 min-w-0 sidebar-profile-info">
-                <p class="text-sm font-bold text-slate-900 dark:text-white truncate leading-tight"><?php echo htmlspecialchars($userName); ?></p>
-                <p class="text-[9px] text-slate-400 uppercase font-black tracking-wider"><?php echo ucfirst($role); ?></p>
+            <div class="flex-1 min-w-0 sidebar-profile-info leading-tight">
+                <p class="text-[12.5px] font-medium truncate" style="color:var(--text)"><?php echo htmlspecialchars($userName); ?></p>
+                <p class="text-[11px] truncate" style="color:var(--text-subtle)"><?php echo ucfirst($role); ?></p>
             </div>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-slate-300 dark:text-slate-600 group-hover:text-accent-green transition-colors shrink-0 sidebar-profile-info"><path d="m9 18 6-6-6-6"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 sidebar-profile-info" style="color:var(--text-subtle)"><path d="m9 18 6-6-6-6"/></svg>
         </a>
-        <a href="logout.php" class="flex items-center gap-3 px-3 py-2 rounded-xl text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 hover:text-red-500 transition-all font-bold text-xs">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
-            <span class="sidebar-footer-logout-text">Sign Out</span>
+        <a href="logout.php" class="sidebar-link">
+            <span class="sidebar-icon-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+            </span>
+            <span class="sidebar-footer-logout-text">Sign out</span>
         </a>
     </div>
 </aside>
@@ -77,19 +79,19 @@ function toggleSidebar() {
         <div class="topbar-left">
 
             <!-- Sidebar collapse (desktop) -->
-            <button onclick="toggleSidebar()" class="hidden lg:flex w-9 h-9 shrink-0 items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all tooltip-wrap" aria-label="Toggle sidebar">
+            <button onclick="toggleSidebar()" class="topbar-btn hidden lg:flex tooltip-wrap" aria-label="Toggle sidebar">
                 <span class="tooltip">Toggle sidebar</span>
                 <svg id="sidebarCollapseIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
             </button>
 
             <!-- Hamburger (mobile) -->
-            <button onclick="openMobileDrawer()" class="lg:hidden w-9 h-9 shrink-0 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-500" aria-label="Open menu">
+            <button onclick="openMobileDrawer()" class="topbar-btn lg:hidden" aria-label="Open menu">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
 
             <!-- Page title (mobile) -->
             <div class="lg:hidden flex-1 min-w-0">
-                <h2 class="text-base font-black text-slate-900 dark:text-white truncate"><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) : 'Dashboard'; ?></h2>
+                <h2 class="text-[14px] font-semibold truncate" style="color:var(--text)"><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) : 'Dashboard'; ?></h2>
             </div>
 
             <!-- Search (desktop) -->
@@ -97,12 +99,13 @@ function toggleSidebar() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input type="text" id="global-search-input" placeholder="Search tenants, properties… (Ctrl+K)"
                    autocomplete="off"
-                   class="w-full pl-10 pr-10 py-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-300 placeholder-slate-400 border-none focus:outline-none focus:ring-2 focus:ring-green-400/30 transition-all">
+                   class="global-search-input">
             <span id="global-search-spinner" class="hidden absolute right-3 top-1/2 -translate-y-1/2">
                 <svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
             </span>
             <div id="global-search-results"
-                 class="hidden absolute top-full mt-2 left-0 right-0 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden max-h-[400px] overflow-y-auto">
+                 class="hidden absolute top-full mt-1.5 left-0 right-0 z-50 overflow-hidden max-h-[400px] overflow-y-auto"
+                 style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow-overlay);">
             </div>
         </div>
         <script>
@@ -133,18 +136,19 @@ function toggleSidebar() {
         <!-- Right Actions -->
         <div class="topbar-right">
             <!-- Dark mode toggle -->
-            <button onclick="toggleDarkMode()" class="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all tooltip-wrap" aria-label="Toggle theme">
+            <button onclick="toggleDarkMode()" class="topbar-btn tooltip-wrap" aria-label="Toggle theme">
                 <span class="tooltip">Toggle theme</span>
                 <svg class="dark:hidden" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                 <svg class="hidden dark:block" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             </button>
 
             <!-- Notifications -->
-            <a href="notifications.php" class="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all relative tooltip-wrap" aria-label="Notifications">
+            <a href="notifications.php" class="topbar-btn relative tooltip-wrap" aria-label="Notifications">
                 <span class="tooltip">Notifications</span>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                 <?php if ($_unreadCount > 0): ?>
-                <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 leading-none"><?php echo $_unreadCount > 99 ? '99+' : $_unreadCount; ?></span>
+                <span class="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] text-[9.5px] font-medium rounded-full flex items-center justify-center px-1 leading-none"
+                      style="background:var(--danger);color:#fff;"><?php echo $_unreadCount > 99 ? '99+' : $_unreadCount; ?></span>
                 <?php else: ?>
                 <span class="notif-dot"></span>
                 <?php endif; ?>
@@ -154,14 +158,14 @@ function toggleSidebar() {
             <!-- Quick Create (+) -->
             <div class="quick-create-wrap">
                 <button onclick="toggleQuickCreate()" id="qcBtn"
-                    class="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:scale-105 hover:shadow-lg transition-all tooltip-wrap"
+                    class="topbar-btn tooltip-wrap" style="background:var(--accent-green);color:#fff;border-color:var(--accent-green);"
                     aria-label="Quick create">
                     <span class="tooltip">Quick Create</span>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
                 <div id="quickCreateMenu" class="quick-create-menu">
                     <div class="px-4 pt-3 pb-2">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Quick Create</p>
+                        <p class="section-label">Quick create</p>
                     </div>
                     <a href="properties.php?action=new" onclick="closeQuickCreate()">
                         <span class="qc-icon bg-blue-50 dark:bg-blue-900/30 text-blue-500"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/></svg></span>

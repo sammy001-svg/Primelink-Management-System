@@ -127,7 +127,7 @@ if ($user_role === 'tenant') {
 
 <?php foreach ($nav_sections as $section): ?>
 <div class="mb-5">
-    <p class="nav-section-title text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] px-3 mb-1.5"><?php echo $section['title']; ?></p>
+    <p class="nav-section-title"><?php echo $section['title']; ?></p>
     <div class="space-y-0.5">
         <?php foreach ($section['links'] as $link):
             $isActive     = isset($link['href']) && $current_page === $link['href'];
@@ -144,18 +144,18 @@ if ($user_role === 'tenant') {
                 <button onclick="toggleSubMenu(this)"
                     class="w-full sidebar-link <?php echo $isParentActive ? 'active' : ''; ?> flex justify-between items-center"
                     data-label="<?php echo htmlspecialchars($link['label']); ?>">
-                    <div class="flex items-center gap-3 min-w-0">
-                        <span class="sidebar-icon-wrap <?php echo $isParentActive ? 'text-white dark:text-slate-900' : 'text-slate-400'; ?>"><?php echo $link['icon']; ?></span>
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <span class="sidebar-icon-wrap"><?php echo $link['icon']; ?></span>
                         <span class="nav-label truncate"><?php echo $link['label']; ?></span>
                     </div>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="sidebar-submenu-caret shrink-0 transition-transform <?php echo $isParentActive ? 'rotate-180' : ''; ?>"><path d="m6 9 6 6 6-6"/></svg>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="sidebar-submenu-caret shrink-0 <?php echo $isParentActive ? 'open' : ''; ?>"><path d="m9 18 6-6-6-6"/></svg>
                 </button>
-                <div class="sidebar-sub-links <?php echo $isParentActive ? '' : 'hidden'; ?> pl-[43px] pr-2 space-y-0.5 pt-1 pb-1">
+                <div class="sidebar-sub-links <?php echo $isParentActive ? '' : 'hidden'; ?> pt-0.5 pb-1">
                     <?php foreach ($link['sub_links'] as $sub):
                         $isSubActive = $current_page === $sub['href'];
                     ?>
                         <a href="<?php echo $sub['href']; ?>"
-                           class="block py-2 px-3 text-[12px] font-bold rounded-lg transition-colors <?php echo $isSubActive ? 'text-accent-green bg-green-50 dark:bg-green-900/10' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50'; ?>">
+                           class="sidebar-link <?php echo $isSubActive ? 'active' : ''; ?>">
                             <?php echo $sub['label']; ?>
                         </a>
                     <?php endforeach; ?>
@@ -164,7 +164,7 @@ if ($user_role === 'tenant') {
                 <a href="<?php echo $link['href']; ?>"
                    class="sidebar-link <?php echo $isActive ? 'active' : ''; ?>"
                    data-label="<?php echo htmlspecialchars($link['label']); ?>">
-                    <span class="sidebar-icon-wrap <?php echo $isActive ? 'text-white dark:text-slate-900' : 'text-slate-400'; ?>"><?php echo $link['icon']; ?></span>
+                    <span class="sidebar-icon-wrap"><?php echo $link['icon']; ?></span>
                     <span class="nav-label"><?php echo $link['label']; ?></span>
                 </a>
             <?php endif; ?>

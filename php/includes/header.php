@@ -61,15 +61,52 @@ $_crumb     = $_breadcrumbMap[$_curPage] ?? [isset($pageTitle) ? $pageTitle : uc
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="<?php echo str_repeat('../', substr_count(basename($_SERVER['PHP_SELF']), '/')) ?>css/style.css">
     <script>
+        // The page markup expresses *intent* ("this is emphasised"); the design
+        // system decides what emphasis actually looks like. Retuning the scale
+        // here calms ~2,400 font-black and ~1,300 tracking-widest utilities at
+        // once, instead of editing every page. 900-weight text everywhere was
+        // the main reason the old UI had no hierarchy.
         tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: { 'accent-green': '#22c55e' },
+                    colors: {
+                        'accent-green':  '#16a34a',
+                        'accent-orange': '#b45309',
+                    },
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        heading: ['Outfit', 'sans-serif'],
-                    }
+                        sans:    ['Inter', 'system-ui', 'sans-serif'],
+                        heading: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    fontWeight: {
+                        normal:    '400',
+                        medium:    '500',
+                        semibold:  '600',
+                        bold:      '600',
+                        extrabold: '600',
+                        black:     '600',
+                    },
+                    letterSpacing: {
+                        tight:   '-0.018em',
+                        normal:  '0',
+                        wide:    '0.012em',
+                        wider:   '0.022em',
+                        widest:  '0.035em',
+                    },
+                    borderRadius: {
+                        lg:  '8px',
+                        xl:  '9px',
+                        '2xl': '10px',
+                        '3xl': '12px',
+                    },
+                    boxShadow: {
+                        sm:  '0 1px 2px rgba(16,24,40,0.04)',
+                        DEFAULT: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',
+                        md:  '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',
+                        lg:  '0 2px 6px rgba(16,24,40,0.06)',
+                        xl:  '0 8px 20px -6px rgba(16,24,40,0.12)',
+                        '2xl': '0 12px 32px -8px rgba(16,24,40,0.18)',
+                    },
                 }
             }
         };
@@ -80,19 +117,19 @@ $_crumb     = $_breadcrumbMap[$_curPage] ?? [isset($pageTitle) ? $pageTitle : uc
         })();
     </script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 min-h-screen font-sans antialiased selection:bg-green-300/30">
+<body class="min-h-screen font-sans antialiased">
 
 <!-- ===== MOBILE DRAWER ===== -->
 <div class="mobile-drawer" id="mobileDrawer" onclick="closeMobileDrawer(event)">
     <div class="drawer-overlay"></div>
     <div class="drawer-panel" id="drawerPanel">
-        <div class="flex items-center gap-3 mb-8 px-2">
-            <div class="w-9 h-9 bg-accent-green rounded-xl flex items-center justify-center text-slate-900 shadow-lg">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <div class="flex items-center gap-2.5 mb-5 px-1.5">
+            <div class="w-7 h-7 bg-accent-green rounded-lg flex items-center justify-center text-white shrink-0">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             </div>
-            <div>
-                <h1 class="text-[16px] font-black tracking-tight text-slate-900 dark:text-white leading-none">PRIMELINK</h1>
-                <p class="text-[8px] font-black text-accent-green uppercase tracking-[0.22em]">Management</p>
+            <div class="leading-tight">
+                <p class="text-[13.5px] font-semibold tracking-tight" style="color:var(--text)">Primelink</p>
+                <p class="text-[10.5px]" style="color:var(--text-subtle)">Management</p>
             </div>
         </div>
         <?php include __DIR__ . '/sidebar_nav.php'; ?>
