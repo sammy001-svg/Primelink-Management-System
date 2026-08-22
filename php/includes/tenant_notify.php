@@ -332,6 +332,9 @@ function _paymentHtml(PDO $pdo, string $unit = ''): string {
  *     'email_checked' => bool (default true),
  *     'sms_checked'   => bool (default false),
  *     'sms_preview'   => sample SMS body, for the length/cost hint,
+ *     'target_label'  => used when the recipient is only known at submit time
+ *                        (e.g. a modal shared across many rows). Both channels
+ *                        stay enabled and the server reports per-tenant gaps.
  * ]
  */
 function renderNotifyChannels(PDO $pdo, array $opts = []): string {
@@ -347,9 +350,13 @@ function renderNotifyChannels(PDO $pdo, array $opts = []): string {
     $smsConfigured = smsIsConfigured($pdo);
     $smsOn         = smsIsActive($pdo);
     $phoneOk       = $phone === '' ? null : (normalizePhone($phone) !== null);
+    $label         = trim((string)($opts['target_label'] ?? ''));
 
     // ── Email row ─────────────────────────────────────────────────────
-    if ($many) {
+    if ($label !== '') {
+        $emailTarget = htmlspecialchars($label);
+        $emailWarn   = '';
+    } elseif ($many) {
         $emailTarget = $recipients . ' tenants with an email address on file';
         $emailWarn   = '';
     } elseif ($email !== '') {
@@ -369,6 +376,9 @@ function renderNotifyChannels(PDO $pdo, array $opts = []): string {
         $smsTarget = 'SMS sending is switched off in Settings';
         $smsWarn   = 'disabled';
         $smsChecked = '';
+    } elseif ($label !== '') {
+        $smsTarget = htmlspecialchars($label);
+        $smsWarn   = '';
     } elseif ($many) {
         $smsTarget = $recipients . ' tenants with a valid phone number';
         $smsWarn   = '';

@@ -9,6 +9,7 @@ requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
+require_once __DIR__ . '/includes/tenant_notify.php';
 $currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 $invPrefix = getSetting($pdo, 'invoice_prefix', 'INV');
 $pageTitle = 'Invoice Management';
@@ -673,16 +674,13 @@ $typeColors = [
                           placeholder="e.g. Water charge billed at the wrong meter reading."></textarea>
             </div>
 
-            <div class="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/60">
-                <label class="flex items-center gap-3 cursor-pointer select-none">
-                    <input type="checkbox" name="notify_tenant" id="ei_notify" value="1" checked
-                        class="w-4 h-4 rounded border-slate-300 text-blue-500 accent-blue-500 cursor-pointer">
-                    <span class="text-sm font-bold text-slate-700 dark:text-slate-200">Issue the tenant a corrected invoice notice</span>
-                </label>
-                <p class="text-[11px] text-slate-400 mt-2 ml-7 leading-relaxed">
-                    Emails the tenant a CORRECTED invoice showing every change, and posts an in-app notification.
-                </p>
-            </div>
+<?php
+            echo renderNotifyChannels($pdo, [
+                'target_label'  => 'The tenant on this invoice',
+                'email_checked' => true,
+                'sms_checked'   => true,
+            ]);
+            ?>
 
             <button type="submit" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 mt-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -756,7 +754,6 @@ function openEditModal(id) {
     document.getElementById('ei_amount').value       = inv.amount;
     document.getElementById('ei_due_date').value     = inv.due_date;
     document.getElementById('ei_description').value  = inv.description || '';
-    document.getElementById('ei_notify').checked     = true;
     document.getElementById('ei_reason').value       = '';
 
     // Revision context — what this correction will produce

@@ -203,7 +203,25 @@ $migrations = [
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `last_corrected_at` DATETIME NULL",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `last_correction_reason` TEXT NULL",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `corrected_by` VARCHAR(36) NULL",
-    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `reference_number` VARCHAR(255) NULL"
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `reference_number` VARCHAR(255) NULL",
+    // ── SMS delivery log (Shanfix Bulk SMS) ──
+    "CREATE TABLE IF NOT EXISTS `sms_log` (
+        `id`           VARCHAR(36) PRIMARY KEY,
+        `tenant_id`    VARCHAR(36)   NULL,
+        `phone`        VARCHAR(20)   NULL,
+        `message`      TEXT          NULL,
+        `parts`        INT           NOT NULL DEFAULT 1,
+        `status`       VARCHAR(20)   NOT NULL DEFAULT 'Pending',
+        `provider_ref` VARCHAR(120)  NULL,
+        `units`        DECIMAL(10,4) NULL,
+        `error`        TEXT          NULL,
+        `context`      VARCHAR(60)   NULL,
+        `sent_by`      VARCHAR(36)   NULL,
+        `created_at`   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_smslog_tenant`  (`tenant_id`),
+        INDEX `idx_smslog_created` (`created_at`),
+        INDEX `idx_smslog_status`  (`status`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
 ];
 
 $results = [];

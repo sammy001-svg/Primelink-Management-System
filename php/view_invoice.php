@@ -4,6 +4,7 @@ requireLogin();
 
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
+require_once __DIR__ . '/includes/tenant_notify.php';
 
 ensureCorrectionSchema($pdo);
 
@@ -305,17 +306,18 @@ $mpesaShortcode = getSetting($pdo, 'mpesa_shortcode', '—');
                     style="width:100%;box-sizing:border-box;border:1.5px solid #e2e8f0;border-radius:.75rem;padding:.6rem .85rem;font-size:.85rem;color:#0f172a;resize:none;outline:none;"
                     placeholder="e.g. Water charge billed at the wrong meter reading…"></textarea>
             </div>
-            <div style="background:#f8fafc;border-radius:1rem;padding:1rem;border:1px solid #e2e8f0;">
-                <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
-                    <input type="checkbox" name="notify_tenant" value="1" id="vi_notify" checked
-                        style="width:16px;height:16px;accent-color:#3b82f6;cursor:pointer;">
-                    <span style="font-size:.85rem;font-weight:700;color:#334155;">Issue the tenant a corrected invoice notice</span>
-                </label>
-                <p style="margin:.5rem 0 0 2.1rem;font-size:11px;color:#94a3b8;line-height:1.5;">
-                    Emails <?php echo htmlspecialchars((string)($invoice['tenant_email'] ?: 'the tenant')); ?> a CORRECTED invoice
-                    showing every change, and posts an in-app notification.
-                </p>
-            </div>
+<?php
+            echo renderNotifyChannels($pdo, [
+                'email'         => $invoice['tenant_email'] ?? '',
+                'phone'         => $invoice['tenant_phone'] ?? '',
+                'email_checked' => true,
+                'sms_checked'   => true,
+                'sms_preview'   => 'CORRECTED: Dear Tenant, your Invoice ' . $docNo . ' has been revised to '
+                                 . docNumber(DOC_INVOICE, $invoice['id'], $revision + 1)
+                                 . '. Amount is now ' . $currency . ' 00,000.00. This replaces the earlier copy. - '
+                                 . smsSignature($pdo),
+            ]);
+            ?>
             <button type="submit" style="width:100%;padding:.9rem;background:#2563eb;color:#fff;font-weight:900;font-size:.85rem;border:none;border-radius:.75rem;cursor:pointer;letter-spacing:.05em;text-transform:uppercase;">
                 Save Correction
             </button>
