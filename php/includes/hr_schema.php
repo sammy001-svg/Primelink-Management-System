@@ -281,6 +281,10 @@ function contractExpiryState(?string $endDate): array {
  * @param int $withinDays look-ahead window (default 60)
  */
 function expiringContracts(PDO $pdo, int $withinDays = 60): array {
+    // The cutoff is worked out here rather than in SQL so the query stays
+    // portable — no DATE_ADD/INTERVAL dialect to trip over.
+    $cutoff = date('Y-m-d', strtotime("+{$withinDays} days"));
+
     try {
         $stmt = $pdo->prepare("
             SELECT c.*, e.full_name, e.staff_no, e.status AS employee_status
@@ -288,11 +292,11 @@ function expiringContracts(PDO $pdo, int $withinDays = 60): array {
             JOIN employees e ON e.id = c.employee_id
             WHERE c.status = 'Active'
               AND c.end_date IS NOT NULL
-              AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
-              AND e.status <> 'Terminated'
+              AND c.end_date <= ?
+              AND (e.status IS NULL OR e.status <> 'Terminated')
             ORDER BY c.end_date ASC
         ");
-        $stmt->execute([$withinDays]);
+        $stmt->execute([$cutoff]);
         return $stmt->fetchAll();
     } catch (PDOException $e) {
         return [];
@@ -308,9 +312,9 @@ function expireLapsedContracts(PDO $pdo): int {
     try {
         $stmt = $pdo->prepare(
             "UPDATE employee_contracts SET status = 'Expired'
-             WHERE status = 'Active' AND end_date IS NOT NULL AND end_date < CURDATE()"
+             WHERE status = 'Active' AND end_date IS NOT NULL AND end_date < ?"
         );
-        $stmt->execute();
+        $stmt->execute([date('Y-m-d')]);
         return $stmt->rowCount();
     } catch (PDOException $e) {
         return 0;

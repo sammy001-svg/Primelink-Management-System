@@ -244,7 +244,45 @@ $migrations = [
         INDEX `idx_bankacc_method` (`default_for_method`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `bank_account_id` VARCHAR(36) NULL",
-    "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)"
+    "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)",
+    // ── HR: fuller staff records ──
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `alt_phone` VARCHAR(30) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `marital_status` VARCHAR(20) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `postal_address` VARCHAR(150) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `contract_start_date` DATE NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `work_location` VARCHAR(150) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `reports_to` VARCHAR(150) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `id_copy_url` VARCHAR(500) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `agreement_url` VARCHAR(500) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `photo_url` VARCHAR(500) NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `termination_date` DATE NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `termination_reason` TEXT NULL",
+    "ALTER TABLE `employees` ADD COLUMN IF NOT EXISTS `notes` TEXT NULL",
+    "ALTER TABLE `employee_contacts`  ADD COLUMN IF NOT EXISTS `alt_phone` VARCHAR(50) NULL",
+    "ALTER TABLE `employee_contacts`  ADD COLUMN IF NOT EXISTS `email` VARCHAR(150) NULL",
+    "ALTER TABLE `employee_documents` ADD COLUMN IF NOT EXISTS `expires_on` DATE NULL",
+    "ALTER TABLE `employee_warnings`  ADD COLUMN IF NOT EXISTS `expires_on` DATE NULL",
+    // ── HR: contract management ──
+    "CREATE TABLE IF NOT EXISTS `employee_contracts` (
+        `id`            VARCHAR(36) PRIMARY KEY,
+        `employee_id`   VARCHAR(36)   NOT NULL,
+        `contract_type` VARCHAR(30)   NOT NULL DEFAULT 'Contract',
+        `job_title`     VARCHAR(150)  NULL,
+        `start_date`    DATE          NOT NULL,
+        `end_date`      DATE          NULL,
+        `gross_salary`  DECIMAL(15,2) NULL,
+        `terms`         TEXT          NULL,
+        `file_path`     VARCHAR(500)  NULL,
+        `status`        VARCHAR(20)   NOT NULL DEFAULT 'Active',
+        `renewed_from`  VARCHAR(36)   NULL,
+        `ended_reason`  TEXT          NULL,
+        `created_by`    VARCHAR(36)   NULL,
+        `created_at`    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_empcontract_emp`    (`employee_id`),
+        INDEX `idx_empcontract_status` (`status`),
+        INDEX `idx_empcontract_end`    (`end_date`),
+        FOREIGN KEY (`employee_id`) REFERENCES `employees`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
 ];
 
 $results = [];

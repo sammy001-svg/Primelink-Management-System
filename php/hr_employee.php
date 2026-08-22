@@ -100,6 +100,13 @@ require_once __DIR__ . '/actions/bank_actions.php';
 $bankAccounts = $pdo->prepare("SELECT * FROM employee_bank_details WHERE employee_id=? ORDER BY is_primary DESC, created_at ASC");
 $bankAccounts->execute([$empId]); $bankAccounts = $bankAccounts->fetchAll();
 
+// Contracts
+require_once __DIR__ . '/includes/hr_schema.php';
+ensureHrSchema($pdo);
+expireLapsedContracts($pdo);
+$contracts      = getEmployeeContracts($pdo, $empId);
+$activeContract = getActiveContract($pdo, $empId);
+
 // Tax profile
 $taxProfile = $pdo->prepare("SELECT * FROM employee_tax_profile WHERE employee_id=?");
 $taxProfile->execute([$empId]);
@@ -142,6 +149,11 @@ $toastMap = [
     'bank_updated'       => 'Bank account updated.',
     'bank_deleted'       => 'Bank account removed.',
     'bank_primary_set'   => 'Primary bank account updated.',
+    'created'            => 'Employee registered.',
+    'contract_added'     => 'Contract recorded.',
+    'contract_renewed'   => 'Contract renewed — the previous term is kept on file.',
+    'contract_ended'     => 'Contract ended.',
+    'contract_deleted'   => 'Contract record removed.',
 ];
 
 $statusColors = [
@@ -204,6 +216,29 @@ include __DIR__ . '/includes/sidebar.php';
         </div>
     </div>
 
+    <?php
+    $missingDetails = employeeMissingDetails($pdo, $emp);
+    if ($missingDetails):
+    ?>
+    <!-- What is still outstanding on this file -->
+    <div class="glass-card p-5 border-l-4 border-amber-400">
+        <div class="flex items-start gap-3">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-amber-500 shrink-0 mt-0.5">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div>
+                <p class="text-xs font-black text-slate-900 dark:text-white mb-1">
+                    <?php echo count($missingDetails); ?> detail<?php echo count($missingDetails) === 1 ? '' : 's'; ?> still outstanding on this file
+                </p>
+                <p class="text-[11.5px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <?php echo htmlspecialchars(implode(' · ', $missingDetails)); ?>
+                </p>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Tabs -->
     <div class="flex gap-1 bg-slate-100 dark:bg-slate-800/50 rounded-2xl p-1 w-full overflow-x-auto">
         <?php
@@ -211,6 +246,7 @@ include __DIR__ . '/includes/sidebar.php';
             'profile'   => 'Profile',
             'documents' => 'Documents (' . count($docs) . ')',
             'contacts'  => 'Contacts (' . count($contacts) . ')',
+            'contracts' => 'Contracts (' . count($contracts) . ')',
             'salary'    => 'Salary History',
             'warnings'  => 'Warnings (' . count($warnings) . ')',
             'loans'     => 'Loans & Advances (' . count($loans) . ')',
@@ -278,6 +314,23 @@ include __DIR__ . '/includes/sidebar.php';
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Hometown</label>
                         <input type="text" name="hometown" value="<?php echo htmlspecialchars($emp['hometown'] ?? ''); ?>" placeholder="e.g. Kisumu" class="form-input w-full">
                     </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Alternative Phone</label>
+                        <input type="text" name="alt_phone" value="<?php echo htmlspecialchars($emp['alt_phone'] ?? ''); ?>" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Marital Status</label>
+                        <select name="marital_status" class="form-input w-full">
+                            <option value="">— Select —</option>
+                            <?php foreach (['Single','Married','Divorced','Widowed'] as $ms): ?>
+                            <option value="<?php echo $ms; ?>" <?php echo ($emp['marital_status'] ?? '') === $ms ? 'selected' : ''; ?>><?php echo $ms; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Postal Address</label>
+                        <input type="text" name="postal_address" value="<?php echo htmlspecialchars($emp['postal_address'] ?? ''); ?>" placeholder="P.O. Box 123 - 00100" class="form-input w-full">
+                    </div>
                 </div>
                 <div class="mt-5 space-y-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Physical Address</label>
@@ -300,14 +353,30 @@ include __DIR__ . '/includes/sidebar.php';
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Employment Status</label>
                         <select name="employment_status" id="empStatusSel" onchange="toggleContractDate()" class="form-input w-full">
-                            <?php foreach (['Permanent','Contract','Probation','Casual'] as $es): ?>
+                            <?php foreach (HR_EMPLOYMENT_STATUSES as $es): ?>
                             <option value="<?php echo $es; ?>" <?php echo ($emp['employment_status'] ?? 'Permanent') === $es ? 'selected' : ''; ?>><?php echo $es; ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="space-y-2" id="contractDateWrap" style="<?php echo in_array($emp['employment_status'] ?? '', ['Contract','Probation']) ? '' : 'display:none'; ?>">
+                    <div class="space-y-2" id="contractDateWrap" style="<?php echo isFixedTerm($emp['employment_status'] ?? '') ? '' : 'display:none'; ?>">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Contract End Date</label>
                         <input type="date" name="contract_end_date" value="<?php echo $emp['contract_end_date'] ?? ''; ?>" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Hire Date</label>
+                        <input type="date" name="hire_date" value="<?php echo $emp['hire_date'] ? date('Y-m-d', strtotime($emp['hire_date'])) : ''; ?>" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Contract Start</label>
+                        <input type="date" name="contract_start_date" value="<?php echo $emp['contract_start_date'] ?? ''; ?>" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reports To</label>
+                        <input type="text" name="reports_to" value="<?php echo htmlspecialchars($emp['reports_to'] ?? ''); ?>" placeholder="Line manager" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Work Location</label>
+                        <input type="text" name="work_location" value="<?php echo htmlspecialchars($emp['work_location'] ?? ''); ?>" placeholder="e.g. Head Office" class="form-input w-full">
                     </div>
                     <div class="space-y-2">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Current Salary (<?php echo $currency; ?>)</label>
@@ -322,6 +391,10 @@ include __DIR__ . '/includes/sidebar.php';
                             <option value="Terminated" <?php echo ($emp['status'] ?? '') === 'Terminated' ? 'selected' : ''; ?>>Terminated</option>
                         </select>
                     </div>
+                </div>
+                <div class="mt-5 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Internal Notes</label>
+                    <textarea name="notes" rows="2" class="form-input w-full resize-none" placeholder="Anything worth recording about this employee…"><?php echo htmlspecialchars($emp['notes'] ?? ''); ?></textarea>
                 </div>
             </div>
 
@@ -440,6 +513,148 @@ include __DIR__ . '/includes/sidebar.php';
     </div>
 
     <!-- ═══════════════════════ SALARY HISTORY TAB ═══════════════════════ -->
+    <!-- ═══════════════════════ CONTRACTS TAB ═══════════════════════ -->
+    <div id="tab-contracts" class="tab-panel <?php echo $activeTab !== 'contracts' ? 'hidden' : ''; ?> space-y-5">
+        <div class="flex justify-between items-center">
+            <div>
+                <h2 class="text-lg font-black text-slate-900 dark:text-white">Contracts</h2>
+                <p class="text-xs text-slate-400">Every term this employee has been engaged on.</p>
+            </div>
+            <button onclick="openContractModal()" class="btn-primary text-xs gap-2">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                <?php echo $activeContract ? 'Renew Contract' : 'Add Contract'; ?>
+            </button>
+        </div>
+
+        <?php if ($activeContract): ?>
+        <?php $state = contractExpiryState($activeContract['end_date']); ?>
+        <div class="glass-card p-6 border-l-4 <?php
+            echo match ($state['tone']) {
+                'expired' => 'border-red-500',
+                'urgent'  => 'border-amber-500',
+                'warn'    => 'border-yellow-400',
+                default   => 'border-accent-green',
+            }; ?>">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Term</p>
+                    <p class="text-lg font-black text-slate-900 dark:text-white">
+                        <?php echo htmlspecialchars((string)$activeContract['contract_type']); ?>
+                        <?php if ($activeContract['job_title']): ?>
+                        <span class="text-slate-400 font-bold">· <?php echo htmlspecialchars((string)$activeContract['job_title']); ?></span>
+                        <?php endif; ?>
+                    </p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <?php echo date('d M Y', strtotime((string)$activeContract['start_date'])); ?>
+                        <?php if ($activeContract['end_date']): ?>
+                            → <?php echo date('d M Y', strtotime((string)$activeContract['end_date'])); ?>
+                        <?php else: ?>
+                            → open-ended
+                        <?php endif; ?>
+                        <?php if ($activeContract['gross_salary'] > 0): ?>
+                        · <?php echo $currency; ?> <?php echo number_format((float)$activeContract['gross_salary']); ?>
+                        <?php endif; ?>
+                    </p>
+                </div>
+                <div class="text-right">
+                    <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest <?php
+                        echo match ($state['tone']) {
+                            'expired' => 'bg-red-500/10 text-red-500',
+                            'urgent'  => 'bg-amber-500/10 text-amber-600',
+                            'warn'    => 'bg-yellow-500/10 text-yellow-600',
+                            default   => 'bg-green-500/10 text-green-600',
+                        }; ?>">
+                        <?php echo htmlspecialchars($state['label']); ?>
+                    </span>
+                    <?php if ($activeContract['file_path']): ?>
+                    <a href="<?php echo htmlspecialchars((string)$activeContract['file_path']); ?>" target="_blank"
+                       class="block mt-2 text-[10px] font-black text-accent-green uppercase tracking-widest hover:underline">View agreement</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php if ($activeContract['terms']): ?>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 italic">
+                <?php echo nl2br(htmlspecialchars((string)$activeContract['terms'])); ?>
+            </p>
+            <?php endif; ?>
+
+            <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button onclick="openModal('endContractModal')"
+                        class="px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-600 hover:text-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
+                    End This Contract
+                </button>
+            </div>
+        </div>
+        <?php else: ?>
+        <div class="glass-card py-12 text-center">
+            <p class="text-slate-400 font-medium text-sm">No contract on record for this employee.</p>
+        </div>
+        <?php endif; ?>
+
+        <?php
+        $history = array_values(array_filter($contracts, fn($c) => !$activeContract || $c['id'] !== $activeContract['id']));
+        if ($history):
+        ?>
+        <div class="glass-card overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Previous Terms</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-800">
+                            <th class="px-6 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Salary</th>
+                            <th class="px-6 py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">File</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                        <?php foreach ($history as $c): ?>
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                            <td class="px-6 py-4">
+                                <p class="text-xs font-black text-slate-900 dark:text-white"><?php echo htmlspecialchars((string)$c['contract_type']); ?></p>
+                                <?php if ($c['job_title']): ?>
+                                <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars((string)$c['job_title']); ?></p>
+                                <?php endif; ?>
+                            </td>
+                            <td class="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
+                                <?php echo date('d M Y', strtotime((string)$c['start_date'])); ?>
+                                → <?php echo $c['end_date'] ? date('d M Y', strtotime((string)$c['end_date'])) : '—'; ?>
+                            </td>
+                            <td class="px-6 py-4 text-right text-xs font-black text-slate-900 dark:text-white">
+                                <?php echo $c['gross_salary'] > 0 ? $currency . ' ' . number_format((float)$c['gross_salary']) : '—'; ?>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="badge <?php
+                                    echo match ($c['status']) {
+                                        'Renewed'    => 'badge-blue',
+                                        'Terminated' => 'badge-red',
+                                        'Expired'    => 'badge-orange',
+                                        default      => 'badge-green',
+                                    }; ?> text-[9px]"><?php echo htmlspecialchars((string)$c['status']); ?></span>
+                                <?php if ($c['ended_reason']): ?>
+                                <p class="text-[10px] text-slate-400 mt-1 italic"><?php echo htmlspecialchars((string)$c['ended_reason']); ?></p>
+                                <?php endif; ?>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <?php if ($c['file_path']): ?>
+                                <a href="<?php echo htmlspecialchars((string)$c['file_path']); ?>" target="_blank"
+                                   class="text-[10px] font-black text-accent-green uppercase tracking-widest hover:underline">Open</a>
+                                <?php else: ?>
+                                <span class="text-slate-300 dark:text-slate-700 text-xs">—</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+
     <div id="tab-salary" class="tab-panel <?php echo $activeTab !== 'salary' ? 'hidden' : ''; ?> space-y-5">
         <div class="flex justify-between items-center">
             <h2 class="text-lg font-black text-slate-900 dark:text-white">Salary Review History</h2>
@@ -1431,9 +1646,10 @@ function switchTab(name) {
 }
 
 function toggleContractDate() {
-    const sel = document.getElementById('empStatusSel');
+    const sel  = document.getElementById('empStatusSel');
     const wrap = document.getElementById('contractDateWrap');
-    wrap.style.display = ['Contract','Probation'].includes(sel.value) ? '' : 'none';
+    // Every fixed-term engagement needs an end date, not just Contract/Probation
+    wrap.style.display = <?php echo json_encode(HR_FIXED_TERM_STATUSES); ?>.includes(sel.value) ? '' : 'none';
 }
 
 const docLabels = {
@@ -1568,5 +1784,126 @@ function resolveBankName() {
 }
 </script>
 <?php endif; ?>
+
+<!-- ══════════ ADD / RENEW CONTRACT MODAL ══════════ -->
+<div id="contractModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-xl max-h-[90vh] overflow-y-auto">
+        <button onclick="closeModal('contractModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-2"><?php echo $activeContract ? 'Renew Contract' : 'Add Contract'; ?></h2>
+        <p class="text-sm text-slate-400 font-medium mb-6">
+            <?php if ($activeContract): ?>
+            The current term is kept on file and marked Renewed. A change in salary is also recorded as a pay review.
+            <?php else: ?>
+            Record the term this employee is engaged on.
+            <?php endif; ?>
+        </p>
+
+        <form action="actions/hr_actions.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <input type="hidden" name="action" value="<?php echo $activeContract ? 'renew_contract' : 'add_contract'; ?>">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="_redirect" value="../hr_employee.php?id=<?php echo urlencode($empId); ?>">
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Engagement Type *</label>
+                    <select name="contract_type" id="ctType" onchange="ctToggleEnd()" class="form-input w-full">
+                        <?php foreach (HR_EMPLOYMENT_STATUSES as $st): ?>
+                        <option value="<?php echo $st; ?>" <?php echo ($activeContract['contract_type'] ?? $emp['employment_status'] ?? '') === $st ? 'selected' : ''; ?>><?php echo $st; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Job Title</label>
+                    <input type="text" name="job_title" value="<?php echo htmlspecialchars($emp['role'] ?? ''); ?>" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Start Date *</label>
+                    <input type="date" name="start_date" required
+                           value="<?php echo $activeContract && $activeContract['end_date']
+                                ? date('Y-m-d', strtotime($activeContract['end_date'] . ' +1 day'))
+                                : date('Y-m-d'); ?>" class="form-input w-full">
+                </div>
+                <div class="space-y-2" id="ctEndWrap">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">End Date *</label>
+                    <input type="date" name="end_date" id="ctEnd" class="form-input w-full">
+                </div>
+                <div class="col-span-2 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Gross Salary (<?php echo $currency; ?>)</label>
+                    <input type="number" name="gross_salary" step="0.01" min="0"
+                           value="<?php echo $emp['salary'] ?? ''; ?>" class="form-input w-full">
+                    <p class="text-[10px] text-slate-400 px-1">Changing this records a salary review automatically.</p>
+                </div>
+                <div class="col-span-2 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Terms / Notes</label>
+                    <textarea name="terms" rows="2" class="form-input w-full resize-none" placeholder="Notice period, probation, specific conditions…"></textarea>
+                </div>
+                <div class="col-span-2 space-y-2">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Signed Agreement</label>
+                    <input type="file" name="contract_file" accept=".pdf,.jpg,.jpeg,.png,.webp"
+                           class="form-input w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:uppercase file:bg-slate-100 dark:file:bg-slate-800 file:text-slate-600 dark:file:text-slate-300">
+                </div>
+            </div>
+
+            <button type="submit" class="btn-green w-full justify-center py-3.5 text-xs">
+                <?php echo $activeContract ? 'Renew Contract' : 'Save Contract'; ?>
+            </button>
+        </form>
+    </div>
+</div>
+
+<?php if ($activeContract): ?>
+<!-- ══════════ END CONTRACT MODAL ══════════ -->
+<div id="endContractModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card max-w-lg">
+        <button onclick="closeModal('endContractModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="text-2xl font-black mb-2">End Contract</h2>
+        <p class="text-sm text-slate-400 font-medium mb-6">
+            Closes the current term. The record stays on file with the reason you give.
+        </p>
+
+        <form action="actions/hr_actions.php" method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="end_contract">
+            <input type="hidden" name="employee_id" value="<?php echo $empId; ?>">
+            <input type="hidden" name="contract_id" value="<?php echo htmlspecialchars((string)$activeContract['id']); ?>">
+            <input type="hidden" name="_redirect" value="../hr_employee.php?id=<?php echo urlencode($empId); ?>">
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Effective Date</label>
+                <input type="date" name="ended_on" value="<?php echo date('Y-m-d'); ?>" class="form-input w-full">
+            </div>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reason *</label>
+                <textarea name="ended_reason" rows="3" required class="form-input w-full resize-none"
+                          placeholder="e.g. Resigned with one month's notice / Contract not renewed"></textarea>
+            </div>
+            <label class="flex items-center gap-3 cursor-pointer select-none bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-700/60">
+                <input type="checkbox" name="terminate_employee" value="1" class="w-4 h-4 rounded accent-red-500 cursor-pointer">
+                <span class="text-sm font-bold text-slate-700 dark:text-slate-200">Also mark the employee as Terminated</span>
+            </label>
+
+            <button type="submit" class="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl text-xs uppercase tracking-widest transition-all">
+                End Contract
+            </button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
+<script>
+function openContractModal() {
+    ctToggleEnd();
+    openModal('contractModal');
+}
+function ctToggleEnd() {
+    const fixed = <?php echo json_encode(HR_FIXED_TERM_STATUSES); ?>.includes(document.getElementById('ctType').value);
+    document.getElementById('ctEndWrap').style.display = fixed ? '' : 'none';
+    document.getElementById('ctEnd').required = fixed;
+    if (!fixed) document.getElementById('ctEnd').value = '';
+}
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
