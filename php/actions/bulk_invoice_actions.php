@@ -122,6 +122,13 @@ $noticeSummary = '';
 if ($issued) {
     $results = [];
 
+    // Personalised SMS means one gateway call per tenant, paced to stay inside
+    // the 60/minute limit — a large run legitimately takes a few minutes.
+    if ($notifySms && count($issued) > 20) {
+        @set_time_limit(0);
+        ignore_user_abort(true);
+    }
+
     foreach ($issued as $row) {
         $lease  = $row['lease'];
         $tenant = [

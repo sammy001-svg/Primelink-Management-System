@@ -410,6 +410,16 @@ function renderNotifyChannels(PDO $pdo, array $opts = []): string {
         ? '<a href="settings.php#sms" style="color:#2563eb;font-weight:700;text-decoration:underline;">Set up SMS</a>'
         : '';
 
+    // Each tenant gets a personalised message, so a big run is paced against
+    // the gateway's 60-per-minute limit. Say so rather than appearing to hang.
+    $durationHint = '';
+    if ($smsOn && $recipients > 20) {
+        $minutes = max(1, (int)ceil($recipients / 55));
+        $durationHint = '<p style="margin:.4rem 0 0 1.85rem;font-size:10.5px;color:#b45309;">'
+                      . 'Messages are personalised and paced against the gateway limit, so this run takes about '
+                      . $minutes . ' minute' . ($minutes !== 1 ? 's' : '') . '. Keep this tab open until it finishes.</p>';
+    }
+
     $dim = 'opacity:.55;';
 
     return <<<HTML
@@ -436,6 +446,7 @@ function renderNotifyChannels(PDO $pdo, array $opts = []): string {
     </span>
   </label>
   {$costHint}
+  {$durationHint}
 </div>
 HTML;
 }

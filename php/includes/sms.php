@@ -34,9 +34,14 @@ const SMS_BULK_LIMIT = 1000;
    CONFIGURATION
    ═══════════════════════════════════════════════════════════════════════ */
 
-/** All SMS settings in one array, read once per request. */
-function smsConfig(PDO $pdo): array {
+/**
+ * All SMS settings in one array, read once per request.
+ * Passing null clears the cache (see smsResetConfigCache).
+ */
+function smsConfig(?PDO $pdo): array {
     static $cfg = null;
+
+    if ($pdo === null) { $cfg = null; return []; }
     if ($cfg !== null) return $cfg;
 
     $base = trim(getSetting($pdo, 'sms_base_url', SMS_DEFAULT_BASE_URL));
@@ -49,6 +54,14 @@ function smsConfig(PDO $pdo): array {
         'base_url'  => rtrim($base !== '' ? $base : SMS_DEFAULT_BASE_URL, '/'),
     ];
     return $cfg;
+}
+
+/**
+ * Drop the cached config so the next read hits the database again.
+ * Needed after saving settings within the same request, and by tests.
+ */
+function smsResetConfigCache(): void {
+    smsConfig(null);
 }
 
 /** Credentials present. Does not check whether sending is switched on. */
@@ -184,6 +197,32 @@ function logSms(
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   RATE LIMITING
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * The gateway allows 60 sendsms.php calls a minute (10 for bulksend.php).
+ * A billing run personalises every message, so it makes one call per tenant —
+ * this spaces those calls just enough to stay inside the limit rather than
+ * firing them off and collecting 429s.
+ */
+function smsThrottle(string $script): void {
+    static $last = [];
+
+    // Minimum seconds between calls to each endpoint, with a little headroom
+    $spacing = $script === 'bulksend.php' ? 6.5 : 1.05;
+
+    $now  = microtime(true);
+    $prev = $last[$script] ?? 0.0;
+    $wait = $spacing - ($now - $prev);
+
+    if ($prev > 0 && $wait > 0) {
+        usleep((int)($wait * 1_000_000));
+    }
+    $last[$script] = microtime(true);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    TRANSPORT
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -192,9 +231,14 @@ function logSms(
  *
  * @return array{ok:bool, json?:array, error?:string}
  */
-function smsPost(PDO $pdo, string $script, array $payload): array {
+function smsPost(PDO $pdo, string $script, array $payload, int $attempt = 1): array {
     if (!function_exists('curl_init')) {
         return ['ok' => false, 'error' => 'PHP cURL is not available on this server.'];
+    }
+
+    // Balance checks are cheap and not part of a send loop
+    if ($script !== 'balance.php') {
+        smsThrottle($script);
     }
 
     $c = smsConfig($pdo);
@@ -244,6 +288,12 @@ function smsPost(PDO $pdo, string $script, array $payload): array {
         return ['ok' => false, 'error' => 'The SMS gateway returned an unreadable response (HTTP ' . $status . ').'];
     }
 
+    // Rate limited despite the pacing — wait out the window and try once more.
+    if ($status === 429 && $attempt < 2) {
+        sleep(5);
+        return smsPost($pdo, $script, $payload, $attempt + 1);
+    }
+
     // The API reports failure both by HTTP status and by success:false.
     if ($status < 200 || $status >= 300 || ($json['success'] ?? false) !== true) {
         $message = (string)($json['error'] ?? '');
@@ -252,7 +302,7 @@ function smsPost(PDO $pdo, string $script, array $payload): array {
             $message = match ($status) {
                 401     => 'The gateway rejected your credentials. Check the Client ID and API key.',
                 403     => 'Your Shanfix Bulk SMS account is suspended.',
-                429     => 'Sending too fast — the gateway rate limit was hit. Try again shortly.',
+                429     => 'The gateway rate limit was hit even after a retry. Try again in a minute.',
                 default => 'SMS gateway returned HTTP ' . $status . '.',
             };
         }
