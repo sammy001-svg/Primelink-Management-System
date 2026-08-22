@@ -545,6 +545,11 @@ if ($role === 'landlord') {
                         </td>
                         <td class="p-6">
                             <span class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($tr['transaction_type']); ?></span>
+                            <?php $trRev = (int)($tr['revision_no'] ?? 0); ?>
+                            <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars(docNumber(DOC_RECEIPT, $tr['id'], $trRev)); ?></p>
+                            <?php if ($trRev > 0): ?>
+                            <div class="mt-1"><?php echo correctedBadge($trRev); ?></div>
+                            <?php endif; ?>
                         </td>
                         <td class="p-6">
                             <span class="text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format($tr['amount']); ?></span>

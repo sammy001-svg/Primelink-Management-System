@@ -3,6 +3,9 @@
  * Tenant Dashboard (included in dashboard.php for tenants)
  */
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/corrections.php';
+
+ensureCorrectionSchema($pdo);
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
 $tenantData        = null;
@@ -82,7 +85,7 @@ if (!empty($tenantId)) {
     $paidYTD = (float)$ytdStmt->fetchColumn();
 
     // Recent invoices (last 5, non-cancelled)
-    $myInvStmt = $pdo->prepare("SELECT id, invoice_type, amount, due_date, status FROM invoices WHERE tenant_id = ? AND status != 'Cancelled' ORDER BY created_at DESC LIMIT 5");
+    $myInvStmt = $pdo->prepare("SELECT id, invoice_type, amount, due_date, status, revision_no FROM invoices WHERE tenant_id = ? AND status != 'Cancelled' ORDER BY created_at DESC LIMIT 5");
     $myInvStmt->execute([$tenantId]);
     $myRecentInvoices = $myInvStmt->fetchAll();
 
@@ -283,10 +286,14 @@ $heroFirstName = explode(' ', $userName ?? 'Tenant')[0];
                 $statusColors = ['Unpaid' => 'badge-orange', 'Paid' => 'badge-green', 'Overdue' => 'badge-red', 'Partial' => 'badge-blue', 'Cancelled' => 'badge'];
                 foreach ($myRecentInvoices as $inv):
                     $badgeClass = $statusColors[$inv['status']] ?? 'badge';
+                    $invRev     = (int)($inv['revision_no'] ?? 0);
                 ?>
                 <div class="flex items-center gap-4 px-5 py-3.5">
                     <div class="flex-1 min-w-0">
-                        <p class="font-bold text-sm text-slate-900 dark:text-white truncate"><?php echo $inv['invoice_type']; ?></p>
+                        <p class="font-bold text-sm text-slate-900 dark:text-white truncate">
+                            <?php echo $inv['invoice_type']; ?>
+                            <?php if ($invRev > 0): ?><?php echo correctedBadge($invRev); ?><?php endif; ?>
+                        </p>
                         <p class="text-[11px] text-slate-400 font-medium">Due <?php echo date('M j, Y', strtotime($inv['due_date'])); ?></p>
                     </div>
                     <div class="text-right shrink-0">
@@ -456,10 +463,15 @@ $heroFirstName = explode(' ', $userName ?? 'Tenant')[0];
                     <th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th class="text-right">Receipt</th>
                 </tr></thead>
                 <tbody>
-                <?php foreach ($myPayments as $p): ?>
+                <?php foreach ($myPayments as $p):
+                    $pRev = (int)($p['revision_no'] ?? 0);
+                ?>
                 <tr>
                     <td class="font-medium text-slate-500"><?php echo date('M j, Y', strtotime($p['transaction_date'])); ?></td>
-                    <td class="font-bold"><?php echo htmlspecialchars($p['transaction_type']); ?></td>
+                    <td class="font-bold">
+                        <?php echo htmlspecialchars($p['transaction_type']); ?>
+                        <?php if ($pRev > 0): ?><div class="mt-1"><?php echo correctedBadge($pRev); ?></div><?php endif; ?>
+                    </td>
                     <td class="font-black"><?php echo $currency; ?> <?php echo number_format($p['amount']); ?></td>
                     <td class="text-slate-500"><?php echo htmlspecialchars($p['payment_method'] ?? 'M-Pesa'); ?></td>
                     <td><span class="badge badge-<?php echo $p['status'] === 'Paid' ? 'green' : ($p['status'] === 'Overdue' ? 'red' : 'orange'); ?>"><?php echo $p['status']; ?></span></td>
