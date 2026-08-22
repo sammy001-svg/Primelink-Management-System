@@ -8,6 +8,9 @@ require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/corrections.php';
+
+ensureCorrectionSchema($pdo);
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
 $user = getCurrentUser($pdo);
@@ -434,6 +437,7 @@ if ($role === 'landlord') {
                     <?php
                     $invPrefix = getSetting($pdo, 'invoice_prefix', 'INV');
                     foreach ($tenantInvoices as $inv):
+                        $invRev     = (int)($inv['revision_no'] ?? 0);
                         $isPaid     = $inv['status'] === 'Paid';
                         $isOverdue  = $inv['status'] === 'Overdue';
                         $isUnpaid   = $inv['status'] === 'Unpaid';
@@ -443,9 +447,12 @@ if ($role === 'landlord') {
                     <tr class="<?php echo $isOverdue ? 'bg-red-50/30 dark:bg-red-900/5' : ''; ?>">
                         <td>
                             <div class="font-black text-slate-900 dark:text-white text-sm">
-                                <?php echo $invPrefix; ?>-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?>
+                                <?php echo htmlspecialchars(docNumber(DOC_INVOICE, $inv['id'], $invRev)); ?>
                             </div>
                             <div class="text-[10px] text-slate-400">Issued <?php echo date('M j, Y', strtotime($inv['created_at'])); ?></div>
+                            <?php if ($invRev > 0): ?>
+                            <div class="mt-1"><?php echo correctedBadge($invRev); ?></div>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <div class="flex items-center gap-2">

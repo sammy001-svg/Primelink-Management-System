@@ -9,13 +9,16 @@ require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/corrections.php';
+
+ensureCorrectionSchema($pdo);
 
 $batchId = trim($_GET['batch_id'] ?? '');
 if (!$batchId) die('No batch ID provided.');
 
 // Fetch all invoices in this batch with tenant + property info
 $stmt = $pdo->prepare("
-    SELECT i.id, i.amount, i.due_date, i.status, i.invoice_type, i.description, i.created_at,
+    SELECT i.id, i.amount, i.due_date, i.status, i.invoice_type, i.description, i.created_at, i.revision_no,
            t.id AS tenant_id, t.full_name AS tenant_name, t.email AS tenant_email, t.phone AS tenant_phone,
            u.unit_number, p.title AS property_title, p.location AS property_location
     FROM invoices i
@@ -166,7 +169,9 @@ $invoiceRef = 'BDL-' . strtoupper(substr($batchId, 0, 8));
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($invoices as $i => $inv): ?>
+                <?php foreach ($invoices as $i => $inv):
+                    $lineRev = (int)($inv['revision_no'] ?? 0);
+                ?>
                 <tr class="border-b border-slate-100">
                     <td class="py-4 text-xs text-slate-400 font-bold pr-4 align-top"><?php echo $i + 1; ?>.</td>
                     <td class="py-4 align-top">
@@ -176,7 +181,10 @@ $invoiceRef = 'BDL-' . strtoupper(substr($batchId, 0, 8));
                         <?php else: ?>
                         <p class="text-xs text-slate-400 font-medium italic mt-0.5">Standard <?php echo strtolower(htmlspecialchars($inv['invoice_type'])); ?> charge</p>
                         <?php endif; ?>
-                        <p class="text-[10px] text-slate-300 mt-0.5">REF: INV-<?php echo strtoupper(substr($inv['id'], 0, 8)); ?></p>
+                        <p class="text-[10px] text-slate-300 mt-0.5">REF: <?php echo htmlspecialchars(docNumber(DOC_INVOICE, $inv['id'], $lineRev)); ?></p>
+                        <?php if ($lineRev > 0): ?>
+                        <div class="mt-1"><?php echo correctedBadge($lineRev); ?></div>
+                        <?php endif; ?>
                     </td>
                     <td class="py-4 text-right font-black text-slate-900 align-top whitespace-nowrap">
                         <?php echo $currency; ?> <?php echo number_format($inv['amount'], 2); ?>
