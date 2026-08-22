@@ -46,6 +46,10 @@ $amountPaid = (float)$paidStmt->fetchColumn();
 $flashSuccess = $_GET['success'] ?? '';
 $flashError   = $_GET['error']   ?? '';
 $flashInfo    = $_GET['info']    ?? '';
+if (!empty($_GET['notice'])) {
+    $flashSuccess = trim(($flashSuccess ? $flashSuccess . ' ' : 'Invoice issued. ')
+                  . 'Tenant notices: ' . $_GET['notice'] . '.');
+}
 
 $companyName    = getSetting($pdo, 'company_name',    'Primelink Management System');
 $companyAddress = getSetting($pdo, 'company_address', 'Nairobi, Kenya');

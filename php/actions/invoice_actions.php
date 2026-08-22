@@ -49,7 +49,9 @@ if ($action === 'edit_invoice') {
     $newStatus    = trim($_POST['status']            ?? '');
     $description  = trim($_POST['description']       ?? '');
     $reason       = trim($_POST['correction_reason'] ?? '');
-    $notifyTenant = !empty($_POST['notify_tenant']);
+    $notifyEmail  = !empty($_POST['notify_email']);
+    $notifySms    = !empty($_POST['notify_sms']);
+    $notifyTenant = $notifyEmail || $notifySms;
 
     if (!$invoiceId)          $fail('No invoice specified.');
     if ($amount <= 0)         $fail('Amount must be greater than zero.');
@@ -57,7 +59,7 @@ if ($action === 'edit_invoice') {
     if (strlen($reason) < 5)  $fail('A reason for the correction is required — it is recorded on the audit trail and shown to the tenant.');
 
     $oldStmt = $pdo->prepare("
-        SELECT i.*, t.full_name, t.email, t.user_id AS tenant_user_id, u.unit_number
+        SELECT i.*, t.id AS tenant_pk, t.full_name, t.email, t.phone, t.user_id AS tenant_user_id, u.unit_number
         FROM invoices i
         JOIN tenants t ON i.tenant_id = t.id
         LEFT JOIN leases l ON i.lease_id = l.id
@@ -138,10 +140,17 @@ if ($action === 'edit_invoice') {
         "CORRECTED {$docNo} (rev {$newRevision}) — " . summariseDiff($diff) . " | Reason: {$reason}"
         . ($notifyTenant ? ' | Tenant notified' : ' | Tenant NOT notified'));
 
+    $noticeSummary = '';
     if ($notifyTenant) {
-        sendCorrectionNotice(
+        $res = sendCorrectionNotice(
             $pdo, DOC_INVOICE, $invoiceId, $newRevision,
-            ['full_name' => $old['full_name'], 'email' => $old['email'], 'tenant_user_id' => $old['tenant_user_id']],
+            [
+                'id'             => $old['tenant_pk'] ?? null,
+                'full_name'      => $old['full_name'],
+                'email'          => $old['email'],
+                'phone'          => $old['phone'] ?? '',
+                'tenant_user_id' => $old['tenant_user_id'],
+            ],
             $diff, $reason,
             [
                 'Invoice No.' => $docNo,
@@ -149,12 +158,14 @@ if ($action === 'edit_invoice') {
                 'Unit'        => $old['unit_number'] ?: '—',
                 'Amount Due'  => $currency . ' ' . number_format($amount, 2),
                 'Due Date'    => date('d M Y', strtotime($dueDate)),
-            ]
+            ],
+            ['email' => $notifyEmail, 'sms' => $notifySms]
         );
+        $noticeSummary = summariseNotices([$res]);
     }
 
     backTo($redirect, 'success', 'Invoice corrected — now ' . $docNo
-        . ($notifyTenant ? '. Corrected notice issued to the tenant.' : '.'));
+        . ($noticeSummary ? '. Corrected notice: ' . $noticeSummary . '.' : '.'));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -170,7 +181,9 @@ if ($action === 'edit_payment') {
     $description  = trim($_POST['description']        ?? '');
     $reference    = trim($_POST['reference_number']   ?? '');
     $reason       = trim($_POST['correction_reason']  ?? '');
-    $notifyTenant = !empty($_POST['notify_tenant']);
+    $notifyEmail  = !empty($_POST['notify_email']);
+    $notifySms    = !empty($_POST['notify_sms']);
+    $notifyTenant = $notifyEmail || $notifySms;
 
     if (!$paymentId)          $fail('No receipt specified.');
     if ($amount <= 0)         $fail('Amount must be greater than zero.');
@@ -178,7 +191,7 @@ if ($action === 'edit_payment') {
     if (strlen($reason) < 5)  $fail('A reason for the correction is required — it is recorded on the audit trail and shown to the tenant.');
 
     $oldStmt = $pdo->prepare("
-        SELECT tr.*, t.full_name, t.email, t.user_id AS tenant_user_id, u.unit_number
+        SELECT tr.*, t.id AS tenant_pk, t.full_name, t.email, t.phone, t.user_id AS tenant_user_id, u.unit_number
         FROM transactions tr
         LEFT JOIN tenants t ON tr.tenant_id = t.id
         LEFT JOIN leases  l ON tr.lease_id  = l.id
@@ -211,9 +224,10 @@ if ($action === 'edit_payment') {
 
     if (!$diff) backTo($redirect, 'info', 'No changes were made — the receipt is unchanged.');
 
-    $newRevision = (int)($old['revision_no'] ?? 0) + 1;
-    $invoiceId   = $old['invoice_id'] ?? null;
-    $balanceNote = '';
+    $newRevision   = (int)($old['revision_no'] ?? 0) + 1;
+    $invoiceId     = $old['invoice_id'] ?? null;
+    $balanceNote   = '';
+    $noticeSummary = '';
 
     try {
         $pdo->beginTransaction();
@@ -280,15 +294,23 @@ if ($action === 'edit_payment') {
         if ($old['unit_number']) $summary['Unit'] = $old['unit_number'];
         if ($balanceNote)        $summary['Invoice Balance'] = $balanceNote;
 
-        sendCorrectionNotice(
+        $res = sendCorrectionNotice(
             $pdo, DOC_RECEIPT, $paymentId, $newRevision,
-            ['full_name' => $old['full_name'], 'email' => $old['email'], 'tenant_user_id' => $old['tenant_user_id']],
-            $diff, $reason, $summary
+            [
+                'id'             => $old['tenant_pk'] ?? null,
+                'full_name'      => $old['full_name'],
+                'email'          => $old['email'],
+                'phone'          => $old['phone'] ?? '',
+                'tenant_user_id' => $old['tenant_user_id'],
+            ],
+            $diff, $reason, $summary,
+            ['email' => $notifyEmail, 'sms' => $notifySms]
         );
+        $noticeSummary = summariseNotices([$res]);
     }
 
     backTo($redirect, 'success', 'Receipt corrected — now ' . $docNo
-        . ($notifyTenant ? '. Corrected notice issued to the tenant.' : '.'));
+        . ($noticeSummary ? '. Corrected notice: ' . $noticeSummary . '.' : '.'));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -303,7 +325,7 @@ if ($action === 'resend_correction') {
 
     if ($docType === DOC_INVOICE) {
         $stmt = $pdo->prepare("
-            SELECT i.*, t.full_name, t.email, t.user_id AS tenant_user_id, u.unit_number
+            SELECT i.*, t.id AS tenant_pk, t.full_name, t.email, t.phone, t.user_id AS tenant_user_id, u.unit_number
             FROM invoices i
             JOIN tenants t ON i.tenant_id = t.id
             LEFT JOIN leases l ON i.lease_id = l.id
@@ -312,7 +334,7 @@ if ($action === 'resend_correction') {
         ");
     } else {
         $stmt = $pdo->prepare("
-            SELECT tr.*, t.full_name, t.email, t.user_id AS tenant_user_id, u.unit_number
+            SELECT tr.*, t.id AS tenant_pk, t.full_name, t.email, t.phone, t.user_id AS tenant_user_id, u.unit_number
             FROM transactions tr
             LEFT JOIN tenants t ON tr.tenant_id = t.id
             LEFT JOIN leases  l ON tr.lease_id  = l.id
@@ -326,7 +348,9 @@ if ($action === 'resend_correction') {
 
     $revision = (int)($doc['revision_no'] ?? 0);
     if ($revision < 1) $fail('This document has never been corrected, so there is no corrected copy to re-issue.');
-    if (empty($doc['email'])) $fail('This tenant has no email address on file.');
+    if (empty($doc['email']) && normalizePhone($doc['phone'] ?? null) === null) {
+        $fail('This tenant has neither an email address nor a usable phone number on file.');
+    }
 
     // Re-send the notice built from the latest recorded revision
     $revisions = getRevisions($pdo, $docType, $docId);
@@ -350,18 +374,26 @@ if ($action === 'resend_correction') {
             'Payment Date'    => date('d M Y', strtotime((string)$doc['transaction_date'])),
         ];
 
-    $sent = sendCorrectionNotice(
+    $res = sendCorrectionNotice(
         $pdo, $docType, $docId, $revision,
-        ['full_name' => $doc['full_name'], 'email' => $doc['email'], 'tenant_user_id' => $doc['tenant_user_id']],
-        $diff, $reason, $summary
+        [
+            'id'             => $doc['tenant_pk'] ?? null,
+            'full_name'      => $doc['full_name'],
+            'email'          => $doc['email'],
+            'phone'          => $doc['phone'] ?? '',
+            'tenant_user_id' => $doc['tenant_user_id'],
+        ],
+        $diff, $reason, $summary,
+        ['email' => true, 'sms' => smsIsActive($pdo)]
     );
+    $summaryText = summariseNotices([$res]);
 
     logAction($pdo, 'correction_resent', $docType === DOC_INVOICE ? 'Invoices' : 'Payments', $docId,
-        "Re-issued corrected copy {$docNo} to " . $doc['email'] . ($sent ? '' : ' (delivery failed)'));
+        "Re-issued corrected copy {$docNo} — {$summaryText}");
 
-    $sent
-        ? backTo($redirect, 'success', 'Corrected copy ' . $docNo . ' re-issued to ' . $doc['email'] . '.')
-        : backTo($redirect, 'error', 'Could not send the email. Check the mail settings — the in-app notice was still delivered.');
+    ($res['email'] === 'sent' || $res['sms'] === 'sent')
+        ? backTo($redirect, 'success', 'Corrected copy ' . $docNo . ' re-issued: ' . $summaryText . '.')
+        : backTo($redirect, 'error', 'Could not deliver the corrected copy (' . $summaryText . '). The in-app notice was still posted.');
 }
 
 header('Location: ' . $redirect);

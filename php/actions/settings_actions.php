@@ -9,6 +9,7 @@ requireRole(['admin']);
 
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once __DIR__ . '/../includes/sms.php';
 
 $action = $_POST['action'] ?? '';
 
@@ -69,6 +70,59 @@ if ($action === 'save_email') {
         'notify_on_lease'       => isset($_POST['notify_on_lease'])       ? '1' : '0',
     ]);
     echo json_encode(['success' => true, 'message' => 'Email settings saved.']);
+    exit;
+}
+
+if ($action === 'save_sms') {
+    $base = trim($_POST['sms_base_url'] ?? '');
+    setSettings($pdo, [
+        'sms_enabled'   => isset($_POST['sms_enabled']) ? '1' : '0',
+        'sms_client_id' => trim($_POST['sms_client_id'] ?? ''),
+        'sms_api_key'   => trim($_POST['sms_api_key']   ?? ''),
+        'sms_sender_id' => trim($_POST['sms_sender_id'] ?? ''),
+        'sms_base_url'  => $base !== '' ? rtrim($base, '/') : SMS_DEFAULT_BASE_URL,
+    ]);
+    echo json_encode(['success' => true, 'message' => 'SMS settings saved.']);
+    exit;
+}
+
+if ($action === 'sms_balance') {
+    $res = smsBalance($pdo);
+    echo json_encode([
+        'success' => $res['ok'],
+        'message' => $res['ok'] ? $res['message'] : ($res['error'] ?? 'Could not reach the SMS gateway.'),
+        'balance' => $res['balance'] ?? null,
+    ]);
+    exit;
+}
+
+if ($action === 'test_sms') {
+    $phone = trim($_POST['phone'] ?? '');
+    if ($phone === '') {
+        echo json_encode(['success' => false, 'message' => 'Enter a phone number to test with.']);
+        exit;
+    }
+    if (normalizePhone($phone) === null) {
+        echo json_encode(['success' => false, 'message' => 'That does not look like a valid phone number.']);
+        exit;
+    }
+
+    $company = getSetting($pdo, 'company_name', 'Primelink');
+    $res = sendSms(
+        $pdo,
+        $phone,
+        "Test message from {$company}. Your Shanfix Bulk SMS integration is working.",
+        null,
+        'settings_test'
+    );
+
+    echo json_encode([
+        'success' => $res['ok'],
+        'message' => $res['ok']
+            ? 'Test SMS sent to ' . normalizePhone($phone)
+              . (isset($res['balance']) && $res['balance'] !== null ? '. Balance: ' . $res['balance'] . ' units.' : '.')
+            : ($res['error'] ?? 'Could not send the test SMS.'),
+    ]);
     exit;
 }
 

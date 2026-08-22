@@ -87,6 +87,12 @@ $invoiceRef = 'BDL-' . strtoupper(substr($batchId, 0, 8));
     </style>
 </head>
 <body class="bg-slate-50 font-sans p-4 md:p-10">
+    <?php if (!empty($_GET['notice'])): ?>
+    <div class="no-print max-w-3xl mx-auto mb-4 bg-green-50 border border-green-200 text-green-800 rounded-2xl px-5 py-3 text-sm font-bold">
+        Combined invoice issued. Tenant notices: <?php echo htmlspecialchars((string)$_GET['notice']); ?>.
+    </div>
+    <?php endif; ?>
+
     <div class="max-w-3xl mx-auto bg-white p-8 md:p-12 shadow-2xl rounded-3xl print-border relative">
 
         <!-- Action bar -->

@@ -20,6 +20,7 @@ $invPrefix   = getSetting($pdo, 'invoice_prefix', 'INV');
 $done      = isset($_GET['done']);
 $generated = (int)($_GET['generated'] ?? 0);
 $skipped   = (int)($_GET['skipped']   ?? 0);
+$notice    = trim((string)($_GET['notice'] ?? ''));
 
 // ── Filter params (GET for preview, POST already handled by action) ──
 $selMonth    = str_pad($_GET['month']       ?? date('m'), 2, '0', STR_PAD_LEFT);
@@ -130,6 +131,9 @@ $selTypeBadge = $typeColors[$selType] ?? 'badge';
             <p class="font-black text-slate-900 dark:text-white">Batch Complete</p>
             <p class="text-sm text-slate-500 font-medium mt-0.5">
                 <?php echo $generated; ?> invoice<?php echo $generated !== 1 ? 's' : ''; ?> generated<?php if ($skipped > 0): ?>, <?php echo $skipped; ?> skipped (already billed)<?php endif; ?>.
+                <?php if ($notice): ?>
+                <span class="block mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">Tenant notices: <?php echo htmlspecialchars($notice); ?>.</span>
+                <?php endif; ?>
             </p>
         </div>
     </div>

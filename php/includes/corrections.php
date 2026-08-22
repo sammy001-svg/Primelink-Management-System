@@ -17,6 +17,7 @@
  */
 
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/tenant_notify.php';
 
 const DOC_INVOICE = 'invoice';
 const DOC_RECEIPT = 'receipt';
@@ -406,19 +407,24 @@ function documentUrl(string $docType, string $docId): string {
 }
 
 /**
- * Issue the tenant a CORRECTED notice: branded email + in-app notification.
- * Returns true if the email was accepted for delivery.
+ * Issue the tenant a CORRECTED notice across the requested channels.
+ *
+ * @param array $tenant   ['id','full_name','email','phone','tenant_user_id']
+ * @param array $channels ['email' => bool, 'sms' => bool]
+ *
+ * @return array per-channel result from dispatchTenantNotice()
  */
 function sendCorrectionNotice(
     PDO $pdo,
     string $docType,
     string $docId,
     int $revisionNo,
-    array $tenant,          // ['full_name','email','tenant_user_id']
+    array $tenant,          // ['id','full_name','email','phone','tenant_user_id']
     array $diff,
     string $reason,
-    array $summary = []     // ['Amount' => 'KSh 12,000.00', ...] headline values after correction
-): bool {
+    array $summary = [],    // ['Amount' => 'KSh 12,000.00', ...] headline values after correction
+    array $channels = ['email' => true, 'sms' => false]
+): array {
     $label  = docTypeLabel($docType);
     $thisNo = docNumber($docType, $docId, $revisionNo);
     $prevNo = supersededDocNumber($docType, $docId, $revisionNo);
@@ -485,37 +491,48 @@ function sendCorrectionNotice(
       . ($docType === DOC_INVOICE ? ' and payments' : '') . '. '
       . 'If anything still looks incorrect, contact us and quote ' . htmlspecialchars($thisNo) . '.</p>';
 
-    $html = buildEmailHtml(
+    // SMS has to say the same thing in ~160 characters: what changed and what
+    // now stands. Lead with CORRECTED so it reads right on a lock screen.
+    $first    = explode(' ', trim($name))[0] ?: 'Tenant';
+    $headline = '';
+    foreach ($diff as $c) {
+        if (in_array($c['field'], ['amount', 'due_date'], true)) {
+            $headline .= ' ' . $c['label'] . ' is now ' . $c['to'] . '.';
+        }
+    }
+    if ($headline === '' && $diff) {
+        $headline = ' ' . $diff[0]['label'] . ' is now ' . $diff[0]['to'] . '.';
+    }
+
+    $smsText = "CORRECTED: Dear {$first}, your {$label} {$prevNo} has been revised to {$thisNo}."
+             . $headline
+             . ($reason !== '' ? ' Reason: ' . $reason . '.' : '')
+             . ' This replaces the earlier copy. - ' . smsSignature($pdo);
+
+    return dispatchTenantNotice(
         $pdo,
-        'Corrected ' . $label . ' — ' . $thisNo,
-        $body,
-        'View Corrected ' . $label,
-        documentUrl($docType, $docId)
+        [
+            'id'        => $tenant['id'] ?? null,
+            'full_name' => $name,
+            'email'     => $tenant['email'] ?? '',
+            'phone'     => $tenant['phone'] ?? '',
+            'user_id'   => $tenant['tenant_user_id'] ?? ($tenant['user_id'] ?? null),
+        ],
+        [
+            'subject'     => 'CORRECTED ' . strtoupper($label) . ' ' . $thisNo,
+            'heading'     => 'Corrected ' . $label . ' — ' . $thisNo,
+            'body_html'   => $body,
+            'cta_text'    => 'View Corrected ' . $label,
+            'cta_url'     => documentUrl($docType, $docId),
+            'sms'         => $smsText,
+            'inapp_title' => 'Corrected ' . $label . ' — ' . $thisNo,
+            'inapp_body'  => 'Your ' . strtolower($label) . ' has been corrected (revision ' . $revisionNo . '). '
+                           . ($diff ? summariseDiff($diff) . '. ' : '')
+                           . ($reason ? 'Reason: ' . $reason . '. ' : '')
+                           . 'This copy replaces ' . $prevNo . '.',
+            'inapp_type'  => 'warning',
+        ],
+        $channels,
+        'document_corrected'
     );
-
-    $sent = false;
-    if (!empty($tenant['email'])) {
-        $sent = sendSystemEmail(
-            $pdo,
-            (string)$tenant['email'],
-            'CORRECTED ' . strtoupper($label) . ' ' . $thisNo,
-            $html,
-            $name
-        );
-    }
-
-    if (!empty($tenant['tenant_user_id'])) {
-        createNotification(
-            $pdo,
-            (string)$tenant['tenant_user_id'],
-            'Corrected ' . $label . ' — ' . $thisNo,
-            'Your ' . strtolower($label) . ' has been corrected (revision ' . $revisionNo . '). '
-                . ($diff ? summariseDiff($diff) . '. ' : '')
-                . ($reason ? 'Reason: ' . $reason . '. ' : '')
-                . 'This copy replaces ' . $prevNo . '.',
-            'warning'
-        );
-    }
-
-    return $sent;
 }

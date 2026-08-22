@@ -19,6 +19,7 @@ $s = getSettings($pdo, [
     'mail_driver', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
     'smtp_from_name', 'smtp_from_email',
     'notify_on_payment', 'notify_on_maintenance', 'notify_on_lease',
+    'sms_enabled', 'sms_client_id', 'sms_api_key', 'sms_sender_id', 'sms_base_url',
     'penalty_enabled', 'penalty_grace_days', 'penalty_type', 'penalty_amount', 'penalty_percentage',
 ]);
 
@@ -51,6 +52,11 @@ $defaults = [
     'notify_on_payment'     => '1',
     'notify_on_maintenance' => '1',
     'notify_on_lease'       => '1',
+    'sms_enabled'           => '0',
+    'sms_client_id'         => '',
+    'sms_api_key'           => '',
+    'sms_sender_id'         => '',
+    'sms_base_url'          => 'https://sms.shanfixtechnology.com',
     'penalty_enabled'       => '0',
     'penalty_grace_days'    => '5',
     'penalty_type'          => 'fixed',
@@ -86,6 +92,7 @@ include __DIR__ . '/includes/sidebar.php';
         <button onclick="switchTab('invoice')"   class="tab-btn"        data-tab="invoice">Invoice & Billing</button>
         <button onclick="switchTab('mpesa')"     class="tab-btn"        data-tab="mpesa">M-Pesa</button>
         <button onclick="switchTab('email')"     class="tab-btn"        data-tab="email">Email & Notifications</button>
+        <button onclick="switchTab('sms')"       class="tab-btn"        data-tab="sms">SMS</button>
         <button onclick="switchTab('system')"    class="tab-btn"        data-tab="system">System</button>
         <button onclick="switchTab('penalties')" class="tab-btn"        data-tab="penalties">Penalties</button>
     </div>
@@ -426,6 +433,101 @@ include __DIR__ . '/includes/sidebar.php';
         </form>
     </div>
 
+    <!-- ===== TAB: SMS ===== -->
+    <div id="tab-sms" class="tab-panel hidden">
+        <form id="form-sms" class="glass-card p-8 space-y-6">
+            <input type="hidden" name="action" value="save_sms">
+            <h2 class="text-lg font-black text-slate-900 dark:text-white">SMS &mdash; Shanfix Bulk SMS</h2>
+            <p class="text-xs text-slate-400 font-medium -mt-3">
+                Text tenants directly from Primelink using your
+                <a href="https://sms.shanfixtechnology.com" target="_blank" rel="noopener" class="text-accent-green font-bold hover:underline">Shanfix Bulk SMS</a>
+                account. Credentials come from the portal's Developer / API page.
+            </p>
+
+            <!-- Master switch -->
+            <label class="flex items-center gap-3 cursor-pointer group p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div class="relative">
+                    <input type="checkbox" name="sms_enabled" value="1" id="toggle_sms_enabled"
+                           <?php echo $s['sms_enabled'] === '1' ? 'checked' : ''; ?>
+                           class="sr-only peer">
+                    <div class="w-10 h-5 bg-slate-200 dark:bg-slate-700 rounded-full peer-checked:bg-accent-green transition-colors cursor-pointer"></div>
+                    <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                </div>
+                <span>
+                    <span class="block text-sm font-black text-slate-700 dark:text-slate-300">Enable SMS sending</span>
+                    <span class="block text-[11px] text-slate-400 font-medium">
+                        When off, the SMS option is greyed out everywhere and nothing is ever charged to your account.
+                    </span>
+                </span>
+            </label>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="space-y-2">
+                    <label class="field-label">Client ID</label>
+                    <input type="text" name="sms_client_id" value="<?php echo htmlspecialchars($s['sms_client_id']); ?>"
+                           class="field-input" placeholder="From the portal's API page" autocomplete="off">
+                </div>
+                <div class="space-y-2">
+                    <label class="field-label">API Key</label>
+                    <input type="password" name="sms_api_key" value="<?php echo htmlspecialchars($s['sms_api_key']); ?>"
+                           class="field-input" placeholder="Keep this secret" autocomplete="new-password">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="space-y-2">
+                    <label class="field-label">Sender ID</label>
+                    <input type="text" name="sms_sender_id" value="<?php echo htmlspecialchars($s['sms_sender_id']); ?>"
+                           class="field-input" placeholder="e.g. PRIMELINK" maxlength="11">
+                    <p class="text-[10px] text-slate-400 px-2">Must already be approved on your Shanfix account. Also signs off every message.</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="field-label">Gateway URL</label>
+                    <input type="url" name="sms_base_url" value="<?php echo htmlspecialchars($s['sms_base_url']); ?>"
+                           class="field-input" placeholder="https://sms.shanfixtechnology.com">
+                    <p class="text-[10px] text-slate-400 px-2">Leave as-is unless Shanfix gave you a different endpoint.</p>
+                </div>
+            </div>
+
+            <div class="p-5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">How Billing Works</p>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Messages are charged in SMS units against your Shanfix balance &mdash; one unit per 160 characters
+                    per recipient (70 for messages containing special characters). Primelink shows the estimated unit
+                    cost before you send, and every message is recorded with its cost in the SMS log.
+                </p>
+            </div>
+
+            <!-- Connection test -->
+            <div class="p-4 bg-blue-50 dark:bg-blue-900/15 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div class="flex-1">
+                    <p class="text-xs font-black text-blue-700 dark:text-blue-400 mb-1">Test Your Connection</p>
+                    <p class="text-[10px] text-blue-600 dark:text-blue-500">Checks your credentials and reads the remaining balance. Costs nothing.</p>
+                    <p id="sms_balance_result" class="text-[11px] font-bold mt-2 hidden"></p>
+                </div>
+                <button type="button" onclick="checkSmsBalance()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black transition-colors whitespace-nowrap">
+                    Check Balance
+                </button>
+            </div>
+
+            <!-- Send a test SMS -->
+            <div class="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-end gap-4">
+                <div class="flex-1 space-y-2 w-full">
+                    <label class="field-label">Send a Test SMS</label>
+                    <input type="tel" id="sms_test_phone" class="field-input" placeholder="07XX XXX XXX">
+                    <p class="text-[10px] text-slate-400 px-2">Sends one real message and charges one unit. Save your settings first.</p>
+                </div>
+                <button type="button" onclick="sendTestSms()" class="px-5 py-2.5 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-xl text-xs font-black transition-colors whitespace-nowrap">
+                    Send Test
+                </button>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button type="submit" class="btn-green px-8 py-3 font-black">Save SMS Settings</button>
+            </div>
+        </form>
+    </div>
+
     <!-- ===== TAB: SYSTEM ===== -->
     <div id="tab-system" class="tab-panel hidden">
         <div class="glass-card p-8 space-y-6">
@@ -614,7 +716,7 @@ include __DIR__ . '/includes/sidebar.php';
 </style>
 
 <script>
-const VALID_TABS = ['company', 'invoice', 'mpesa', 'email', 'system', 'penalties'];
+const VALID_TABS = ['company', 'invoice', 'mpesa', 'email', 'sms', 'system', 'penalties'];
 
 function switchTab(tab) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
@@ -681,8 +783,47 @@ async function sendTestEmail() {
     showToast(data.message, data.success);
 }
 
+// Check the Shanfix Bulk SMS balance — verifies credentials, costs nothing
+async function checkSmsBalance() {
+    const out = document.getElementById('sms_balance_result');
+    out.classList.remove('hidden');
+    out.className = 'text-[11px] font-bold mt-2 text-slate-500';
+    out.textContent = 'Checking…';
+
+    const fr = new FormData();
+    fr.append('action', 'sms_balance');
+    try {
+        const res  = await fetch('actions/settings_actions.php', { method: 'POST', body: fr });
+        const data = await res.json();
+        out.className = 'text-[11px] font-bold mt-2 ' + (data.success ? 'text-green-600' : 'text-red-500');
+        out.textContent = data.message;
+        showToast(data.message, data.success);
+    } catch {
+        out.className = 'text-[11px] font-bold mt-2 text-red-500';
+        out.textContent = 'Could not reach the server.';
+    }
+}
+
+// Send one real test SMS — charges a unit
+async function sendTestSms() {
+    const phone = document.getElementById('sms_test_phone').value.trim();
+    if (!phone) { showToast('Enter a phone number to test with.', false); return; }
+    if (!confirm('Send a test SMS to ' + phone + '? This charges one SMS unit.')) return;
+
+    const fr = new FormData();
+    fr.append('action', 'test_sms');
+    fr.append('phone', phone);
+    try {
+        const res  = await fetch('actions/settings_actions.php', { method: 'POST', body: fr });
+        const data = await res.json();
+        showToast(data.message, data.success);
+    } catch {
+        showToast('Network error — please retry.', false);
+    }
+}
+
 // Generic form submit handler
-['company', 'invoice', 'mpesa', 'email', 'penalties', 'logo'].forEach(name => {
+['company', 'invoice', 'mpesa', 'email', 'sms', 'penalties', 'logo'].forEach(name => {
     const form = document.getElementById('form-' + name);
     if (!form) return;
     form.addEventListener('submit', async e => {
