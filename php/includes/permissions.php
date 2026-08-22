@@ -88,6 +88,7 @@ const PERM_PAGE_MAP = [
     'tenant_payments.php'   => 'invoices',
     'invoices.php'          => 'invoices',
     'corrections_register.php' => 'invoices',
+    'sms_log.php'           => 'invoices',
     'bulk_invoices.php'     => 'bulk_invoices',
     'late_penalties.php'    => 'late_penalties',
     'landlord_payouts.php'  => 'payouts',
