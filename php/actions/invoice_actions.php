@@ -20,8 +20,10 @@ require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/mailer.php';
 require_once __DIR__ . '/../includes/corrections.php';
+require_once __DIR__ . '/../includes/bank_accounts.php';
 
 ensureCorrectionSchema($pdo);
+ensureBankAccountSchema($pdo);
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 $action   = $_POST['action'] ?? '';
@@ -180,6 +182,7 @@ if ($action === 'edit_payment') {
     $txDate       = trim($_POST['transaction_date']   ?? date('Y-m-d'));
     $description  = trim($_POST['description']        ?? '');
     $reference    = trim($_POST['reference_number']   ?? '');
+    $bankAccId    = trim($_POST['bank_account_id']    ?? '');
     $reason       = trim($_POST['correction_reason']  ?? '');
     $notifyEmail  = !empty($_POST['notify_email']);
     $notifySms    = !empty($_POST['notify_sms']);
@@ -207,20 +210,38 @@ if ($action === 'edit_payment') {
     $validMethods = ['Cash', 'M-Pesa', 'Bank Transfer', 'Cheque', 'Other'];
     if (!in_array($method, $validMethods, true)) $method = $old['payment_method'] ?: 'Cash';
 
+    // Moving a payment between collection accounts shifts both balances, so it
+    // is tracked as a correction like any other field.
+    $bankAccounts = getBankAccounts($pdo);
+    $newBank      = getBankAccount($pdo, $bankAccId);
+    if ($bankAccounts && !$newBank) $fail('Choose the account this payment was deposited into.');
+
+    $oldBank         = getBankAccount($pdo, $old['bank_account_id'] ?? null);
+    $newBankId       = $newBank['id'] ?? null;
+    $oldBankLabel    = $oldBank ? bankAccountLabel($oldBank) : '';
+    $newBankLabel    = $newBank ? bankAccountLabel($newBank) : '';
+
     $newValues = [
         'amount'           => $amount,
         'payment_method'   => $method,
         'transaction_date' => $txDate,
         'reference_number' => $reference,
         'description'      => $description,
+        'bank_account'     => $newBankLabel,
     ];
-    $diff = buildDiff($old, $newValues, [
-        'amount'           => ['label' => 'Amount Received', 'format' => 'money'],
-        'payment_method'   => ['label' => 'Payment Method',  'format' => 'text'],
-        'transaction_date' => ['label' => 'Payment Date',    'format' => 'date'],
-        'reference_number' => ['label' => 'Reference No.',   'format' => 'text'],
-        'description'      => ['label' => 'Notes',           'format' => 'text'],
-    ], $currency);
+    $diff = buildDiff(
+        $old + ['bank_account' => $oldBankLabel],
+        $newValues,
+        [
+            'amount'           => ['label' => 'Amount Received', 'format' => 'money'],
+            'payment_method'   => ['label' => 'Payment Method',  'format' => 'text'],
+            'bank_account'     => ['label' => 'Deposited To',    'format' => 'text'],
+            'transaction_date' => ['label' => 'Payment Date',    'format' => 'date'],
+            'reference_number' => ['label' => 'Reference No.',   'format' => 'text'],
+            'description'      => ['label' => 'Notes',           'format' => 'text'],
+        ],
+        $currency
+    );
 
     if (!$diff) backTo($redirect, 'info', 'No changes were made — the receipt is unchanged.');
 
@@ -237,10 +258,12 @@ if ($action === 'edit_payment') {
         $pdo->prepare("
             UPDATE transactions
                SET amount = ?, payment_method = ?, transaction_date = ?, description = ?, reference_number = ?,
+                   bank_account_id = ?,
                    revision_no = ?, last_corrected_at = NOW(), last_correction_reason = ?, corrected_by = ?
              WHERE id = ?
         ")->execute([
             $amount, $method, $txDate, $description ?: null, $reference ?: null,
+            $newBankId,
             $newRevision, $reason, $_SESSION['user_id'] ?? null,
             $paymentId,
         ]);
@@ -291,6 +314,7 @@ if ($action === 'edit_payment') {
             'Payment Method'  => $method,
             'Payment Date'    => date('d M Y', strtotime($txDate)),
         ];
+        if ($newBank) $summary['Deposited To'] = bankAccountLabelMasked($newBank);
         if ($old['unit_number']) $summary['Unit'] = $old['unit_number'];
         if ($balanceNote)        $summary['Invoice Balance'] = $balanceNote;
 

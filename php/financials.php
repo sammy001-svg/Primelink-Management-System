@@ -9,8 +9,14 @@ requireLogin();
 
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
 
 ensureCorrectionSchema($pdo);
+ensureBankAccountSchema($pdo);
+
+// id => account, for naming the destination on each transaction row
+$bankLookup = [];
+foreach (getBankAccounts($pdo, false) as $_ba) { $bankLookup[$_ba['id']] = $_ba; }
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
 $user = getCurrentUser($pdo);
@@ -403,6 +409,15 @@ if ($role === 'landlord') {
                         </select>
                     </div>
                 </div>
+                <?php if (($_SESSION['role'] ?? '') !== 'tenant'): ?>
+                <div class="space-y-2">
+                    <?php echo renderBankAccountSelect($pdo, [
+                        'id'          => 'fin_bank_account',
+                        'label_class' => 'text-[10px] font-black text-slate-400 uppercase tracking-widest px-2',
+                        'class'       => 'w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none',
+                    ]); ?>
+                </div>
+                <?php endif; ?>
                 <button type="submit" class="btn-green w-full justify-center py-4">Record Transaction</button>
             </form>
         </div>
@@ -545,6 +560,9 @@ if ($role === 'landlord') {
                         </td>
                         <td class="p-6">
                             <span class="text-xs font-bold text-slate-600 dark:text-slate-400"><?php echo htmlspecialchars($tr['transaction_type']); ?></span>
+                            <?php if (($tr['status'] ?? '') === 'Paid'): ?>
+                            <div class="mt-1"><?php echo bankAccountBadge($bankLookup[$tr['bank_account_id'] ?? ''] ?? null); ?></div>
+                            <?php endif; ?>
                             <?php $trRev = (int)($tr['revision_no'] ?? 0); ?>
                             <p class="text-[10px] text-slate-400"><?php echo htmlspecialchars(docNumber(DOC_RECEIPT, $tr['id'], $trRev)); ?></p>
                             <?php if ($trRev > 0): ?>

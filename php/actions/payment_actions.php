@@ -10,6 +10,9 @@ requireRole(['admin', 'staff']);
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/settings.php';
+require_once __DIR__ . '/../includes/bank_accounts.php';
+
+ensureBankAccountSchema($pdo);
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
@@ -31,11 +34,23 @@ if ($action === 'record_payment') {
     $method    = $_POST['payment_method']  ?? 'Cash';
     $reference = trim($_POST['reference']  ?? '');
     $notes     = trim($_POST['notes']      ?? '');
+    $bankAccId = trim($_POST['bank_account_id'] ?? '');
 
     if (!$invoiceId || !$tenantId || $amount <= 0) {
         header('Location: ' . $redirect . '?error=' . urlencode('Missing required fields or invalid amount.'));
         exit();
     }
+
+    // Where the money landed. Required once collection accounts exist, so a
+    // payment can always be reconciled against a bank statement.
+    $bankAccounts = getBankAccounts($pdo);
+    $bankAccount  = getBankAccount($pdo, $bankAccId);
+
+    if ($bankAccounts && !$bankAccount) {
+        header('Location: ' . $redirect . '?error=' . urlencode('Choose the account this payment was deposited into.'));
+        exit();
+    }
+    $bankAccId = $bankAccount['id'] ?? null;
 
     try {
         $pdo->beginTransaction();
@@ -44,9 +59,9 @@ if ($action === 'record_payment') {
         $txId = generateUUID();
         $pdo->prepare("
             INSERT INTO transactions
-                (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, transaction_date)
-            VALUES (?, ?, ?, ?, ?, 'Rent Payment', 'Paid', ?, ?, CURDATE())
-        ")->execute([$txId, $tenantId, $leaseId, $invoiceId, $amount, $method, $reference ?: ($notes ?: null)]);
+                (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, bank_account_id, transaction_date)
+            VALUES (?, ?, ?, ?, ?, 'Rent Payment', 'Paid', ?, ?, ?, CURDATE())
+        ")->execute([$txId, $tenantId, $leaseId, $invoiceId, $amount, $method, $reference ?: ($notes ?: null), $bankAccId]);
 
         // 2. Compute total paid on this invoice
         $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE invoice_id = ? AND status = 'Paid'");
@@ -86,7 +101,9 @@ if ($action === 'record_payment') {
         }
 
         logAction($pdo, 'payment_recorded', 'Invoices', $invoiceId,
-            "{$currency} " . number_format($amount) . " via {$method}" . ($reference ? " (Ref: {$reference})" : '') . " — invoice now {$newStatus}");
+            "{$currency} " . number_format($amount) . " via {$method}"
+            . ($bankAccount ? " into {$bankAccount['name']}" : '')
+            . ($reference ? " (Ref: {$reference})" : '') . " — invoice now {$newStatus}");
 
         header('Location: ' . $redirect . '?success=payment_recorded');
     } catch (PDOException $e) {

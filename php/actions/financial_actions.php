@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $transaction_date = $_POST['transaction_date'] ?? date('Y-m-d');
         $description = $_POST['description'] ?? '';
         $invoice_id = $_POST['invoice_id'] ?? null;
+        $bank_account_id = trim($_POST['bank_account_id'] ?? '') ?: null;
 
         $role = $_SESSION['role'];
         $status = ($role === 'tenant') ? 'Pending' : 'Paid';
@@ -48,7 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO transactions (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            // A tenant submitting a payment cannot say which company account it
+            // landed in — staff assign that when they confirm it.
+            if ($role === 'tenant') $bank_account_id = null;
+
+            $stmt = $pdo->prepare("INSERT INTO transactions (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, bank_account_id, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 generateUUID(),
                 $tenant_id,
@@ -59,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $status,
                 $payment_method,
                 $description,
+                $bank_account_id,
                 $transaction_date
             ]);
 

@@ -11,6 +11,9 @@ require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/tenant_notify.php';
+require_once __DIR__ . '/../includes/bank_accounts.php';
+
+ensureBankAccountSchema($pdo);
 
 /**
  * Load the fields the notification dispatcher needs for a tenant, including
@@ -339,12 +342,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try { $pdo->exec($ddl); } catch (PDOException $_e) {}
         }
 
+        // Where the money landed — required once collection accounts exist
+        $bankAccounts = getBankAccounts($pdo);
+        $bankAccount  = getBankAccount($pdo, trim($_POST['bank_account_id'] ?? ''));
+        if ($bankAccounts && !$bankAccount) {
+            header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&error="
+                 . urlencode('Choose the account this payment was deposited into.'));
+            exit();
+        }
+
         try {
             $txId = generateUUID();
             $pdo->prepare("
-                INSERT INTO transactions (id, tenant_id, amount, transaction_type, status, reference_code, transaction_date)
-                VALUES (?, ?, ?, ?, 'Paid', ?, ?)
-            ")->execute([$txId, $tenantId, $amount, $txType, $refCode ?: null, $payDate]);
+                INSERT INTO transactions (id, tenant_id, amount, transaction_type, status, reference_code, bank_account_id, transaction_date)
+                VALUES (?, ?, ?, ?, 'Paid', ?, ?, ?)
+            ")->execute([$txId, $tenantId, $amount, $txType, $refCode ?: null, $bankAccount['id'] ?? null, $payDate]);
 
             // Auto-apply: mark the oldest unpaid invoice as paid if amount matches
             $unpaid = $pdo->prepare("SELECT id, amount FROM invoices WHERE tenant_id = ? AND status != 'Paid' ORDER BY due_date ASC LIMIT 1");
@@ -355,7 +367,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             logAction($pdo, 'payment_recorded', 'Transactions', $txId,
-                "{$txType}: {$currency} " . number_format($amount) . " | Ref: {$refCode} | Date: {$payDate}");
+                "{$txType}: {$currency} " . number_format($amount) . " | Ref: {$refCode} | Date: {$payDate}"
+                . ($bankAccount ? " | Into: {$bankAccount['name']}" : ''));
 
             $uRow = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
             $uRow->execute([$tenantId]);

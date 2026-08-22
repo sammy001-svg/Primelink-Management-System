@@ -10,6 +10,9 @@ requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
+
+ensureBankAccountSchema($pdo);
 $currency  = getSetting($pdo, 'currency_symbol', 'KSh');
 $invPrefix = getSetting($pdo, 'invoice_prefix', 'INV');
 $pageTitle = 'Invoice Management';
@@ -557,7 +560,7 @@ $typeColors = [
 
             <div>
                 <label class="form-label text-xs uppercase tracking-widest font-black text-slate-400">Payment Method</label>
-                <select name="payment_method" class="form-input">
+                <select name="payment_method" id="pm_method" class="form-input" onchange="pmSyncAccount(this.value)">
                     <option value="Cash">Cash</option>
                     <option value="M-Pesa">M-Pesa</option>
                     <option value="Bank Transfer">Bank Transfer</option>
@@ -565,6 +568,13 @@ $typeColors = [
                     <option value="Other">Other</option>
                 </select>
             </div>
+
+            <?php echo renderBankAccountSelect($pdo, [
+                'id'          => 'pm_bank_account',
+                'label'       => 'Deposited To',
+                'class'       => 'form-input',
+                'label_class' => 'form-label text-xs uppercase tracking-widest font-black text-slate-400',
+            ]); ?>
 
             <div>
                 <label class="form-label text-xs uppercase tracking-widest font-black text-slate-400">
@@ -708,6 +718,14 @@ function openPaymentModal(id) {
     document.getElementById('pm_amount').value = inv.balance > 0 ? inv.balance : inv.amount;
     document.getElementById('pm_reference').value = '';
     openModal('paymentModal');
+}
+
+// Jump to the account flagged as the default for this payment method
+function pmSyncAccount(method) {
+    const sel = document.getElementById('pm_bank_account');
+    if (!sel) return;
+    const match = Array.from(sel.options).find(o => o.dataset.method === method);
+    if (match) sel.value = match.value;
 }
 
 function filterInvStatus(status) {

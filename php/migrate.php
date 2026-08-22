@@ -221,7 +221,30 @@ $migrations = [
         INDEX `idx_smslog_tenant`  (`tenant_id`),
         INDEX `idx_smslog_created` (`created_at`),
         INDEX `idx_smslog_status`  (`status`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // ── Collection accounts: where tenant payments are banked ──
+    "CREATE TABLE IF NOT EXISTS `bank_accounts` (
+        `id`                 VARCHAR(36) PRIMARY KEY,
+        `name`               VARCHAR(120)  NOT NULL,
+        `bank_name`          VARCHAR(120)  NULL,
+        `account_name`       VARCHAR(150)  NULL,
+        `account_no`         VARCHAR(60)   NULL,
+        `branch`             VARCHAR(120)  NULL,
+        `account_type`       VARCHAR(30)   NOT NULL DEFAULT 'Bank',
+        `paybill_no`         VARCHAR(30)   NULL,
+        `opening_balance`    DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+        `ledger_account_id`  VARCHAR(36)   NULL,
+        `default_for_method` VARCHAR(30)   NULL,
+        `is_active`          TINYINT(1)    NOT NULL DEFAULT 1,
+        `is_default`         TINYINT(1)    NOT NULL DEFAULT 0,
+        `sort_order`         INT           NOT NULL DEFAULT 0,
+        `notes`              TEXT          NULL,
+        `created_at`         TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_bankacc_active` (`is_active`),
+        INDEX `idx_bankacc_method` (`default_for_method`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `bank_account_id` VARCHAR(36) NULL",
+    "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)"
 ];
 
 $results = [];

@@ -5,8 +5,10 @@ requireLogin();
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
 
 ensureCorrectionSchema($pdo);
+ensureBankAccountSchema($pdo);
 
 $id = $_GET['id'] ?? '';
 $stmt = $pdo->prepare("
@@ -37,6 +39,8 @@ $isStaff  = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
 $revision = (int)($payment['revision_no'] ?? 0);
 $docNo    = docNumber(DOC_RECEIPT, $payment['id'], $revision);
 
+$bankAccount = getBankAccount($pdo, $payment['bank_account_id'] ?? null);
+
 $flashSuccess = $_GET['success'] ?? '';
 $flashError   = $_GET['error']   ?? '';
 $flashInfo    = $_GET['info']    ?? '';
@@ -58,6 +62,15 @@ $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
             body { background: white; }
             .print-border { border: 1px solid #e2e8f0; }
             .correction-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        .vr-label {
+            display: block; font-size: 10px; font-weight: 900; color: #94a3b8;
+            text-transform: uppercase; letter-spacing: .1em; margin-bottom: .4rem;
+        }
+        .vr-select {
+            width: 100%; box-sizing: border-box; border: 1.5px solid #e2e8f0; border-radius: .75rem;
+            padding: .6rem .85rem; font-size: .85rem; font-weight: 700; color: #0f172a;
+            background: #fff; outline: none;
         }
     </style>
 </head>
@@ -140,6 +153,14 @@ $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Payment Method</span>
                 <span class="text-sm font-black text-slate-900"><?php echo htmlspecialchars((string)$payment['payment_method']); ?></span>
             </div>
+            <?php if ($bankAccount): ?>
+            <div class="flex justify-between border-b border-slate-100 pb-4">
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Deposited To</span>
+                <span class="text-sm font-black text-slate-900">
+                    <?php echo htmlspecialchars($isStaff ? bankAccountLabel($bankAccount) : bankAccountLabelMasked($bankAccount)); ?>
+                </span>
+            </div>
+            <?php endif; ?>
         </div>
 
         <div class="p-8 bg-slate-900 text-white rounded-3xl text-center shadow-xl relative z-[2]">
@@ -226,6 +247,13 @@ $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
                            style="width:100%;box-sizing:border-box;border:1.5px solid #e2e8f0;border-radius:.75rem;padding:.6rem .85rem;font-size:.85rem;font-weight:700;color:#0f172a;outline:none;">
                 </div>
             </div>
+            <?php echo renderBankAccountSelect($pdo, [
+                'id'          => 'vr_bank_account',
+                'selected'    => (string)($payment['bank_account_id'] ?? ''),
+                'method'      => (string)($payment['payment_method'] ?? ''),
+                'label_class' => 'vr-label',
+                'class'       => 'vr-select',
+            ]); ?>
             <div>
                 <label style="display:block;font-size:10px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.4rem;">Notes</label>
                 <input type="text" name="description"

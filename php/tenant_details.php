@@ -61,7 +61,9 @@ foreach ([
 
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
 ensureCorrectionSchema($pdo);
+ensureBankAccountSchema($pdo);
 
 // ── Invoices ─────────────────────────────────────────────────────
 $stmt = $pdo->prepare("
@@ -698,6 +700,10 @@ include __DIR__ . '/includes/sidebar.php';
                             <input type="date" name="payment_date" value="<?php echo date('Y-m-d'); ?>"
                                 class="w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none">
                         </div>
+                        <?php echo renderBankAccountSelect($pdo, [
+                            'id'    => 'td_bank_account',
+                            'class' => 'w-full px-4 py-3 bg-slate-100 dark:bg-slate-800/60 border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 outline-none',
+                        ]); ?>
                         <button type="submit" class="btn-green w-full justify-center py-3 text-xs">Record Payment</button>
                     </form>
                 </div>

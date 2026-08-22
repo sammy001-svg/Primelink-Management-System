@@ -8,7 +8,9 @@ require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
 require_once __DIR__ . '/includes/corrections.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
 ensureCorrectionSchema($pdo);
+ensureBankAccountSchema($pdo);
 
 $transaction_id = $_GET['id'] ?? '';
 if (empty($transaction_id)) {
@@ -61,7 +63,8 @@ if ($_SESSION['role'] === 'tenant') {
 }
 
 $isStaff  = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
-$revision = (int)($txn['revision_no'] ?? 0);
+$revision    = (int)($txn['revision_no'] ?? 0);
+$bankAccount = getBankAccount($pdo, $txn['bank_account_id'] ?? null);
 $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
 ?>
 <!DOCTYPE html>
@@ -134,6 +137,14 @@ $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
                         <p class="text-[9px] font-black text-slate-400 uppercase">Type</p>
                         <p class="text-xs font-bold"><?php echo $txn['transaction_type']; ?></p>
                     </div>
+                    <?php if ($bankAccount): ?>
+                    <div>
+                        <p class="text-[9px] font-black text-slate-400 uppercase">Deposited To</p>
+                        <p class="text-xs font-bold">
+                            <?php echo htmlspecialchars($isStaff ? bankAccountLabel($bankAccount) : bankAccountLabelMasked($bankAccount)); ?>
+                        </p>
+                    </div>
+                    <?php endif; ?>
                     <div class="text-right">
                         <p class="text-[9px] font-black text-slate-400 uppercase">Status</p>
                         <span class="text-[10px] font-black px-2 py-0.5 rounded-full <?php echo $txn['status'] === 'Paid' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'; ?>">
