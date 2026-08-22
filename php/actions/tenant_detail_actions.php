@@ -10,6 +10,24 @@ requireRole(['admin', 'staff']);
 require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/settings.php';
+require_once __DIR__ . '/../includes/tenant_notify.php';
+
+/**
+ * Load the fields the notification dispatcher needs for a tenant, including
+ * the unit number used as the M-Pesa account reference.
+ */
+function loadNotifyTenant(PDO $pdo, string $tenantId): ?array {
+    $stmt = $pdo->prepare("
+        SELECT t.id, t.full_name, t.email, t.phone, t.user_id, u.unit_number
+        FROM tenants t
+        LEFT JOIN leases l ON l.tenant_id = t.id AND l.status = 'Active'
+        LEFT JOIN units  u ON l.unit_id = u.id
+        WHERE t.id = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$tenantId]);
+    return $stmt->fetch() ?: null;
+}
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
 
@@ -141,23 +159,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 VALUES (?, ?, ?, ?, ?, 'Unpaid', ?, ?)
             ")->execute([$invId, $tenantId, $leaseId, $amount, $dueDate, $invoiceType, $description ?: null]);
 
-            // Notify tenant
-            $uRow = $pdo->prepare("SELECT user_id, full_name FROM tenants WHERE id = ?");
-            $uRow->execute([$tenantId]);
-            $tRow = $uRow->fetch();
-            if ($tRow && $tRow['user_id']) {
-                createNotification(
-                    $pdo, $tRow['user_id'],
-                    'New Invoice Generated',
-                    "A {$invoiceType} invoice of {$currency} " . number_format($amount, 2) . " has been issued. Due: " . date('d M Y', strtotime($dueDate)) . ".",
-                    'warning'
-                );
+            // Notify the tenant across the channels the user asked for
+            $channels = [
+                'email' => !empty($_POST['notify_email']),
+                'sms'   => !empty($_POST['notify_sms']),
+            ];
+            $noticeSummary = '';
+            $notifyTenant  = loadNotifyTenant($pdo, $tenantId);
+
+            if ($notifyTenant) {
+                $notice = buildInvoiceNotice($pdo, $notifyTenant, [
+                    'id'           => $invId,
+                    'invoice_type' => $invoiceType,
+                    'amount'       => $amount,
+                    'due_date'     => $dueDate,
+                    'description'  => $description,
+                    'unit_number'  => $notifyTenant['unit_number'] ?? '',
+                ]);
+                $res = dispatchTenantNotice($pdo, $notifyTenant, $notice, $channels, 'invoice_issued');
+                if ($channels['email'] || $channels['sms']) {
+                    $noticeSummary = summariseNotices([$res]);
+                }
             }
 
             logAction($pdo, 'invoice_generated', 'Invoices', $invId,
-                "{$invoiceType}: {$currency} " . number_format($amount) . " | Due: {$dueDate}" . ($description ? " | {$description}" : ''));
+                "{$invoiceType}: {$currency} " . number_format($amount) . " | Due: {$dueDate}"
+                . ($description ? " | {$description}" : '')
+                . ($noticeSummary ? " | Notice: {$noticeSummary}" : ''));
 
-            header("Location: ../view_invoice.php?id={$invId}&back_tenant={$tenantId}");
+            $q = $noticeSummary ? '&notice=' . urlencode($noticeSummary) : '';
+            header("Location: ../view_invoice.php?id={$invId}&back_tenant={$tenantId}{$q}");
         } catch (PDOException $e) {
             header("Location: ../tenant_details.php?id=$tenantId&tab=invoices&error=" . urlencode($e->getMessage()));
         }
@@ -183,6 +214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $batchId = generateUUID();
         $created = 0;
         $totalAmt = 0;
+        $items    = [];
 
         try {
             foreach ($types as $type) {
@@ -196,6 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ")->execute([$invId, $tenantId, $leaseId, $amt, $dueDate, $type, $description ?: null, $batchId]);
                 $created++;
                 $totalAmt += $amt;
+                $items[]   = ['invoice_type' => $type, 'amount' => $amt];
             }
 
             if ($created === 0) {
@@ -203,23 +236,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit();
             }
 
-            // Notify tenant
-            $uRow = $pdo->prepare("SELECT user_id FROM tenants WHERE id = ?");
-            $uRow->execute([$tenantId]);
-            $uid = $uRow->fetchColumn();
-            if ($uid) {
-                createNotification(
-                    $pdo, $uid,
-                    'Combined Invoice Generated',
-                    "{$created} charge(s) totalling {$currency} " . number_format($totalAmt, 2) . " have been invoiced. Due: " . date('d M Y', strtotime($dueDate)) . ".",
-                    'warning'
-                );
+            // Notify the tenant across the channels the user asked for
+            $channels = [
+                'email' => !empty($_POST['notify_email']),
+                'sms'   => !empty($_POST['notify_sms']),
+            ];
+            $noticeSummary = '';
+            $notifyTenant  = loadNotifyTenant($pdo, $tenantId);
+
+            if ($notifyTenant) {
+                $notice = buildBundleNotice($pdo, $notifyTenant, [
+                    'batch_id'    => $batchId,
+                    'items'       => $items,
+                    'total'       => $totalAmt,
+                    'due_date'    => $dueDate,
+                    'description' => $description,
+                    'unit_number' => $notifyTenant['unit_number'] ?? '',
+                ]);
+                $res = dispatchTenantNotice($pdo, $notifyTenant, $notice, $channels, 'bundle_issued');
+                if ($channels['email'] || $channels['sms']) {
+                    $noticeSummary = summariseNotices([$res]);
+                }
             }
 
             logAction($pdo, 'bundle_invoice_generated', 'Invoices', $batchId,
-                "{$created} items — {$currency} " . number_format($totalAmt) . " | Batch: {$batchId}");
+                "{$created} items — {$currency} " . number_format($totalAmt) . " | Batch: {$batchId}"
+                . ($noticeSummary ? " | Notice: {$noticeSummary}" : ''));
 
-            header("Location: ../view_combined_invoice.php?batch_id={$batchId}");
+            $q = $noticeSummary ? '&notice=' . urlencode($noticeSummary) : '';
+            header("Location: ../view_combined_invoice.php?batch_id={$batchId}{$q}");
         } catch (PDOException $e) {
             header("Location: ../tenant_details.php?id={$tenantId}&tab=invoices&error=" . urlencode($e->getMessage()));
         }

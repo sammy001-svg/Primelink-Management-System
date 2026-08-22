@@ -9,6 +9,7 @@ require_once __DIR__ . '/includes/auth.php';
 requireRole(['admin', 'staff']);
 
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/tenant_notify.php';
 
 $pageTitle   = "Bulk Invoice Generator";
 $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
@@ -286,15 +287,25 @@ $selTypeBadge = $typeColors[$selType] ?? 'badge';
                 This will create <span class="text-accent-green font-black"><?php echo $willGenerate; ?></span> invoice<?php echo $willGenerate !== 1 ? 's' : ''; ?> due on <span class="font-black"><?php echo date('d M Y', strtotime($defaultDue)); ?></span>.
                 <?php if ($willSkip > 0): ?><?php echo $willSkip; ?> already-billed lease<?php echo $willSkip !== 1 ? 's' : ''; ?> will be skipped.<?php endif; ?>
             </p>
-            <form method="POST" action="actions/bulk_invoice_actions.php">
+            <form method="POST" action="actions/bulk_invoice_actions.php" class="w-full sm:w-auto sm:min-w-[340px] space-y-4">
                 <input type="hidden" name="month"       value="<?php echo $selMonth; ?>">
                 <input type="hidden" name="year"        value="<?php echo $selYear; ?>">
                 <input type="hidden" name="type"        value="<?php echo htmlspecialchars($selType); ?>">
                 <input type="hidden" name="property_id" value="<?php echo htmlspecialchars($selProperty); ?>">
                 <input type="hidden" name="amount"      value="<?php echo htmlspecialchars($selAmount); ?>">
                 <input type="hidden" name="due_date"    value="<?php echo $defaultDue; ?>">
+                <?php
+                echo renderNotifyChannels($pdo, [
+                    'recipients'    => $willGenerate,
+                    'email_checked' => true,
+                    'sms_checked'   => true,
+                    'sms_preview'   => 'Dear Tenant, your ' . $selType . ' invoice INV-XXXXXXXX of '
+                                     . $currency . ' 00,000.00 is due on 00 Xxx 0000.'
+                                     . smsPaymentLine($pdo, 'A12') . ' - ' . smsSignature($pdo),
+                ]);
+                ?>
                 <button type="submit"
-                    class="px-6 py-3 bg-accent-green text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2">
+                    class="w-full px-6 py-3 bg-accent-green text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     Generate <?php echo $willGenerate; ?> Invoice<?php echo $willGenerate !== 1 ? 's' : ''; ?>
                 </button>

@@ -60,6 +60,7 @@ foreach ([
 }
 
 require_once __DIR__ . '/includes/corrections.php';
+require_once __DIR__ . '/includes/tenant_notify.php';
 ensureCorrectionSchema($pdo);
 
 // ── Invoices ─────────────────────────────────────────────────────
@@ -1213,6 +1214,18 @@ include __DIR__ . '/includes/sidebar.php';
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Note / Description (optional)</label>
                     <input type="text" name="description" placeholder="e.g. July 2026 Rent" class="form-input w-full">
                 </div>
+                <?php
+                $notifyUnit = $primaryLease['unit_number'] ?? '';
+                echo renderNotifyChannels($pdo, [
+                    'email'         => $tenant['email'] ?? '',
+                    'phone'         => $tenant['phone'] ?? '',
+                    'email_checked' => true,
+                    'sms_checked'   => true,
+                    'sms_preview'   => 'Dear ' . explode(' ', trim((string)$tenant['full_name']))[0]
+                                     . ', your Rent invoice INV-XXXXXXXX of ' . $currency . ' 00,000.00 is due on 00 Xxx 0000.'
+                                     . smsPaymentLine($pdo, (string)$notifyUnit) . ' - ' . smsSignature($pdo),
+                ]);
+                ?>
                 <button type="submit" class="btn-green w-full justify-center py-3 text-xs">
                     Generate Invoice &amp; Notify Tenant
                 </button>
@@ -1262,8 +1275,19 @@ include __DIR__ . '/includes/sidebar.php';
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">General Note (optional)</label>
                     <input type="text" name="description" placeholder="e.g. July 2026 charges" class="form-input w-full">
                 </div>
+                <?php
+                echo renderNotifyChannels($pdo, [
+                    'email'         => $tenant['email'] ?? '',
+                    'phone'         => $tenant['phone'] ?? '',
+                    'email_checked' => true,
+                    'sms_checked'   => true,
+                    'sms_preview'   => 'Dear ' . explode(' ', trim((string)$tenant['full_name']))[0]
+                                     . ', a combined invoice of ' . $currency . ' 00,000.00 (Rent, Water, Garbage) is due on 00 Xxx 0000.'
+                                     . smsPaymentLine($pdo, (string)($primaryLease['unit_number'] ?? '')) . ' - ' . smsSignature($pdo),
+                ]);
+                ?>
                 <button type="submit" class="btn-green w-full justify-center py-3 text-xs">
-                    Generate All &amp; View Combined Invoice
+                    Generate All &amp; Notify Tenant
                 </button>
             </form>
         </div>

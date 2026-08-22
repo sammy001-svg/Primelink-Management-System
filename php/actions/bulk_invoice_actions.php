@@ -10,6 +10,7 @@ requireRole(['admin', 'staff']);
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/settings.php';
+require_once __DIR__ . '/../includes/tenant_notify.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: ../bulk_invoices.php");
@@ -22,6 +23,9 @@ $type       = $_POST['type']                ?? 'Rent';
 $propertyId = $_POST['property_id']         ?? 'all';
 $amount     = (float)($_POST['amount']      ?? 0);
 $dueDate    = $_POST['due_date']            ?? date('Y-m-d', strtotime('+7 days'));
+
+$notifyEmail = !empty($_POST['notify_email']);
+$notifySms   = !empty($_POST['notify_sms']);
 
 $validTypes = ['Rent', 'Water', 'Garbage', 'Electricity', 'Deposit', 'Service Charge'];
 if (!in_array($type, $validTypes, true)) {
@@ -42,8 +46,12 @@ $sql = "
         l.id          AS lease_id,
         l.tenant_id,
         l.monthly_rent,
+        t.id          AS tenant_pk,
         t.full_name,
-        t.user_id
+        t.email,
+        t.phone,
+        t.user_id,
+        u.unit_number
     FROM leases l
     JOIN tenants    t  ON l.tenant_id   = t.id
     JOIN units      u  ON l.unit_id     = u.id
@@ -58,8 +66,9 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $leases = $stmt->fetchAll();
 
-$generated = 0;
-$skipped   = 0;
+$generated  = 0;
+$skipped    = 0;
+$issued     = [];   // [tenant row, invoice id, amount] for each invoice actually created
 
 $insertStmt = $pdo->prepare(
     "INSERT INTO invoices (id, tenant_id, lease_id, amount, due_date, status, invoice_type)
@@ -95,18 +104,7 @@ foreach ($leases as $lease) {
         $invId = generateUUID();
         $insertStmt->execute([$invId, $lease['tenant_id'], $lease['lease_id'], $invAmount, $dueDate, $type]);
 
-        // In-app notification for tenant
-        if (!empty($lease['user_id'])) {
-            $currency = getSetting($pdo, 'currency_symbol', 'KSh');
-            $amtFmt   = $currency . ' ' . number_format($invAmount);
-            createNotification(
-                $pdo, $lease['user_id'],
-                'New Invoice',
-                "A {$type} invoice for {$amtFmt} has been issued, due on " . date('d M Y', strtotime($dueDate)) . '.',
-                'warning'
-            );
-        }
-
+        $issued[] = ['lease' => $lease, 'invoice_id' => $invId, 'amount' => $invAmount];
         $generated++;
     } catch (PDOException $e) {
         // Skip on error (e.g. duplicate key race) — non-fatal
@@ -114,11 +112,57 @@ foreach ($leases as $lease) {
     }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   NOTIFY
+   Invoices are written first and notified second, so a gateway problem can
+   never leave a tenant billed-but-not-invoiced (or vice versa).
+   ═══════════════════════════════════════════════════════════════════════ */
+$noticeSummary = '';
+
+if ($issued) {
+    $results = [];
+
+    foreach ($issued as $row) {
+        $lease  = $row['lease'];
+        $tenant = [
+            'id'        => $lease['tenant_pk'] ?? $lease['tenant_id'],
+            'full_name' => $lease['full_name'],
+            'email'     => $lease['email']   ?? '',
+            'phone'     => $lease['phone']   ?? '',
+            'user_id'   => $lease['user_id'] ?? null,
+        ];
+
+        $notice = buildInvoiceNotice($pdo, $tenant, [
+            'id'           => $row['invoice_id'],
+            'invoice_type' => $type,
+            'amount'       => $row['amount'],
+            'due_date'     => $dueDate,
+            'description'  => '',
+            'unit_number'  => $lease['unit_number'] ?? '',
+        ]);
+
+        // The in-app notice always goes; email/SMS only when asked for
+        $results[] = dispatchTenantNotice(
+            $pdo,
+            $tenant,
+            $notice,
+            ['email' => $notifyEmail, 'sms' => $notifySms],
+            'bulk_invoice_issued'
+        );
+    }
+
+    if ($notifyEmail || $notifySms) {
+        $noticeSummary = summariseNotices($results);
+    }
+}
+
 // Audit log
 $label = ucfirst($type) . " invoices for {$month}/{$year}";
 if ($propertyId !== 'all') $label .= " (1 property)";
 logAction($pdo, 'bulk_invoices_generated', 'Financials', '',
-    "{$generated} {$label} generated, {$skipped} skipped");
+    "{$generated} {$label} generated, {$skipped} skipped"
+    . ($noticeSummary ? " | Notice: {$noticeSummary}" : ''));
 
-header("Location: ../bulk_invoices.php?done=1&generated={$generated}&skipped={$skipped}");
+$q = $noticeSummary ? '&notice=' . urlencode($noticeSummary) : '';
+header("Location: ../bulk_invoices.php?done=1&generated={$generated}&skipped={$skipped}{$q}");
 exit();
