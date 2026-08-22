@@ -8,6 +8,9 @@ require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
 
 require_once __DIR__ . '/../includes/settings.php';
+require_once __DIR__ . '/../includes/bank_accounts.php';
+
+ensureBankAccountSchema($pdo);
 
 $user = getCurrentUser($pdo);
 $role = $_SESSION['role'] ?? 'tenant';
@@ -259,12 +262,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $trans_id   = generateUUID();
             $trans_type = ($token_type === 'Electricity') ? 'Electricity Token' : 'Water Token';
+            $bankAcc    = getBankAccount($pdo, trim($_POST['bank_account_id'] ?? ''));
             $stmtTrans  = $pdo->prepare("
                 INSERT INTO transactions 
-                    (id, tenant_id, amount, transaction_type, payment_method, status, description, transaction_date) 
-                VALUES (?, ?, ?, ?, 'System Generated', 'Paid', ?, NOW())
+                    (id, tenant_id, amount, transaction_type, payment_method, status, description, bank_account_id, transaction_date) 
+                VALUES (?, ?, ?, ?, 'System Generated', 'Paid', ?, ?, NOW())
             ");
-            $stmtTrans->execute([$trans_id, $tenant_id, $amount, $trans_type, "Token: $token_code | Meter: $meter_number"]);
+            $stmtTrans->execute([$trans_id, $tenant_id, $amount, $trans_type, "Token: $token_code | Meter: $meter_number", $bankAcc['id'] ?? null]);
 
             $pdo->commit();
             header("Location: ../tokens.php?success=generated&code=" . urlencode($token_code));

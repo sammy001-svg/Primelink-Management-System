@@ -7,6 +7,9 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 
+require_once __DIR__ . '/includes/bank_accounts.php';
+ensureBankAccountSchema($pdo);
+
 $user = getCurrentUser($pdo);
 $role = $_SESSION['role'] ?? 'tenant';
 $pageTitle = "Utility Tokens";
@@ -239,6 +242,12 @@ include __DIR__ . '/includes/sidebar.php';
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Units (kWh / Liters)</label>
                 <input type="number" step="0.1" name="units_value" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
             </div>
+
+            <?php echo renderBankAccountSelect($pdo, [
+                'id'          => 'token_bank_account',
+                'label_class' => 'text-[10px] font-black text-slate-400 uppercase tracking-widest px-2',
+                'class'       => 'w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none',
+            ]); ?>
 
             <button type="submit" class="btn-primary w-full justify-center py-4">Generate & Record Payment</button>
         </form>
