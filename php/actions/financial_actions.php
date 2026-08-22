@@ -8,6 +8,9 @@ require_once __DIR__ . '/../includes/auth.php';
 requireLogin(['admin', 'staff', 'tenant']);
 
 require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/corrections.php';
+
+ensureTransactionColumns($pdo);
 require_once __DIR__ . '/../includes/notify.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

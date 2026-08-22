@@ -9,7 +9,9 @@ requireLogin();
 
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/bank_accounts.php';
+require_once __DIR__ . '/../includes/corrections.php';
 
+ensureTransactionColumns($pdo);
 ensureBankAccountSchema($pdo);
 
 $user = getCurrentUser($pdo);

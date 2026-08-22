@@ -12,7 +12,9 @@ require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/tenant_notify.php';
 require_once __DIR__ . '/../includes/bank_accounts.php';
+require_once __DIR__ . '/../includes/corrections.php';
 
+ensureTransactionColumns($pdo);
 ensureBankAccountSchema($pdo);
 
 /**
@@ -324,23 +326,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
-        // Schema self-heal for transactions table
-        foreach ([
-            "CREATE TABLE IF NOT EXISTS transactions (
+        // Schema self-heal for transactions.
+        // An earlier version of this created a minimal table with no
+        // invoice_id/lease_id/payment_method, which broke every payment query
+        // downstream. The full shape is created here and repaired centrally.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
                 id VARCHAR(36) PRIMARY KEY,
-                tenant_id VARCHAR(36) NOT NULL,
-                amount DECIMAL(15,2) NOT NULL,
+                tenant_id VARCHAR(36) NULL,
+                lease_id VARCHAR(36) NULL,
+                invoice_id VARCHAR(36) NULL,
+                amount DECIMAL(15,2) NOT NULL DEFAULT 0,
                 transaction_type VARCHAR(100) DEFAULT 'Rent',
                 status VARCHAR(20) DEFAULT 'Paid',
+                payment_method VARCHAR(50) NULL,
+                reference_number VARCHAR(255) NULL,
                 reference_code VARCHAR(255) NULL,
-                transaction_date DATE NOT NULL,
+                description TEXT NULL,
+                transaction_date DATE NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_code VARCHAR(255) NULL",
-            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(100) DEFAULT 'Rent'",
-        ] as $ddl) {
-            try { $pdo->exec($ddl); } catch (PDOException $_e) {}
-        }
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } catch (PDOException $_e) {}
+        ensureTransactionColumns($pdo);
 
         // Where the money landed — required once collection accounts exist
         $bankAccounts = getBankAccounts($pdo);

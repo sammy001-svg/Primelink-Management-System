@@ -85,9 +85,14 @@ if ($action === 'edit_invoice') {
 
     // Reducing an invoice below what has already been receipted leaves a credit
     // the system cannot represent — block it and let the user refund instead.
-    $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE invoice_id = ? AND status = 'Paid'");
-    $paidStmt->execute([$invoiceId]);
-    $totalPaid = (float)$paidStmt->fetchColumn();
+    $totalPaid = 0.0;
+    try {
+        $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE invoice_id = ? AND status = 'Paid'");
+        $paidStmt->execute([$invoiceId]);
+        $totalPaid = (float)$paidStmt->fetchColumn();
+    } catch (PDOException $e) {
+        error_log('invoice correction: could not total payments — ' . $e->getMessage());
+    }
     if ($amount < $totalPaid - 0.001) {
         $fail(sprintf(
             'Cannot reduce this invoice to %s %s — %s %s has already been receipted against it. Correct or reverse the payment first.',

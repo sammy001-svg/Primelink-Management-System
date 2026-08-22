@@ -44,6 +44,60 @@ function ensureColumn(PDO $pdo, string $table, string $column, string $definitio
     }
 }
 
+/** Is this column present? Used to verify a repair actually took. */
+function hasColumn(PDO $pdo, string $table, string $column): bool {
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?"
+        );
+        $stmt->execute([$table, $column]);
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+/**
+ * Bring `transactions` up to the shape the whole application assumes.
+ *
+ * Some installs were created by a self-heal that built a minimal transactions
+ * table with no invoice_id / lease_id / payment_method, which makes every
+ * payment and invoice query fail with "Unknown column". This converges any
+ * install onto the full set, and is safe to run repeatedly.
+ */
+function ensureTransactionColumns(PDO $pdo): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+
+    $columns = [
+        'tenant_id'        => 'VARCHAR(36) NULL',
+        'lease_id'         => 'VARCHAR(36) NULL',
+        'invoice_id'       => 'VARCHAR(36) NULL',
+        'amount'           => 'DECIMAL(15,2) NOT NULL DEFAULT 0',
+        'transaction_type' => "VARCHAR(100) DEFAULT 'Rent'",
+        'status'           => "VARCHAR(20) DEFAULT 'Pending'",
+        'payment_method'   => 'VARCHAR(50) NULL',
+        'reference_number' => 'VARCHAR(255) NULL',
+        'reference_code'   => 'VARCHAR(255) NULL',
+        'description'      => 'TEXT NULL',
+        'transaction_date' => 'DATE NULL',
+    ];
+    foreach ($columns as $col => $def) {
+        ensureColumn($pdo, 'transactions', $col, $def);
+    }
+
+    // Queries filter on these constantly
+    foreach ([
+        "CREATE INDEX `idx_tx_invoice` ON `transactions` (`invoice_id`)",
+        "CREATE INDEX `idx_tx_tenant`  ON `transactions` (`tenant_id`)",
+        "CREATE INDEX `idx_tx_status`  ON `transactions` (`status`)",
+    ] as $sql) {
+        try { $pdo->exec($sql); } catch (PDOException $e) {}
+    }
+}
+
 /**
  * Idempotently create/patch everything the corrections engine needs.
  * Cached per session so normal page loads cost nothing.
@@ -53,7 +107,9 @@ function ensureCorrectionSchema(PDO $pdo, bool $force = false): void {
     if ($done && !$force) return;
     $done = true;
 
-    $cacheKey = 'pl_corrections_schema_v1';
+    // v2 adds the transactions column repair — installs that already cached v1
+    // must run again, so the key is versioned rather than reused.
+    $cacheKey = 'pl_corrections_schema_v2';
     if (!$force && !empty($_SESSION[$cacheKey])) return;
 
     try {
@@ -78,6 +134,8 @@ function ensureCorrectionSchema(PDO $pdo, bool $force = false): void {
         ");
     } catch (PDOException $e) {}
 
+    ensureTransactionColumns($pdo);
+
     // Revision tracking on the documents themselves
     foreach (['invoices', 'transactions'] as $table) {
         ensureColumn($pdo, $table, 'revision_no',            'INT NOT NULL DEFAULT 0');
@@ -90,7 +148,12 @@ function ensureCorrectionSchema(PDO $pdo, bool $force = false): void {
     ensureColumn($pdo, 'transactions', 'description',      'TEXT NULL');
     ensureColumn($pdo, 'transactions', 'reference_number', 'VARCHAR(255) NULL');
 
-    $_SESSION[$cacheKey] = 1;
+    // Only remember that the schema is sound once it actually is. If the ALTERs
+    // failed — no privileges, locked table — retry on the next request rather
+    // than caching a broken state for the rest of the session.
+    if (hasColumn($pdo, 'transactions', 'invoice_id')) {
+        $_SESSION[$cacheKey] = 1;
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

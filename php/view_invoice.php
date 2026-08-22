@@ -39,10 +39,16 @@ $isStaff  = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
 $revision = (int)($invoice['revision_no'] ?? 0);
 $docNo    = docNumber(DOC_INVOICE, $invoice['id'], $revision);
 
-// Amount already receipted against this invoice — a correction may not go below it
-$paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE invoice_id = ? AND status = 'Paid'");
-$paidStmt->execute([$invoice['id']]);
-$amountPaid = (float)$paidStmt->fetchColumn();
+// Amount already receipted against this invoice — a correction may not go below it.
+// Never let a schema gap take down the whole invoice view.
+$amountPaid = 0.0;
+try {
+    $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE invoice_id = ? AND status = 'Paid'");
+    $paidStmt->execute([$invoice['id']]);
+    $amountPaid = (float)$paidStmt->fetchColumn();
+} catch (PDOException $e) {
+    error_log('view_invoice: could not total payments — ' . $e->getMessage());
+}
 
 $flashSuccess = $_GET['success'] ?? '';
 $flashError   = $_GET['error']   ?? '';

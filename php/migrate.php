@@ -243,6 +243,16 @@ $migrations = [
         INDEX `idx_bankacc_active` (`is_active`),
         INDEX `idx_bankacc_method` (`default_for_method`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // ── Repair transactions tables built by an older, minimal self-heal ──
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `tenant_id` VARCHAR(36) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `lease_id` VARCHAR(36) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `invoice_id` VARCHAR(36) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `payment_method` VARCHAR(50) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `description` TEXT NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `reference_code` VARCHAR(255) NULL",
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `transaction_date` DATE NULL",
+    "CREATE INDEX `idx_tx_invoice` ON `transactions` (`invoice_id`)",
+    "CREATE INDEX `idx_tx_tenant`  ON `transactions` (`tenant_id`)",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `bank_account_id` VARCHAR(36) NULL",
     "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)",
     // ── HR: fuller staff records ──

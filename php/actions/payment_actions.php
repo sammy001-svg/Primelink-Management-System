@@ -11,7 +11,9 @@ require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/notify.php';
 require_once __DIR__ . '/../includes/settings.php';
 require_once __DIR__ . '/../includes/bank_accounts.php';
+require_once __DIR__ . '/../includes/corrections.php';
 
+ensureTransactionColumns($pdo);
 ensureBankAccountSchema($pdo);
 
 $currency = getSetting($pdo, 'currency_symbol', 'KSh');
