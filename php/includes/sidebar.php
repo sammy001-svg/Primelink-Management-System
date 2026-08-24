@@ -10,7 +10,7 @@ require_once __DIR__ . '/notify.php';
 $_unreadCount = getUnreadCount($pdo, $_SESSION['user_id'] ?? '');
 ?>
 <!-- ===== DESKTOP SIDEBAR ===== -->
-<aside id="mainSidebar" class="main-sidebar hidden lg:flex">
+<aside id="mainSidebar" class="main-sidebar hidden lg:flex lg:flex-col">
 
     <!-- Brand -->
     <div class="flex items-center gap-2.5 px-4 shrink-0" style="height:52px;border-bottom:1px solid var(--border);">

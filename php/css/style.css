@@ -402,16 +402,17 @@ html.dark .data-table td { border-color: var(--border); }
 
 /* ===================== APP SHELL ===================== */
 .main-sidebar {
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
   width: var(--sidebar-w);
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  z-index: 50;
-  display: flex;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   flex-direction: column;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 html.dark .main-sidebar { background: var(--surface-sunk); }
 
@@ -461,12 +462,12 @@ html.dark .main-sidebar { background: var(--surface-sunk); }
   gap: 12px;
 }
 html.dark .topbar { background: var(--surface); }
-.topbar-left  { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.topbar-right { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.topbar-left  { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.topbar-right { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
 
 /* Breadcrumbs */
+/* The markup carries `hidden lg:flex`, so display is left to those utilities. */
 .breadcrumb-bar {
-  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
@@ -542,13 +543,18 @@ html.dark .drawer-panel { background: var(--surface-sunk); }
 
 /* Bottom mobile nav */
 .mobile-nav {
+  display: none;                 /* shown only below the lg breakpoint */
   position: fixed;
   bottom: 0; left: 0; right: 0;
   z-index: 45;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  display: flex;
   padding: 5px 4px;
+}
+@media (max-width: 1023px) {
+  .mobile-nav { display: flex; }
+  /* Clear the fixed bar so it never covers the last row of content */
+  main { padding-bottom: 76px !important; }
 }
 html.dark .mobile-nav { background: var(--surface); }
 .mobile-nav-link {
@@ -600,6 +606,13 @@ html.dark .mobile-nav { background: var(--surface); }
   font-size: 13px;
   font-weight: 400;
   color: var(--text);
+  min-width: 260px;
+  max-width: 380px;
+  /* Parked off-canvas until .show */
+  opacity: 0;
+  transform: translateX(120%);
+  pointer-events: auto;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s;
 }
 .toast-success { border-left: 3px solid var(--positive); }
 .toast-error   { border-left: 3px solid var(--danger); }
@@ -636,18 +649,22 @@ html.dark .mobile-nav { background: var(--surface); }
 
 /* ===================== DOTS ===================== */
 .online-dot,
-.notif-dot,
-.activity-dot {
-  width: 6px;
-  height: 6px;
+.notif-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
+  border: 1.5px solid var(--surface);
 }
-.online-dot { background: var(--positive); }
-.notif-dot  { background: var(--danger); }
+.online-dot { bottom: -1px; right: -1px; background: var(--positive); }
+.notif-dot  { top: 5px; right: 6px; background: var(--danger); }
 
 /* ===================== ACTIVITY FEED ===================== */
-.activity-feed { display: flex; flex-direction: column; }
+/* v2 drew a gradient timeline rail behind the dots and pulled each dot 16px
+   left to straddle it. The rail added no information, so the dot is now a
+   plain inline marker and needs no positioning. */
+.activity-feed { display: flex; flex-direction: column; position: relative; }
 .activity-item {
   display: flex;
   align-items: flex-start;
@@ -655,8 +672,22 @@ html.dark .mobile-nav { background: var(--surface); }
   padding: 9px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+  position: relative;
 }
 .activity-item:last-child { border-bottom: none; }
+.activity-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--surface-hover);
+  color: var(--text-muted);
+}
 
 /* ===================== EMPTY STATES ===================== */
 .empty-state {
@@ -685,14 +716,40 @@ html.dark .mobile-nav { background: var(--surface); }
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
-  min-width: 200px;
+  width: 216px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-overlay);
   padding: 4px;
   z-index: 70;
+  overflow: hidden;
+  /* Hidden until .open — without this the menu sits permanently open */
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  pointer-events: none;
+  transition: var(--transition-std);
 }
+.quick-create-menu.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.quick-create-menu a,
+.quick-create-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--radius-btn);
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition-std);
+}
+.quick-create-menu a:hover,
+.quick-create-menu button:hover { background: var(--surface-hover); color: var(--text); }
 .qc-icon {
   display: flex;
   align-items: center;
@@ -799,7 +856,7 @@ html.dark .tab-btn.active { background: var(--surface-hover); color: var(--text)
 .main-sidebar.collapsed .sidebar-logo-text,
 .main-sidebar.collapsed .sidebar-profile-info,
 .main-sidebar.collapsed .sidebar-footer-logout-text { display: none; }
-.main-sidebar.collapsed .sidebar-link { justify-content: center; padding: 7px 0; position: relative; }
+.main-sidebar.collapsed .sidebar-link { justify-content: center; padding: 7px 0; gap: 0; position: relative; }
 .main-sidebar.collapsed .sidebar-sub-links,
 .main-sidebar.collapsed .sidebar-submenu-caret { display: none !important; }
 .main-sidebar.collapsed .sidebar-icon-wrap { margin: 0 !important; }
@@ -878,11 +935,6 @@ html.dark .tab-btn.active { background: var(--surface-hover); color: var(--text)
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast.hide { transform: translateX(120%); opacity: 0; }
 
-/* ===================== PAGE RHYTHM ===================== */
-/* Pages open with `<div class="space-y-8">`, which was tuned for the old airy
-   look. A denser shell wants tighter vertical rhythm. */
-main > .space-y-8 > * + * { margin-top: 20px; }
-main > .animate-in.space-y-8 > * + * { margin-top: 20px; }
 
 /* ===================== TOAST CONTAINER ===================== */
 #toast-container {
