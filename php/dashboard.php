@@ -234,8 +234,6 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
             </div>
         </div>
-            </div>
-        </div>
     </div>
 
     <!-- ── 6 KPI Cards ───────────────────────────────────── -->
