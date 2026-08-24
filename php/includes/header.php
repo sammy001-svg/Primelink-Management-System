@@ -93,6 +93,21 @@ $_crumb     = $_breadcrumbMap[$_curPage] ?? [isset($pageTitle) ? $pageTitle : uc
                         wider:   '0.022em',
                         widest:  '0.035em',
                     },
+                    // The type scale is compressed for a dense back-office. Page
+                    // titles and KPI numbers both use these, so retuning here
+                    // keeps their relative proportions intact.
+                    fontSize: {
+                        '2xs':  ['10.5px', '1.4'],
+                        xs:     ['11.5px', '1.45'],
+                        sm:     ['12.5px', '1.5'],
+                        base:   ['13px',   '1.5'],
+                        lg:     ['14px',   '1.45'],
+                        xl:     ['15.5px', '1.35'],
+                        '2xl':  ['17px',   '1.3'],
+                        '3xl':  ['21px',   '1.25'],
+                        '4xl':  ['26px',   '1.2'],
+                        '5xl':  ['32px',   '1.15'],
+                    },
                     borderRadius: {
                         lg:  '8px',
                         xl:  '9px',

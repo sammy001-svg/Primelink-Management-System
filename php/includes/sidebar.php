@@ -201,8 +201,9 @@ function toggleSidebar() {
             <?php endif; ?>
 
             <!-- User Avatar -->
-            <a href="profile.php" class="w-9 h-9 rounded-xl bg-linear-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-black text-sm shadow-md hover:shadow-green-400/30 hover:scale-105 transition-all shrink-0 tooltip-wrap">
-                <span class="tooltip">My Profile</span>
+            <a href="profile.php" class="w-7 h-7 rounded-md flex items-center justify-center text-[11.5px] font-semibold shrink-0 tooltip-wrap ml-1"
+               style="background:var(--accent-green-light);color:var(--accent-green);">
+                <span class="tooltip">My profile</span>
                 <?php echo $userInitial; ?>
             </a>
         </div>
@@ -222,4 +223,4 @@ function toggleSidebar() {
     <?php endif; ?>
 
     <!-- Page Content -->
-    <main class="flex-1 p-6 lg:p-8">
+    <main class="flex-1 p-4 lg:p-6">

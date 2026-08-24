@@ -172,63 +172,68 @@ include __DIR__ . '/includes/header.php';
 include __DIR__ . '/includes/sidebar.php';
 ?>
 
-<div class="space-y-7 animate-in">
+<div class="space-y-5 animate-in">
 
     <!-- ── Greeting ──────────────────────────────────────── -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <div class="flex items-center gap-3 flex-wrap">
-                <h1 class="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+            <div class="flex items-center gap-2.5 flex-wrap">
+                <h1 class="text-xl font-semibold tracking-tight" style="color:var(--text)">
                     Good <?php echo date('H') < 12 ? 'morning' : (date('H') < 18 ? 'afternoon' : 'evening'); ?>, <?php echo htmlspecialchars(explode(' ', $userName)[0]); ?>
                 </h1>
-                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border <?php echo $healthScore >= 80 ? 'border-green-200 dark:border-green-800 text-green-600 bg-green-50 dark:bg-green-900/20' : ($healthScore >= 60 ? 'border-blue-200 dark:border-blue-800 text-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'border-orange-200 dark:border-orange-800 text-orange-600 bg-orange-50 dark:bg-orange-900/20'); ?>">
+                <span class="badge <?php echo $healthScore >= 80 ? 'badge-green' : ($healthScore >= 60 ? 'badge-blue' : 'badge-orange'); ?>">
                     <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
-                    Portfolio Health: <?php echo $healthLabel; ?>
-                </div>
+                    <?php echo $healthLabel; ?>
+                </span>
             </div>
-            <p class="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1"><?php echo date('l, F j, Y'); ?> &nbsp;·&nbsp; <?php echo $totalProperties; ?> propert<?php echo $totalProperties !== 1 ? 'ies' : 'y'; ?>, <?php echo $totalUnits; ?> units</p>
+            <p class="text-[12.5px] mt-0.5" style="color:var(--text-muted)"><?php echo date('l, j F Y'); ?> &nbsp;·&nbsp; <?php echo $totalProperties; ?> propert<?php echo $totalProperties !== 1 ? 'ies' : 'y'; ?>, <?php echo $totalUnits; ?> units</p>
         </div>
-        <div class="flex gap-2.5 flex-wrap">
-            <button onclick="openModal('newPropertyModal')" class="btn-primary text-xs gap-2">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                New Property
-            </button>
-            <a href="tenants.php?action=new" class="btn-green text-xs gap-2">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                Register Tenant
+        <div class="flex gap-2 flex-wrap shrink-0">
+            <a href="tenants.php?action=new" class="btn-ghost">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                Register tenant
             </a>
+            <button onclick="openModal('newPropertyModal')" class="btn-primary">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                New property
+            </button>
         </div>
     </div>
 
     <!-- ── Income Summary Strip ─────────────────────────── -->
-    <div class="glass-card bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-none overflow-hidden relative">
-        <div class="absolute -right-20 -top-20 w-80 h-80 bg-accent-green/5 rounded-full blur-3xl pointer-events-none"></div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-700/50">
-            <div class="px-6 py-5 text-center">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1"><?php echo date('M Y'); ?> Collected</p>
-                <p class="text-2xl font-black text-white"><?php echo $currency; ?> <?php echo number_format($revMTD); ?></p>
+    <div class="glass-card overflow-hidden">
+        <div class="grid grid-cols-2 sm:grid-cols-4" style="gap:1px;background:var(--border);">
+            <div class="px-5 py-4" style="background:var(--surface)">
+                <p class="kpi-label"><?php echo date('M Y'); ?> collected</p>
+                <p class="kpi-value mt-1"><?php echo $currency; ?> <?php echo number_format($revMTD); ?></p>
                 <?php if ($revTrendPct !== null): ?>
-                <p class="text-[10px] font-bold mt-1 <?php echo $revTrendPct >= 0 ? 'text-accent-green' : 'text-red-400'; ?>">
-                    <?php echo $revTrendPct >= 0 ? '▲' : '▼'; ?> <?php echo abs($revTrendPct); ?>% vs last month
+                <p class="kpi-trend mt-1 <?php echo $revTrendPct >= 0 ? 'up' : 'down'; ?>">
+                    <?php echo $revTrendPct >= 0 ? '&#9650;' : '&#9660;'; ?> <?php echo abs($revTrendPct); ?>% vs last month
                 </p>
                 <?php endif; ?>
             </div>
-            <div class="px-6 py-5 text-center">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">YTD <?php echo date('Y'); ?></p>
-                <p class="text-2xl font-black text-white"><?php echo $currency; ?> <?php echo number_format($revYTD); ?></p>
-                <p class="text-[10px] text-slate-500 font-medium mt-1">year to date</p>
+            <div class="px-5 py-4" style="background:var(--surface)">
+                <p class="kpi-label">Year to date</p>
+                <p class="kpi-value mt-1"><?php echo $currency; ?> <?php echo number_format($revYTD); ?></p>
+                <p class="text-[11.5px] mt-1" style="color:var(--text-subtle)"><?php echo date('Y'); ?></p>
             </div>
-            <div class="px-6 py-5 text-center">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Outstanding</p>
-                <p class="text-2xl font-black <?php echo $outstanding > 0 ? 'text-red-400' : 'text-accent-green'; ?>"><?php echo $currency; ?> <?php echo number_format($outstanding); ?></p>
-                <p class="text-[10px] text-slate-500 font-medium mt-1"><?php echo $overdueTenants; ?> tenant<?php echo $overdueTenants !== 1 ? 's' : ''; ?> owing</p>
+            <div class="px-5 py-4" style="background:var(--surface)">
+                <p class="kpi-label">Outstanding</p>
+                <p class="kpi-value mt-1" style="color:<?php echo $outstanding > 0 ? 'var(--danger)' : 'var(--text)'; ?>">
+                    <?php echo $currency; ?> <?php echo number_format($outstanding); ?>
+                </p>
+                <p class="text-[11.5px] mt-1" style="color:var(--text-subtle)"><?php echo $overdueTenants; ?> tenant<?php echo $overdueTenants !== 1 ? 's' : ''; ?> owing</p>
             </div>
-            <div class="px-6 py-5 text-center">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Collection Rate</p>
-                <p class="text-2xl font-black <?php echo $collectionRate >= 90 ? 'text-accent-green' : ($collectionRate >= 70 ? 'text-amber-400' : 'text-red-400'); ?>"><?php echo $collectionRate; ?>%</p>
-                <div class="w-full bg-slate-700 h-1 rounded-full mt-2 overflow-hidden mx-auto" style="max-width:80px;">
-                    <div class="h-full rounded-full <?php echo $collectionRate >= 90 ? 'bg-accent-green' : ($collectionRate >= 70 ? 'bg-amber-400' : 'bg-red-400'); ?>" style="width:<?php echo min(100, $collectionRate); ?>%"></div>
+            <div class="px-5 py-4" style="background:var(--surface)">
+                <p class="kpi-label">Collection rate</p>
+                <p class="kpi-value mt-1" style="color:<?php echo $collectionRate >= 90 ? 'var(--positive)' : ($collectionRate >= 70 ? 'var(--warning)' : 'var(--danger)'); ?>">
+                    <?php echo $collectionRate; ?>%
+                </p>
+                <div class="progress mt-2" style="max-width:96px;">
+                    <div class="progress-fill" style="width:<?php echo min(100, $collectionRate); ?>%;background:<?php echo $collectionRate >= 90 ? 'var(--positive)' : ($collectionRate >= 70 ? 'var(--warning)' : 'var(--danger)'); ?>;"></div>
                 </div>
+            </div>
+        </div>
             </div>
         </div>
     </div>
