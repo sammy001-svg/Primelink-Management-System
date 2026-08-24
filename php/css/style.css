@@ -985,3 +985,246 @@ html.dark #confirm-box { background: var(--surface); }
 .breadcrumb-bar a { color: var(--text-subtle); transition: color 0.12s; }
 .breadcrumb-bar a:hover { color: var(--text); }
 .breadcrumb-separator { color: var(--border-strong); font-size: 12px; }
+
+/* ============================================================================
+   GLOBAL SEARCH
+   A command-palette pattern: one field that searches every module, with
+   keyboard navigation and results grouped by what they are.
+   ========================================================================== */
+
+.gsearch { position: relative; flex: 1; max-width: 460px; min-width: 0; }
+
+.gsearch-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  transition: var(--transition-std);
+  cursor: text;
+}
+.gsearch-field:hover { border-color: var(--border-strong); }
+.gsearch.is-open .gsearch-field,
+.gsearch-field:focus-within {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.gsearch-icon { color: var(--text-subtle); flex-shrink: 0; display: flex; }
+.gsearch-field:focus-within .gsearch-icon { color: var(--accent); }
+
+.gsearch-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text);
+  padding: 0;
+}
+.gsearch-input::placeholder { color: var(--text-subtle); }
+.gsearch-input::-webkit-search-cancel-button { display: none; }
+
+/* Keyboard hint — hidden once the field is in use */
+.gsearch-kbd {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  transition: opacity 0.12s;
+}
+.gsearch-field:focus-within .gsearch-kbd,
+.gsearch.has-query .gsearch-kbd { opacity: 0; pointer-events: none; }
+
+kbd {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-subtle);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  min-width: 17px;
+  text-align: center;
+}
+
+.gsearch-clear {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-subtle);
+  cursor: pointer;
+  padding: 0;
+}
+.gsearch.has-query .gsearch-clear { display: flex; }
+.gsearch-clear:hover { background: var(--surface-hover); color: var(--text); }
+
+.gsearch-spinner { flex-shrink: 0; display: none; color: var(--text-subtle); }
+.gsearch.is-loading .gsearch-spinner { display: flex; }
+.gsearch.is-loading .gsearch-clear,
+.gsearch.is-loading .gsearch-kbd { display: none; }
+
+/* ── Results panel ───────────────────────────────────────────────── */
+.gsearch-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0; right: 0;
+  z-index: 90;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+}
+.gsearch.is-open .gsearch-panel { display: block; }
+
+.gsearch-scroll { max-height: min(420px, 60vh); overflow-y: auto; padding: 4px; }
+
+.gsearch-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-subtle);
+  padding: 8px 8px 4px;
+}
+
+.gsearch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  text-decoration: none;
+}
+.gsearch-item:hover,
+.gsearch-item.is-active { background: var(--surface-hover); }
+.gsearch-item.is-active { box-shadow: inset 2px 0 0 var(--accent); }
+
+.gsearch-item-icon {
+  width: 26px; height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  color: var(--text-muted);
+}
+.gsearch-item.is-active .gsearch-item-icon { background: var(--accent-light); color: var(--accent); }
+
+.gsearch-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gsearch-item-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gsearch-item-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gsearch-item-label mark {
+  background: var(--accent-light);
+  color: inherit;
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.gsearch-enter {
+  font-size: 10px;
+  color: var(--text-subtle);
+  flex-shrink: 0;
+  opacity: 0;
+}
+.gsearch-item.is-active .gsearch-enter { opacity: 1; }
+
+/* ── Panel states ────────────────────────────────────────────────── */
+.gsearch-state {
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.gsearch-state strong { color: var(--text); font-weight: 500; }
+
+/* ── Footer legend ───────────────────────────────────────────────── */
+.gsearch-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunk);
+  font-size: 10.5px;
+  color: var(--text-subtle);
+}
+.gsearch-foot span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Only shown while the search is presented as a mobile sheet */
+.gsearch-sheet-close { display: none; }
+.gsearch.is-sheet .gsearch-sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.gsearch.is-sheet .gsearch-head { display: flex; gap: 8px; align-items: center; }
+.gsearch-head { display: contents; }
+
+/* ── Mobile: full-screen sheet ───────────────────────────────────── */
+.gsearch-trigger { display: flex; }
+@media (min-width: 1024px) { .gsearch-trigger { display: none; } }
+
+.gsearch.is-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  max-width: none;
+  background: var(--bg);
+  padding: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+.gsearch.is-sheet.is-open { display: flex; }
+.gsearch.is-sheet .gsearch-field { height: 40px; }
+.gsearch.is-sheet .gsearch-panel {
+  position: static;
+  flex: 1;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+.gsearch.is-sheet .gsearch-scroll { max-height: none; flex: 1; }

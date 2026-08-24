@@ -94,42 +94,226 @@ function toggleSidebar() {
                 <h2 class="text-[14px] font-semibold truncate" style="color:var(--text)"><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) : 'Dashboard'; ?></h2>
             </div>
 
-            <!-- Search (desktop) -->
-            <div class="hidden lg:flex flex-1 max-w-lg relative" id="global-search-wrap">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" id="global-search-input" placeholder="Search tenants, properties… (Ctrl+K)"
-                   autocomplete="off"
-                   class="global-search-input">
-            <span id="global-search-spinner" class="hidden absolute right-3 top-1/2 -translate-y-1/2">
-                <svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-            </span>
-            <div id="global-search-results"
-                 class="hidden absolute top-full mt-1.5 left-0 right-0 z-50 overflow-hidden max-h-[400px] overflow-y-auto"
-                 style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow-overlay);">
+            <!-- ── Global search ─────────────────────────────────── -->
+            <div class="gsearch hidden lg:block" id="gsearch">
+              <div class="gsearch-head">
+                <div class="gsearch-field" onclick="gsFocus()">
+                    <span class="gsearch-icon" aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    </span>
+                    <input type="text" id="gsearchInput" class="gsearch-input"
+                           placeholder="Search tenants, properties, leases…"
+                           autocomplete="off" spellcheck="false"
+                           role="combobox" aria-expanded="false" aria-controls="gsearchPanel"
+                           aria-autocomplete="list" aria-label="Search everything">
+                    <span class="gsearch-spinner" aria-hidden="true">
+                        <svg class="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    </span>
+                    <button type="button" class="gsearch-clear" onclick="gsClear()" aria-label="Clear search">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                    <span class="gsearch-kbd" aria-hidden="true">
+                        <kbd id="gsearchMod">Ctrl</kbd><kbd>K</kbd>
+                    </span>
+                </div>
+                <button type="button" class="gsearch-sheet-close" onclick="gsCloseSheet()" aria-label="Close search">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+              </div>
+
+                <div class="gsearch-panel" id="gsearchPanel" role="listbox" aria-label="Search results">
+                    <div class="gsearch-scroll" id="gsearchScroll"></div>
+                    <div class="gsearch-foot">
+                        <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
+                        <span><kbd>&#8629;</kbd> open</span>
+                        <span><kbd>esc</kbd> close</span>
+                    </div>
+                </div>
             </div>
-        </div>
-        <script>
-        (function() {
-            const input=document.getElementById('global-search-input'),results=document.getElementById('global-search-results'),spinner=document.getElementById('global-search-spinner');
-            if(!input)return;
-            const iconSvg={user:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',building:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>',file:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',dollar:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',tool:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'};
-            const badge={Tenant:'bg-blue-100 dark:bg-blue-900/30 text-blue-600',Property:'bg-purple-100 dark:bg-purple-900/30 text-purple-600',Lease:'bg-orange-100 dark:bg-orange-900/30 text-orange-600',Payment:'bg-green-100 dark:bg-green-900/30 text-green-600',Maintenance:'bg-red-100 dark:bg-red-900/30 text-red-600'};
-            let timer,ai=-1;
-            const close=()=>{results.classList.add('hidden');ai=-1;};
-            const open=()=>results.classList.remove('hidden');
-            function render(data){
-                const items=data.results||[];
-                if(!items.length){results.innerHTML='<div class="p-5 text-center text-sm text-slate-400">No results found</div>';open();return;}
-                results.innerHTML=items.map((r,i)=>`<a href="${r.url}" class="search-result-item flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors" data-idx="${i}"><span class="w-8 h-8 rounded-lg ${badge[r.type]||'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0">${iconSvg[r.icon]||''}</span><div class="flex-1 min-w-0"><p class="text-sm font-bold text-slate-900 dark:text-white truncate">${r.label}</p><p class="text-[10px] text-slate-400 truncate">${r.sub}</p></div><span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${badge[r.type]||''} shrink-0">${r.type}</span></a>`).join('');
-                open();
-            }
-            async function doSearch(q){spinner.classList.remove('hidden');try{const res=await fetch('search.php?q='+encodeURIComponent(q));render(await res.json());}catch{close();}finally{spinner.classList.add('hidden');}}
-            input.addEventListener('input',()=>{const q=input.value.trim();clearTimeout(timer);if(q.length<2){close();return;}timer=setTimeout(()=>doSearch(q),250);});
-            input.addEventListener('keydown',e=>{const els=results.querySelectorAll('.search-result-item');if(e.key==='ArrowDown'){e.preventDefault();ai=Math.min(ai+1,els.length-1);els.forEach((el,i)=>el.classList.toggle('bg-slate-100',i===ai));}if(e.key==='ArrowUp'){e.preventDefault();ai=Math.max(ai-1,-1);els.forEach((el,i)=>el.classList.toggle('bg-slate-100',i===ai));}if(e.key==='Enter'&&ai>=0){e.preventDefault();els[ai]?.click();}if(e.key==='Escape'){close();input.blur();}});
-            document.addEventListener('click',e=>{if(!document.getElementById('global-search-wrap').contains(e.target))close();});
-            document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();input.focus();input.select();}});
-        })();
-        </script>
+
+            <!-- Opens the same search as a sheet on small screens -->
+            <button type="button" class="topbar-btn gsearch-trigger ml-auto" onclick="gsOpenSheet()" aria-label="Search">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </button>
+
+            <script>
+            (function () {
+                var wrap   = document.getElementById('gsearch');
+                var input  = document.getElementById('gsearchInput');
+                var panel  = document.getElementById('gsearchPanel');
+                var scroll = document.getElementById('gsearchScroll');
+                if (!wrap || !input) return;
+
+                var isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+                if (isMac) document.getElementById('gsearchMod').textContent = '⌘';
+
+                var ICONS = {
+                    user:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+                    building: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>',
+                    file:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+                    dollar:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+                    tool:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
+                };
+                // Results arrive flat; this is the order the groups read best in
+                var ORDER = ['Tenant', 'Property', 'Lease', 'Payment', 'Maintenance'];
+                var PLURAL = {
+                    Tenant: 'Tenants', Property: 'Properties', Lease: 'Leases',
+                    Payment: 'Payments', Maintenance: 'Maintenance'
+                };
+
+                var items = [];        // flat list of <a> nodes, in render order
+                var active = -1;
+                var timer = null;
+                var lastQuery = '';
+
+                function esc(str) {
+                    return String(str == null ? '' : str)
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                }
+
+                // Show the user why each row matched
+                function highlight(text, query) {
+                    var safe = esc(text);
+                    var q = query.trim();
+                    if (!q) return safe;
+                    var at = safe.toLowerCase().indexOf(q.toLowerCase());
+                    if (at < 0) return safe;
+                    return safe.slice(0, at) + '<mark>' + safe.slice(at, at + q.length) +
+                           '</mark>' + safe.slice(at + q.length);
+                }
+
+                function open()  { wrap.classList.add('is-open');    input.setAttribute('aria-expanded', 'true'); }
+                function close() { wrap.classList.remove('is-open'); input.setAttribute('aria-expanded', 'false'); active = -1; }
+
+                function state(html) { scroll.innerHTML = '<div class="gsearch-state">' + html + '</div>'; items = []; active = -1; }
+
+                function render(results, query) {
+                    if (!results.length) {
+                        state('No matches for <strong>' + esc(query) + '</strong>');
+                        open();
+                        return;
+                    }
+
+                    var groups = {};
+                    results.forEach(function (r) { (groups[r.type] = groups[r.type] || []).push(r); });
+
+                    var types = ORDER.filter(function (t) { return groups[t]; })
+                        .concat(Object.keys(groups).filter(function (t) { return ORDER.indexOf(t) < 0; }));
+
+                    var html = '';
+                    types.forEach(function (type) {
+                        html += '<div class="gsearch-group-label">' + esc(PLURAL[type] || type) + '</div>';
+                        groups[type].forEach(function (r) {
+                            html += '<a class="gsearch-item" role="option" aria-selected="false" href="' + esc(r.url) + '">' +
+                                        '<span class="gsearch-item-icon">' + (ICONS[r.icon] || ICONS.file) + '</span>' +
+                                        '<span class="gsearch-item-body">' +
+                                            '<span class="gsearch-item-label">' + highlight(r.label, query) + '</span>' +
+                                            '<span class="gsearch-item-sub">' + esc(r.sub) + '</span>' +
+                                        '</span>' +
+                                        '<span class="gsearch-enter" aria-hidden="true">&#8629;</span>' +
+                                    '</a>';
+                        });
+                    });
+
+                    scroll.innerHTML = html;
+                    items = Array.prototype.slice.call(scroll.querySelectorAll('.gsearch-item'));
+                    active = -1;
+                    open();
+                }
+
+                function setActive(next) {
+                    if (!items.length) return;
+                    if (active >= 0) {
+                        items[active].classList.remove('is-active');
+                        items[active].setAttribute('aria-selected', 'false');
+                    }
+                    active = (next + items.length) % items.length;
+                    items[active].classList.add('is-active');
+                    items[active].setAttribute('aria-selected', 'true');
+                    items[active].scrollIntoView({ block: 'nearest' });
+                }
+
+                function run(q) {
+                    wrap.classList.add('is-loading');
+                    fetch('search.php?q=' + encodeURIComponent(q))
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (q !== lastQuery) return;          // a newer keystroke won
+                            render(data.results || [], q);
+                        })
+                        .catch(function () {
+                            state('Could not reach the server. Check your connection and try again.');
+                            open();
+                        })
+                        .finally(function () { wrap.classList.remove('is-loading'); });
+                }
+
+                input.addEventListener('input', function () {
+                    var q = input.value.trim();
+                    lastQuery = q;
+                    wrap.classList.toggle('has-query', q.length > 0);
+                    clearTimeout(timer);
+
+                    if (q.length === 0) { close(); return; }
+                    if (q.length < 2) {
+                        state('Keep typing &mdash; at least 2 characters');
+                        open();
+                        return;
+                    }
+                    timer = setTimeout(function () { run(q); }, 220);
+                });
+
+                input.addEventListener('focus', function () {
+                    if (input.value.trim().length >= 2 && items.length) open();
+                });
+
+                input.addEventListener('keydown', function (e) {
+                    if (e.key === 'ArrowDown')      { e.preventDefault(); setActive(active + 1); }
+                    else if (e.key === 'ArrowUp')   { e.preventDefault(); setActive(active - 1); }
+                    else if (e.key === 'Home' && items.length) { e.preventDefault(); setActive(0); }
+                    else if (e.key === 'End'  && items.length) { e.preventDefault(); setActive(items.length - 1); }
+                    else if (e.key === 'Enter') {
+                        if (active >= 0 && items[active]) { e.preventDefault(); items[active].click(); }
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        if (wrap.classList.contains('is-open')) close();
+                        else { gsClear(); input.blur(); }
+                        if (wrap.classList.contains('is-sheet')) gsCloseSheet();
+                    }
+                });
+
+                document.addEventListener('click', function (e) {
+                    if (!wrap.contains(e.target)) close();
+                });
+
+                document.addEventListener('keydown', function (e) {
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+                        e.preventDefault();
+                        if (window.matchMedia('(min-width: 1024px)').matches) gsFocus();
+                        else gsOpenSheet();
+                    }
+                });
+
+                window.gsFocus = function () { input.focus(); input.select(); };
+                window.gsClear = function () {
+                    input.value = '';
+                    lastQuery = '';
+                    wrap.classList.remove('has-query');
+                    close();
+                    input.focus();
+                };
+                window.gsOpenSheet = function () {
+                    wrap.classList.add('is-sheet', 'is-open');
+                    wrap.classList.remove('hidden');
+                    setTimeout(function () { input.focus(); }, 30);
+                };
+                window.gsCloseSheet = function () {
+                    wrap.classList.remove('is-sheet', 'is-open');
+                    if (!window.matchMedia('(min-width: 1024px)').matches) wrap.classList.add('hidden');
+                };
+            })();
+            </script>
 
         </div><!-- end topbar-left -->
 
