@@ -2,6 +2,11 @@
 require_once __DIR__ . '/includes/auth.php';
 requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/bank_accounts.php';
+require_once __DIR__ . '/includes/payment_alloc.php';
+
+ensureBankAccountSchema($pdo);
+ensurePaymentAllocSchema($pdo);
 
 $pageTitle  = "Tenant Payments & Invoices";
 $user       = getCurrentUser($pdo);
@@ -43,6 +48,10 @@ foreach ($tenants as $t) {
         'lease_end'     => $t['end_date']       ?? '',
     ];
 }
+
+// What each tenant still owes, so the payment form can pre-fill the split
+// instead of asking staff to remember it
+$outstandingMap = outstandingByTenant($pdo);
 
 // Overdue summary stats
 $overdueInvoiceCount = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status='Overdue'")->fetchColumn();
@@ -291,22 +300,34 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Amount (<?php echo $currency; ?>)</label>
-                    <input type="number" name="amount" id="pay_amount" required min="0" step="0.01"
-                        class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+            <!-- ── What the payment is for ──────────────────────────── -->
+            <div class="space-y-2">
+                <div class="flex items-baseline justify-between px-1">
+                    <label class="section-label">What is this payment for?</label>
+                    <span class="text-[11px]" style="color:var(--text-subtle)" id="pay_alloc_hint">Select a tenant to load outstanding charges</span>
                 </div>
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Category</label>
-                    <select name="transaction_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        <option>Rent</option>
-                        <option>Water</option>
-                        <option>Waste</option>
-                        <option>Service Charge</option>
-                        <option>Penalty</option>
-                    </select>
+
+                <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+                    <div class="grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 130px 28px;background:var(--surface-sunk);border-bottom:1px solid var(--border);">
+                        <span class="text-[11px]" style="color:var(--text-muted)">Charge</span>
+                        <span class="text-[11px] text-right" style="color:var(--text-muted)">Amount (<?php echo htmlspecialchars($currency); ?>)</span>
+                        <span></span>
+                    </div>
+
+                    <div id="pay_alloc_rows"></div>
+
+                    <div class="flex items-center justify-between px-3 py-2" style="border-top:1px solid var(--border);background:var(--surface-sunk);">
+                        <button type="button" onclick="allocAddRow()" class="btn-ghost" style="padding:4px 9px;font-size:11.5px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                            Add charge
+                        </button>
+                        <div class="text-right">
+                            <span class="text-[11px]" style="color:var(--text-muted)">Total received</span>
+                            <span class="ml-2 text-[15px] font-semibold tabular" id="pay_alloc_total" style="color:var(--text)"><?php echo htmlspecialchars($currency); ?> 0.00</span>
+                        </div>
+                    </div>
                 </div>
+                <p class="text-[11px] px-1" id="pay_alloc_warn" style="color:var(--warning);display:none;"></p>
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-2">
@@ -324,6 +345,13 @@ include __DIR__ . '/includes/sidebar.php';
                         class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
                 </div>
             </div>
+
+            <?php echo renderBankAccountSelect($pdo, [
+                'id'          => 'pay_bank_account',
+                'label'       => 'Deposited To',
+                'label_class' => 'text-[10px] font-black text-slate-400 uppercase tracking-widest px-2',
+                'class'       => 'w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none',
+            ]); ?>
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Notes / Reference</label>
                 <textarea name="description" rows="2" placeholder="M-Pesa ref, bank slip no., etc."
@@ -336,7 +364,114 @@ include __DIR__ . '/includes/sidebar.php';
 
 <script>
 const _tenantPayData = <?php echo json_encode($tenantPayMap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+const _payOutstanding = <?php echo json_encode($outstandingMap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+const _payChargeTypes = <?php echo json_encode(PAYMENT_CHARGE_TYPES); ?>;
 const _payCurrency   = '<?php echo addslashes($currency); ?>';
+
+/* ══════════════════════════════════════════════════════════════════════
+   PAYMENT ALLOCATION
+   A tenant hands over one sum that settles several charges. These rows say
+   which charge got what, so the books keep the breakdown.
+   ══════════════════════════════════════════════════════════════════════ */
+(function () {
+  var rowsEl = document.getElementById('pay_alloc_rows');
+  if (!rowsEl) return;
+
+  var money = function (v) {
+    return _payCurrency + ' ' + (parseFloat(v) || 0)
+      .toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  function esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function rowHtml(type, amount, invoiceId, note) {
+    var opts = _payChargeTypes.map(function (t) {
+      return '<option value="' + esc(t) + '"' + (t === type ? ' selected' : '') + '>' + esc(t) + '</option>';
+    }).join('');
+
+    return '' +
+      '<div class="alloc-row grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 130px 28px;border-bottom:1px solid var(--border);">' +
+        '<div class="min-w-0">' +
+          '<select name="alloc_type[]" class="form-input" style="padding:5px 8px;font-size:12.5px;">' + opts + '</select>' +
+          (note ? '<p class="text-[10.5px] mt-1 truncate" style="color:var(--text-subtle)">' + esc(note) + '</p>' : '') +
+        '</div>' +
+        '<input type="number" name="alloc_amount[]" step="0.01" min="0" placeholder="0.00" ' +
+               'value="' + (amount != null ? esc(amount) : '') + '" ' +
+               'class="form-input text-right tabular" style="padding:5px 8px;font-size:12.5px;" oninput="allocRecalc()">' +
+        '<input type="hidden" name="alloc_invoice[]" value="' + esc(invoiceId || '') + '">' +
+        '<button type="button" class="topbar-btn" style="width:24px;height:24px;" onclick="allocRemoveRow(this)" aria-label="Remove charge">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
+        '</button>' +
+      '</div>';
+  }
+
+  window.allocAddRow = function (type, amount, invoiceId, note) {
+    rowsEl.insertAdjacentHTML('beforeend', rowHtml(type || 'Rent', amount, invoiceId, note));
+    allocRecalc();
+  };
+
+  window.allocRemoveRow = function (btn) {
+    var row = btn.closest('.alloc-row');
+    if (row) row.remove();
+    if (!rowsEl.querySelector('.alloc-row')) window.allocAddRow('Rent');
+    allocRecalc();
+  };
+
+  window.allocRecalc = function () {
+    var total = 0;
+    rowsEl.querySelectorAll('input[name="alloc_amount[]"]').forEach(function (i) {
+      total += parseFloat(i.value) || 0;
+    });
+    document.getElementById('pay_alloc_total').textContent = money(total);
+
+    // Flag when the split exceeds what is actually outstanding — overpaying is
+    // allowed (it becomes credit), but it should never be silent.
+    var warn = document.getElementById('pay_alloc_warn');
+    var owed = parseFloat(rowsEl.dataset.owed || '0');
+    if (owed > 0 && total > owed + 0.009) {
+      warn.textContent = 'This is ' + money(total - owed) + ' more than the ' +
+                         money(owed) + ' currently outstanding.';
+      warn.style.display = '';
+    } else {
+      warn.style.display = 'none';
+    }
+    return total;
+  };
+
+  window.allocLoadForTenant = function (tenantId, tenant) {
+    var lines = _payOutstanding[tenantId] || [];
+    var hint  = document.getElementById('pay_alloc_hint');
+    rowsEl.innerHTML = '';
+
+    if (lines.length) {
+      var owed = 0;
+      lines.forEach(function (l) {
+        owed += parseFloat(l.balance) || 0;
+        var due = l.due_date ? new Date(l.due_date + 'T00:00:00') : null;
+        var note = 'Invoice due ' + (due
+          ? due.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })
+          : '—') + (l.overdue ? ' · overdue' : '');
+        window.allocAddRow(l.type, (parseFloat(l.balance) || 0).toFixed(2), l.invoice_id, note);
+      });
+      rowsEl.dataset.owed = owed.toFixed(2);
+      hint.textContent = lines.length + ' outstanding charge' + (lines.length === 1 ? '' : 's') +
+                         ' · ' + money(owed) + ' owed';
+    } else {
+      // Nothing outstanding — offer a rent line at the lease amount as a start
+      rowsEl.dataset.owed = '0';
+      window.allocAddRow('Rent', tenant && tenant.monthly_rent ? tenant.monthly_rent.toFixed(2) : '');
+      hint.textContent = 'No outstanding invoices — enter the charges manually';
+    }
+    allocRecalc();
+  };
+
+  // Start with one empty row so the form is never blank
+  window.allocAddRow('Rent');
+})();
 
 function onPayTenantChange(id) {
     const card = document.getElementById('pay_tenant_card');
@@ -354,8 +489,7 @@ function onPayTenantChange(id) {
     arrearsEl.textContent  = fmt(t.arrears);
     arrearsEl.className    = 'font-black text-sm ' + (t.arrears > 0 ? 'text-red-500' : 'text-green-500');
 
-    // Pre-fill amount: arrears if any, otherwise monthly rent
-    document.getElementById('pay_amount').value = t.arrears > 0 ? t.arrears.toFixed(2) : t.monthly_rent.toFixed(2);
+    allocLoadForTenant(id, t);
 
     card.classList.remove('hidden');
 }

@@ -6,9 +6,11 @@ require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
 require_once __DIR__ . '/includes/bank_accounts.php';
+require_once __DIR__ . '/includes/payment_alloc.php';
 
 ensureCorrectionSchema($pdo);
 ensureBankAccountSchema($pdo);
+ensurePaymentAllocSchema($pdo);
 
 $id = $_GET['id'] ?? '';
 $stmt = $pdo->prepare("
@@ -40,6 +42,10 @@ $revision = (int)($payment['revision_no'] ?? 0);
 $docNo    = docNumber(DOC_RECEIPT, $payment['id'], $revision);
 
 $bankAccount = getBankAccount($pdo, $payment['bank_account_id'] ?? null);
+
+// When the payment settled several charges at once, the receipt itemises them
+$allocLines = paymentGroupLines($pdo, $payment['payment_group'] ?? null);
+$allocTotal = paymentGroupTotal($allocLines);
 
 $flashSuccess = $_GET['success'] ?? '';
 $flashError   = $_GET['error']   ?? '';
@@ -163,9 +169,30 @@ $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
             <?php endif; ?>
         </div>
 
+        <?php if ($allocLines): ?>
+        <div class="mb-6 rounded-2xl overflow-hidden relative z-[2]" style="border:1px solid var(--border,#e4e7ec);">
+            <div class="px-5 py-2.5" style="background:#f8fafc;border-bottom:1px solid #e4e7ec;">
+                <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payment breakdown</p>
+            </div>
+            <?php foreach ($allocLines as $line): ?>
+            <div class="flex items-center justify-between px-5 py-2.5" style="border-bottom:1px solid #f1f5f9;">
+                <span class="text-sm text-slate-600"><?php echo htmlspecialchars((string)$line['transaction_type']); ?></span>
+                <span class="text-sm font-semibold text-slate-900 tabular"><?php echo $currency; ?> <?php echo number_format((float)$line['amount'], 2); ?></span>
+            </div>
+            <?php endforeach; ?>
+            <div class="flex items-center justify-between px-5 py-2.5" style="background:#f8fafc;">
+                <span class="text-xs font-semibold text-slate-700">Total received</span>
+                <span class="text-sm font-semibold text-slate-900 tabular"><?php echo $currency; ?> <?php echo number_format($allocTotal, 2); ?></span>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="p-8 bg-slate-900 text-white rounded-3xl text-center shadow-xl relative z-[2]">
             <p class="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">Total Amount Received</p>
-            <h2 class="text-4xl font-black"><?php echo $currency; ?> <?php echo number_format($payment['amount'], 2); ?></h2>
+            <h2 class="text-4xl font-black"><?php echo $currency; ?> <?php echo number_format($allocLines ? $allocTotal : (float)$payment['amount'], 2); ?></h2>
+            <?php if ($allocLines): ?>
+            <p class="text-[10px] opacity-60 mt-2">Covering <?php echo count($allocLines); ?> charges &mdash; see breakdown above</p>
+            <?php endif; ?>
         </div>
 
         <?php if ($payment['description']): ?>

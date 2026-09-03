@@ -253,6 +253,9 @@ $migrations = [
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `transaction_date` DATE NULL",
     "CREATE INDEX `idx_tx_invoice` ON `transactions` (`invoice_id`)",
     "CREATE INDEX `idx_tx_tenant`  ON `transactions` (`tenant_id`)",
+    // ── Payment allocation: one posting per charge, grouped as one receipt ──
+    "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `payment_group` VARCHAR(36) NULL",
+    "CREATE INDEX `idx_tx_paygroup` ON `transactions` (`payment_group`)",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `bank_account_id` VARCHAR(36) NULL",
     "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)",
     // ── HR: fuller staff records ──

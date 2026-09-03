@@ -9,8 +9,12 @@ requireLogin(['admin', 'staff', 'tenant']);
 
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/corrections.php';
+require_once __DIR__ . '/../includes/bank_accounts.php';
+require_once __DIR__ . '/../includes/payment_alloc.php';
 
 ensureTransactionColumns($pdo);
+ensureBankAccountSchema($pdo);
+ensurePaymentAllocSchema($pdo);
 require_once __DIR__ . '/../includes/notify.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -26,8 +30,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $invoice_id = $_POST['invoice_id'] ?? null;
         $bank_account_id = trim($_POST['bank_account_id'] ?? '') ?: null;
 
+        // A payment may be split across several charges (rent, water, garbage).
+        // When it is, each charge is posted separately — see includes/payment_alloc.php.
+        $alloc = parseAllocationInput($_POST);
+        if ($alloc['error']) {
+            header('Location: ../tenant_payments.php?error=' . urlencode($alloc['error']));
+            exit();
+        }
+        if ($alloc['lines']) {
+            $amount = $alloc['total'];
+        }
+
         $role = $_SESSION['role'];
         $status = ($role === 'tenant') ? 'Pending' : 'Paid';
+
+        if ((float)$amount <= 0) {
+            header('Location: ../tenant_payments.php?error=' . urlencode('Enter what the tenant is paying for.'));
+            exit();
+        }
 
         // Security check for tenants
         if ($role === 'tenant') {
@@ -56,24 +76,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // landed in — staff assign that when they confirm it.
             if ($role === 'tenant') $bank_account_id = null;
 
-            $stmt = $pdo->prepare("INSERT INTO transactions (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status, payment_method, description, bank_account_id, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                generateUUID(),
-                $tenant_id,
-                $lease_id,
-                $invoice_id,
-                $amount,
-                $transaction_type,
-                $status,
-                $payment_method,
-                $description,
-                $bank_account_id,
-                $transaction_date
-            ]);
+            $insert = $pdo->prepare(
+                "INSERT INTO transactions
+                    (id, tenant_id, lease_id, invoice_id, amount, transaction_type, status,
+                     payment_method, description, bank_account_id, payment_group, transaction_date)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
 
-            $txId = $pdo->lastInsertId() ?: generateUUID();
-            $amtFmt = 'KSh ' . number_format((float)$amount);
-            logAction($pdo, 'payment_recorded', 'Financials', '', "{$transaction_type} — {$amtFmt} via {$payment_method}");
+            // Lines that name an invoice are grouped so one receipt covers them all
+            $groupId = count($alloc['lines']) > 1 ? generateUUID() : null;
+            $txId    = null;
+
+            if ($alloc['lines']) {
+                foreach ($alloc['lines'] as $line) {
+                    $lineId = generateUUID();
+                    $txId   = $txId ?: $lineId;
+                    $insert->execute([
+                        $lineId, $tenant_id, $lease_id, $line['invoice_id'],
+                        $line['amount'], $line['type'], $status,
+                        $payment_method, $description, $bank_account_id,
+                        $groupId, $transaction_date,
+                    ]);
+                    if ($status === 'Paid') resettleInvoice($pdo, $line['invoice_id']);
+                }
+            } else {
+                $txId = generateUUID();
+                $insert->execute([
+                    $txId, $tenant_id, $lease_id, $invoice_id,
+                    $amount, $transaction_type, $status,
+                    $payment_method, $description, $bank_account_id,
+                    null, $transaction_date,
+                ]);
+                if ($status === 'Paid') resettleInvoice($pdo, $invoice_id);
+            }
+
+            $currencySym = getSetting($pdo, 'currency_symbol', 'KSh');
+            $amtFmt = $currencySym . ' ' . number_format((float)$amount, 2);
+            $breakdown = summariseAllocation($alloc['lines'], $currencySym);
+
+            logAction($pdo, 'payment_recorded', 'Financials', (string)$txId,
+                $amtFmt . ' via ' . $payment_method
+                . ($breakdown ? ' — ' . $breakdown : ' — ' . $transaction_type)
+                . ($bank_account_id ? ' | Into: ' . (getBankAccount($pdo, $bank_account_id)['name'] ?? '') : ''));
 
             // Notify staff when tenant submits; notify tenant when staff records
             if ($role === 'tenant') {

@@ -9,8 +9,10 @@ requireLogin();
 
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/bank_accounts.php';
+require_once __DIR__ . '/includes/payment_alloc.php';
 ensureCorrectionSchema($pdo);
 ensureBankAccountSchema($pdo);
+ensurePaymentAllocSchema($pdo);
 
 $transaction_id = $_GET['id'] ?? '';
 if (empty($transaction_id)) {
@@ -65,6 +67,8 @@ if ($_SESSION['role'] === 'tenant') {
 $isStaff  = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
 $revision    = (int)($txn['revision_no'] ?? 0);
 $bankAccount = getBankAccount($pdo, $txn['bank_account_id'] ?? null);
+$allocLines  = paymentGroupLines($pdo, $txn['payment_group'] ?? null);
+$allocTotal  = paymentGroupTotal($allocLines);
 $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
 ?>
 <!DOCTYPE html>
@@ -154,6 +158,21 @@ $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
                 </div>
             </div>
 
+            <?php if ($allocLines): ?>
+            <!-- What this payment covered -->
+            <div class="rounded-2xl overflow-hidden" style="border:1px solid #e4e7ec;">
+                <div class="px-5 py-2.5" style="background:#f8fafc;border-bottom:1px solid #e4e7ec;">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payment breakdown</p>
+                </div>
+                <?php foreach ($allocLines as $line): ?>
+                <div class="flex items-center justify-between px-5 py-2.5" style="border-bottom:1px solid #f1f5f9;">
+                    <span class="text-sm text-slate-600"><?php echo htmlspecialchars((string)$line['transaction_type']); ?></span>
+                    <span class="text-sm font-semibold text-slate-900"><?php echo number_format((float)$line['amount'], 2); ?></span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+
             <!-- Amount Section -->
             <div class="pt-8 border-t border-slate-100 flex justify-between items-end">
                 <div>
@@ -162,7 +181,7 @@ $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
                 </div>
                 <div class="text-right">
                     <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Amount Paid</p>
-                    <h2 class="text-4xl font-black text-slate-900">KSh <?php echo number_format($txn['amount']); ?></h2>
+                    <h2 class="text-4xl font-black text-slate-900">KSh <?php echo number_format($allocLines ? $allocTotal : (float)$txn['amount'], 2); ?></h2>
                 </div>
             </div>
 
