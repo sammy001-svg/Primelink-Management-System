@@ -80,6 +80,7 @@ if ($user_role === 'tenant') {
     $addSubLink($finSubs, 'financials.php',       'Overview',                'financials');
     $addSubLink($finSubs, 'tenant_payments.php',  'Tenants & Invoices',      'invoices');
     $addSubLink($finSubs, 'bulk_invoices.php',    'Bulk Invoice Generator',  'bulk_invoices');
+    $addSubLink($finSubs, 'billing_run.php',      'Billing Run',             'bulk_invoices');
     $addSubLink($finSubs, 'late_penalties.php',   'Late Penalties',          'late_penalties');
     $addSubLink($finSubs, 'landlord_payouts.php', 'Landlords & Payouts',     'payouts');
     $addSubLink($finSubs, 'expenses.php',         'Business Expenses',       'expenses');

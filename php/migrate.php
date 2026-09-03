@@ -256,6 +256,25 @@ $migrations = [
     // ── Payment allocation: one posting per charge, grouped as one receipt ──
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `payment_group` VARCHAR(36) NULL",
     "CREATE INDEX `idx_tx_paygroup` ON `transactions` (`payment_group`)",
+    // ── Billing run: water meter readings drive consumption charges ──
+    "CREATE TABLE IF NOT EXISTS `meter_readings` (
+        `id`               VARCHAR(36) PRIMARY KEY,
+        `unit_id`          VARCHAR(36)   NULL,
+        `tenant_id`        VARCHAR(36)   NULL,
+        `meter_type`       VARCHAR(20)   NOT NULL DEFAULT 'Water',
+        `previous_reading` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `current_reading`  DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `consumption`      DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `rate`             DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `amount`           DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `reading_date`     DATE          NOT NULL,
+        `invoice_id`       VARCHAR(36)   NULL,
+        `recorded_by`      VARCHAR(36)   NULL,
+        `created_at`       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_reading_unit` (`unit_id`, `meter_type`),
+        INDEX `idx_reading_date` (`reading_date`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "ALTER TABLE `invoices` ADD COLUMN IF NOT EXISTS `batch_id` VARCHAR(36) NULL",
     "ALTER TABLE `transactions` ADD COLUMN IF NOT EXISTS `bank_account_id` VARCHAR(36) NULL",
     "CREATE INDEX `idx_tx_bank_account` ON `transactions` (`bank_account_id`)",
     // ── HR: fuller staff records ──
