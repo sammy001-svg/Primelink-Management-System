@@ -309,8 +309,14 @@ include __DIR__ . '/includes/sidebar.php';
                 <!-- What this payment does to the balance -->
                 <div class="grid grid-cols-2 divide-x" style="border-top:1px solid var(--border);background:var(--surface-sunk);">
                     <div class="px-4 py-3">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Paying Now</p>
-                        <p class="font-black text-sm tabular" id="pay_tc_paying" style="color:var(--positive)">&mdash;</p>
+                        <label for="pay_tc_paying" class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 block">Paying Now</label>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-[11px] shrink-0" style="color:var(--text-subtle)"><?php echo htmlspecialchars($currency); ?></span>
+                            <input type="number" id="pay_tc_paying" step="0.01" min="0" placeholder="0.00"
+                                   class="form-input tabular" style="padding:4px 8px;font-size:13px;font-weight:600;"
+                                   oninput="allocSpread(this.value)">
+                        </div>
+                        <p class="text-[10px] mt-1" style="color:var(--text-subtle)">Type the total handed over &mdash; it spreads across the charges below</p>
                     </div>
                     <div class="px-4 py-3">
                         <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Balance After</p>
@@ -516,7 +522,51 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
     allocRecalc();
   };
 
-  window.allocRecalc = function () {
+  // Guard so the two inputs do not chase each other
+  var spreading = false;
+
+  /**
+   * Take the sum a tenant actually handed over and apportion it across the
+   * charges, oldest first — which is how arrears are normally cleared.
+   * Anything beyond what is owed lands on the first charge as an advance.
+   */
+  window.allocSpread = function (raw) {
+    var pot  = parseFloat(raw) || 0;
+    var rows = Array.prototype.slice.call(rowsEl.querySelectorAll('.alloc-row'));
+    if (!rows.length) return;
+
+    spreading = true;
+
+    rows.forEach(function (row) {
+      var amt   = row.querySelector('input[name="alloc_amount[]"]');
+      var month = row.querySelector('.alloc-month');
+      var opt   = month ? month.options[month.selectedIndex] : null;
+      var owed  = opt ? parseFloat(opt.dataset.balance) : NaN;
+
+      if (pot <= 0.009) { amt.value = ''; amt.dataset.auto = '1'; return; }
+
+      // A charge tied to a month takes at most what that month still owes;
+      // one not tied to a month can absorb whatever is left.
+      var take = isNaN(owed) ? pot : Math.min(pot, owed);
+      take = Math.round(take * 100) / 100;
+
+      amt.value = take > 0 ? take.toFixed(2) : '';
+      amt.dataset.auto = '1';
+      pot = Math.round((pot - take) * 100) / 100;
+    });
+
+    // More than everything owed — the surplus rides on the first charge
+    if (pot > 0.009) {
+      var first = rows[0].querySelector('input[name="alloc_amount[]"]');
+      first.value = ((parseFloat(first.value) || 0) + pot).toFixed(2);
+      first.dataset.auto = '1';
+    }
+
+    spreading = false;
+    allocRecalc(true);
+  };
+
+  window.allocRecalc = function (fromSpread) {
     var total = 0;
     rowsEl.querySelectorAll('input[name="alloc_amount[]"]').forEach(function (i) {
       total += parseFloat(i.value) || 0;
@@ -529,7 +579,11 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
     var payingEl = document.getElementById('pay_tc_paying');
     var afterEl  = document.getElementById('pay_tc_after');
     if (payingEl && afterEl) {
-      payingEl.textContent = total > 0 ? money(total) : '\u2014';
+      // Only mirror the rows back up when the change came from the rows,
+      // otherwise the field rewrites itself mid-keystroke
+      if (!fromSpread && document.activeElement !== payingEl) {
+        payingEl.value = total > 0 ? total.toFixed(2) : '';
+      }
       var after = owedNow - total;
       afterEl.textContent = money(Math.abs(after) < 0.005 ? 0 : after);
       afterEl.style.color = after > 0.009 ? 'var(--danger)'
@@ -553,6 +607,8 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
 
   window.allocLoadForTenant = function (tenantId, tenant) {
     currentTenantId = tenantId;
+    var payingEl = document.getElementById('pay_tc_paying');
+    if (payingEl) payingEl.value = '';
     var lines = _payOutstanding[tenantId] || [];
     var hint  = document.getElementById('pay_alloc_hint');
     rowsEl.innerHTML = '';
@@ -602,6 +658,8 @@ function payCancel() {
     if (form) form.reset();
     var rows = document.getElementById('pay_alloc_rows');
     if (rows) { rows.innerHTML = ''; rows.dataset.owed = '0'; }
+    var paying = document.getElementById('pay_tc_paying');
+    if (paying) paying.value = '';
     var card = document.getElementById('pay_tenant_card');
     if (card) card.classList.add('hidden');
     if (window.allocAddRow) window.allocAddRow('Rent');
