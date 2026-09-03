@@ -255,7 +255,7 @@ include __DIR__ . '/includes/sidebar.php';
 <!-- Record Payment Modal -->
 <div id="recordPaymentModal" class="modal-overlay" style="display:none;">
     <div class="modal-card" style="max-width:540px;">
-        <button onclick="closeModal('recordPaymentModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors">
+        <button type="button" onclick="payCancel()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors" aria-label="Cancel">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
         <h2 class="text-2xl font-black mb-6">Record Manual Payment</h2>
@@ -298,6 +298,18 @@ include __DIR__ . '/includes/sidebar.php';
                         <p class="font-bold text-slate-600 dark:text-slate-400 text-xs truncate" id="pay_tc_property"></p>
                     </div>
                 </div>
+
+                <!-- What this payment does to the balance -->
+                <div class="grid grid-cols-2 divide-x" style="border-top:1px solid var(--border);background:var(--surface-sunk);">
+                    <div class="px-4 py-3">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Paying Now</p>
+                        <p class="font-black text-sm tabular" id="pay_tc_paying" style="color:var(--positive)">&mdash;</p>
+                    </div>
+                    <div class="px-4 py-3">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Balance After</p>
+                        <p class="font-black text-sm tabular" id="pay_tc_after">&mdash;</p>
+                    </div>
+                </div>
             </div>
 
             <!-- ── What the payment is for ──────────────────────────── -->
@@ -308,8 +320,9 @@ include __DIR__ . '/includes/sidebar.php';
                 </div>
 
                 <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
-                    <div class="grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 130px 28px;background:var(--surface-sunk);border-bottom:1px solid var(--border);">
+                    <div class="grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 150px 120px 28px;background:var(--surface-sunk);border-bottom:1px solid var(--border);">
                         <span class="text-[11px]" style="color:var(--text-muted)">Charge</span>
+                        <span class="text-[11px]" style="color:var(--text-muted)">For which month</span>
                         <span class="text-[11px] text-right" style="color:var(--text-muted)">Amount (<?php echo htmlspecialchars($currency); ?>)</span>
                         <span></span>
                     </div>
@@ -357,7 +370,10 @@ include __DIR__ . '/includes/sidebar.php';
                 <textarea name="description" rows="2" placeholder="M-Pesa ref, bank slip no., etc."
                     class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none resize-none"></textarea>
             </div>
-            <button type="submit" class="btn-green w-full justify-center py-4">Confirm Payment Receipt</button>
+            <div class="flex gap-3">
+                <button type="button" onclick="payCancel()" class="btn-ghost" style="padding:12px 20px;">Cancel</button>
+                <button type="submit" class="btn-green flex-1 justify-center py-4">Confirm Payment Receipt</button>
+            </div>
         </form>
     </div>
 </div>
@@ -377,6 +393,8 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
   var rowsEl = document.getElementById('pay_alloc_rows');
   if (!rowsEl) return;
 
+  var currentTenantId = '';
+
   var money = function (v) {
     return _payCurrency + ' ' + (parseFloat(v) || 0)
       .toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -388,26 +406,84 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  /** "Aug 2026" from a YYYY-MM-DD due date. */
+  function monthLabel(dateStr) {
+    if (!dateStr) return '';
+    var parts = String(dateStr).split('-');
+    if (parts.length < 2) return dateStr;
+    var m = parseInt(parts[1], 10) - 1;
+    return (MONTHS[m] || parts[1]) + ' ' + parts[0];
+  }
+
+  /**
+   * Which outstanding months a charge can be applied to. Staff pick the month
+   * so a payment settles the invoice it was actually meant for, rather than
+   * whichever the system guessed.
+   */
+  function monthOptions(type, selectedInvoice) {
+    var lines = (_payOutstanding[currentTenantId] || []).filter(function (l) {
+      return l.type === type;
+    });
+
+    var html = '';
+    lines.forEach(function (l) {
+      var sel = (l.invoice_id === selectedInvoice) ? ' selected' : '';
+      html += '<option value="' + esc(l.invoice_id) + '" data-balance="' + esc(l.balance) + '"' + sel + '>' +
+                esc(monthLabel(l.due_date)) + ' · ' + money(l.balance) +
+              '</option>';
+    });
+    // Money can also arrive ahead of any invoice
+    html += '<option value=""' + (selectedInvoice ? '' : ' selected') + '>Not tied to a month</option>';
+    return html;
+  }
+
   function rowHtml(type, amount, invoiceId, note) {
     var opts = _payChargeTypes.map(function (t) {
       return '<option value="' + esc(t) + '"' + (t === type ? ' selected' : '') + '>' + esc(t) + '</option>';
     }).join('');
 
     return '' +
-      '<div class="alloc-row grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 130px 28px;border-bottom:1px solid var(--border);">' +
+      '<div class="alloc-row grid items-center gap-2 px-3 py-2" style="grid-template-columns:1fr 150px 120px 28px;border-bottom:1px solid var(--border);">' +
         '<div class="min-w-0">' +
-          '<select name="alloc_type[]" class="form-input" style="padding:5px 8px;font-size:12.5px;">' + opts + '</select>' +
+          '<select name="alloc_type[]" class="form-input" style="padding:5px 8px;font-size:12.5px;" onchange="allocTypeChanged(this)">' + opts + '</select>' +
           (note ? '<p class="text-[10.5px] mt-1 truncate" style="color:var(--text-subtle)">' + esc(note) + '</p>' : '') +
         '</div>' +
+        '<select name="alloc_invoice[]" class="form-input alloc-month" style="padding:5px 8px;font-size:12.5px;" onchange="allocMonthChanged(this)">' +
+          monthOptions(type, invoiceId || '') +
+        '</select>' +
         '<input type="number" name="alloc_amount[]" step="0.01" min="0" placeholder="0.00" ' +
                'value="' + (amount != null ? esc(amount) : '') + '" ' +
                'class="form-input text-right tabular" style="padding:5px 8px;font-size:12.5px;" oninput="allocRecalc()">' +
-        '<input type="hidden" name="alloc_invoice[]" value="' + esc(invoiceId || '') + '">' +
         '<button type="button" class="topbar-btn" style="width:24px;height:24px;" onclick="allocRemoveRow(this)" aria-label="Remove charge">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
         '</button>' +
       '</div>';
   }
+
+  /** Changing the charge reloads the months that charge is outstanding for. */
+  window.allocTypeChanged = function (sel) {
+    var row   = sel.closest('.alloc-row');
+    var month = row.querySelector('.alloc-month');
+    month.innerHTML = monthOptions(sel.value, '');
+    allocMonthChanged(month);
+  };
+
+  /** Picking a month offers that invoice's outstanding balance as the amount. */
+  window.allocMonthChanged = function (sel) {
+    var row = sel.closest('.alloc-row');
+    var amt = row.querySelector('input[name="alloc_amount[]"]');
+    var opt = sel.options[sel.selectedIndex];
+    var bal = opt ? parseFloat(opt.dataset.balance) : NaN;
+
+    // Only fill a blank or untouched box — never overwrite a typed figure
+    if (!isNaN(bal) && (amt.value === '' || amt.dataset.auto === '1')) {
+      amt.value = bal.toFixed(2);
+      amt.dataset.auto = '1';
+    }
+    allocRecalc();
+  };
 
   window.allocAddRow = function (type, amount, invoiceId, note) {
     rowsEl.insertAdjacentHTML('beforeend', rowHtml(type || 'Rent', amount, invoiceId, note));
@@ -416,7 +492,19 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
 
   window.allocRemoveRow = function (btn) {
     var row = btn.closest('.alloc-row');
-    if (row) row.remove();
+    if (!row) return;
+
+    var amt  = row.querySelector('input[name="alloc_amount[]"]');
+    var type = row.querySelector('select[name="alloc_type[]"]');
+    var val  = parseFloat(amt && amt.value) || 0;
+
+    // Only interrupt when there is something to lose
+    if (val > 0) {
+      var label = type ? type.options[type.selectedIndex].text : 'this charge';
+      if (!confirm('Remove ' + label + ' of ' + money(val) + ' from this payment?')) return;
+    }
+
+    row.remove();
     if (!rowsEl.querySelector('.alloc-row')) window.allocAddRow('Rent');
     allocRecalc();
   };
@@ -427,6 +515,20 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
       total += parseFloat(i.value) || 0;
     });
     document.getElementById('pay_alloc_total').textContent = money(total);
+
+    // Mirror the effect on the tenant card, so the new balance is visible
+    // while the split is being entered
+    var owedNow  = parseFloat(rowsEl.dataset.owed || '0');
+    var payingEl = document.getElementById('pay_tc_paying');
+    var afterEl  = document.getElementById('pay_tc_after');
+    if (payingEl && afterEl) {
+      payingEl.textContent = total > 0 ? money(total) : '\u2014';
+      var after = owedNow - total;
+      afterEl.textContent = money(Math.abs(after) < 0.005 ? 0 : after);
+      afterEl.style.color = after > 0.009 ? 'var(--danger)'
+                          : (after < -0.009 ? 'var(--info)' : 'var(--positive)');
+      afterEl.title = after < -0.009 ? 'Overpayment — will sit as credit' : '';
+    }
 
     // Flag when the split exceeds what is actually outstanding — overpaying is
     // allowed (it becomes credit), but it should never be silent.
@@ -443,6 +545,7 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
   };
 
   window.allocLoadForTenant = function (tenantId, tenant) {
+    currentTenantId = tenantId;
     var lines = _payOutstanding[tenantId] || [];
     var hint  = document.getElementById('pay_alloc_hint');
     rowsEl.innerHTML = '';
@@ -472,6 +575,32 @@ const _payCurrency   = '<?php echo addslashes($currency); ?>';
   // Start with one empty row so the form is never blank
   window.allocAddRow('Rent');
 })();
+
+/**
+ * Abandoning a part-entered payment loses work, so it is confirmed first.
+ * A blank form closes without comment — there is nothing to lose.
+ */
+function payCancel() {
+    var entered = false;
+
+    document.querySelectorAll('#pay_alloc_rows input[name="alloc_amount[]"]').forEach(function (i) {
+        if ((parseFloat(i.value) || 0) > 0) entered = true;
+    });
+    var sel = document.getElementById('pay_tenant_sel');
+    if (sel && sel.value) entered = true;
+
+    if (entered && !confirm('Discard this payment? Nothing entered here has been saved.')) return;
+
+    var form = document.querySelector('#recordPaymentModal form');
+    if (form) form.reset();
+    var rows = document.getElementById('pay_alloc_rows');
+    if (rows) { rows.innerHTML = ''; rows.dataset.owed = '0'; }
+    var card = document.getElementById('pay_tenant_card');
+    if (card) card.classList.add('hidden');
+    if (window.allocAddRow) window.allocAddRow('Rent');
+
+    closeModal('recordPaymentModal');
+}
 
 function onPayTenantChange(id) {
     const card = document.getElementById('pay_tenant_card');
