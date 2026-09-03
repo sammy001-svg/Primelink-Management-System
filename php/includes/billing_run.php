@@ -61,6 +61,8 @@ function ensureBillingRunSchema(PDO $pdo, bool $force = false): void {
     if (function_exists('ensureColumn')) {
         ensureColumn($pdo, 'invoices', 'batch_id', 'VARCHAR(36) NULL');
         ensureColumn($pdo, 'invoices', 'description', 'TEXT NULL');
+        // Standing charge added to every water bill on top of consumption
+        ensureColumn($pdo, 'properties', 'water_fixed_charge', 'DECIMAL(15,2) NOT NULL DEFAULT 0');
     }
 
     $_SESSION[$cacheKey] = 1;
@@ -77,12 +79,14 @@ function ensureBillingRunSchema(PDO $pdo, bool $force = false): void {
 function billableProperties(PDO $pdo): array {
     try {
         return $pdo->query("
-            SELECT p.id, p.title, p.location, p.water_rate, p.garbage_fee,
+            SELECT p.id, p.title, p.location, p.water_rate,
+                   COALESCE(p.water_fixed_charge, 0) AS water_fixed_charge,
+                   p.garbage_fee,
                    COUNT(DISTINCT l.tenant_id) AS tenant_count
             FROM properties p
             LEFT JOIN units  u ON u.property_id = p.id
             LEFT JOIN leases l ON l.unit_id = u.id AND l.status = 'Active'
-            GROUP BY p.id, p.title, p.location, p.water_rate, p.garbage_fee
+            GROUP BY p.id, p.title, p.location, p.water_rate, p.water_fixed_charge, p.garbage_fee
             HAVING tenant_count > 0
             ORDER BY p.title ASC
         ")->fetchAll();
@@ -286,27 +290,39 @@ function billingRunProgress(PDO $pdo, string $propertyId, string $period): array
 /**
  * Water consumption and what it costs.
  *
+ * A water bill is consumption × rate, plus the property's standing charge —
+ * the fixed amount levied whether or not a drop was used. The two are returned
+ * separately as well as combined, so the invoice can show how the figure was
+ * reached rather than presenting an unexplained total.
+ *
  * A meter that reads lower than last time has either been replaced or rolled
  * over; rather than bill a negative amount, consumption is treated as the
  * reading itself and the caller is told, so a human can check.
  *
- * @return array{consumption: float, amount: float, warning: ?string}
+ * @return array{consumption: float, usage_amount: float, fixed: float,
+ *               amount: float, warning: ?string}
  */
-function waterCharge(float $previous, float $current, float $rate): array {
+function waterCharge(float $previous, float $current, float $rate, float $fixed = 0.0): array {
+    $fixed   = round(max(0, $fixed), 2);
+    $warning = null;
+
     if ($current < $previous) {
-        return [
-            'consumption' => round($current, 2),
-            'amount'      => round($current * $rate, 2),
-            'warning'     => 'Current reading is lower than the previous one ('
-                           . rtrim(rtrim(number_format($previous, 2), '0'), '.')
-                           . '). Treated as a new or replaced meter — check before billing.',
-        ];
+        $consumption = round($current, 2);
+        $warning = 'Current reading is lower than the previous one ('
+                 . rtrim(rtrim(number_format($previous, 2), '0'), '.')
+                 . '). Treated as a new or replaced meter — check before billing.';
+    } else {
+        $consumption = round($current - $previous, 2);
     }
-    $consumption = round($current - $previous, 2);
+
+    $usage = round($consumption * $rate, 2);
+
     return [
-        'consumption' => $consumption,
-        'amount'      => round($consumption * $rate, 2),
-        'warning'     => null,
+        'consumption'  => $consumption,
+        'usage_amount' => $usage,
+        'fixed'        => $fixed,
+        'amount'       => round($usage + $fixed, 2),
+        'warning'      => $warning,
     ];
 }
 
@@ -467,8 +483,9 @@ function billingRunPayload(PDO $pdo, string $propertyId, string $period): array 
             'id'          => (string)$property['id'],
             'title'       => (string)$property['title'],
             'location'    => (string)$property['location'],
-            'water_rate'  => (float)$property['water_rate'],
-            'garbage_fee' => (float)$property['garbage_fee'],
+            'water_rate'         => (float)$property['water_rate'],
+            'water_fixed_charge' => (float)($property['water_fixed_charge'] ?? 0),
+            'garbage_fee'        => (float)$property['garbage_fee'],
         ],
         'tenants' => $rows,
         'period'  => $period,

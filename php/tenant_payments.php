@@ -866,6 +866,7 @@ function onPayTenantChange(id) {
     var a    = t.arrears || {};
     var pct  = Math.round((at / run.tenants.length) * 100);
     var rate = run.property.water_rate;
+    var fixedWater = num(run.property.water_fixed_charge);
 
     var already = (t.already && t.already.length)
       ? '<p class="text-[11.5px] mt-3 pt-3" style="border-top:1px solid var(--border);color:var(--warning)">' +
@@ -879,7 +880,9 @@ function onPayTenantChange(id) {
         '<div class="min-w-0">' +
           '<h2 class="text-lg font-semibold" style="color:var(--text)">' + esc(run.property.title) + '</h2>' +
           '<p class="text-[12px]" style="color:var(--text-muted)">' +
-            'water ' + money(rate) + '/unit · garbage ' + money(run.property.garbage_fee) +
+            'water ' + money(rate) + '/unit' +
+            (fixedWater > 0 ? ' + ' + money(fixedWater) + ' standing' : '') +
+            ' · garbage ' + money(run.property.garbage_fee) +
           '</p>' +
         '</div>' +
         '<button type="button" class="btn-ghost shrink-0" style="padding:4px 10px;font-size:11.5px;" onclick="runExit()">Close run</button>' +
@@ -922,7 +925,8 @@ function onPayTenantChange(id) {
         '<div class="px-4 py-2.5" style="border-bottom:1px solid var(--border);">' +
           '<div class="grid items-center gap-2" style="grid-template-columns:1fr 110px 130px;">' +
             '<div><p class="text-[12.5px] font-medium" style="color:var(--text)">Water</p>' +
-              '<p class="text-[10.5px]" style="color:var(--text-subtle)">' + money(rate) + ' per unit</p></div>' +
+              '<p class="text-[10.5px]" style="color:var(--text-subtle)">' + money(rate) + ' per unit' +
+                (fixedWater > 0 ? ' + ' + money(fixedWater) + ' standing charge' : '') + '</p></div>' +
             prevCell(a.Water) +
             '<input type="number" id="runWater" step="0.01" min="0" value="0.00" class="form-input text-right tabular" style="padding:5px 8px;font-size:12.5px;" oninput="runRecalc()">' +
           '</div>' +
@@ -1032,8 +1036,9 @@ function onPayTenantChange(id) {
     var warn = el('runWaterWarn');
 
     if (curr === '') {
+      // No reading taken yet, but the standing charge still applies
       el('runUsed').value = '—';
-      el('runWater').value = '0.00';
+      el('runWater').value = num(run.property.water_fixed_charge).toFixed(2);
       warn.classList.add('hidden');
       runRecalc();
       return;
@@ -1050,8 +1055,11 @@ function onPayTenantChange(id) {
       warn.classList.add('hidden');
     }
 
+    // Consumption plus the property's standing charge. The server recomputes
+    // this from the property record, so the figure here is only a preview.
+    var fixed = num(run.property.water_fixed_charge);
     el('runUsed').value  = used.toLocaleString('en-KE', { maximumFractionDigits: 2 });
-    el('runWater').value = (used * run.property.water_rate).toFixed(2);
+    el('runWater').value = (used * run.property.water_rate + fixed).toFixed(2);
     runRecalc();
   };
 

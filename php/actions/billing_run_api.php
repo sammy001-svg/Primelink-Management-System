@@ -69,18 +69,34 @@ if ($action === 'bill') {
     $rent    = round((float)($_POST['charge_rent']    ?? 0), 2);
     $garbage = round((float)($_POST['charge_garbage'] ?? 0), 2);
 
-    $waterMode = ($_POST['water_mode'] ?? 'meter') === 'amount' ? 'amount' : 'meter';
-    $prevRead  = round((float)($_POST['water_previous'] ?? 0), 2);
-    $currRead  = round((float)($_POST['water_current']  ?? 0), 2);
-    $waterRate = round((float)($_POST['water_rate']     ?? 0), 2);
+    $waterMode  = ($_POST['water_mode'] ?? 'meter') === 'amount' ? 'amount' : 'meter';
+    $prevRead   = round((float)($_POST['water_previous'] ?? 0), 2);
+    $currRead   = round((float)($_POST['water_current']  ?? 0), 2);
+    $waterRate  = round((float)($_POST['water_rate']     ?? 0), 2);
+
+    // The standing charge is read from the property, never from the form —
+    // the browser must not be able to talk the bill down.
+    $waterFixed = 0.0;
+    try {
+        $fx = $pdo->prepare("SELECT COALESCE(p.water_fixed_charge, 0)
+                             FROM leases l JOIN units u ON l.unit_id = u.id
+                             JOIN properties p ON u.property_id = p.id
+                             WHERE l.id = ? LIMIT 1");
+        $fx->execute([$leaseId]);
+        $waterFixed = round((float)$fx->fetchColumn(), 2);
+    } catch (PDOException $e) {}
 
     if ($waterMode === 'amount') {
         $water = round((float)($_POST['charge_water'] ?? 0), 2);
         $consumption = 0.0;
+        $usageAmount = $water;
+        $appliedFixed = 0.0;   // a hand-entered figure is taken as the whole bill
     } else {
-        $calc = waterCharge($prevRead, $currRead, $waterRate);
-        $water = $calc['amount'];
-        $consumption = $calc['consumption'];
+        $calc = waterCharge($prevRead, $currRead, $waterRate, $waterFixed);
+        $water        = $calc['amount'];
+        $consumption  = $calc['consumption'];
+        $usageAmount  = $calc['usage_amount'];
+        $appliedFixed = $calc['fixed'];
     }
 
     foreach (['Rent' => $rent, 'Water' => $water, 'Garbage' => $garbage] as $label => $amt) {
@@ -114,13 +130,18 @@ if ($action === 'bill') {
             $lineNote = $note;
             if ($type === 'Water' && $waterMode === 'meter') {
                 $lineNote = trim(sprintf(
-                    '%s (reading %s → %s, %s units @ %s %s)',
+                    '%s (reading %s → %s, %s units @ %s %s = %s %s%s)',
                     $note ?: 'Water consumption',
                     rtrim(rtrim(number_format($prevRead, 2), '0'), '.'),
                     rtrim(rtrim(number_format($currRead, 2), '0'), '.'),
                     rtrim(rtrim(number_format($consumption, 2), '0'), '.'),
                     $currency,
-                    rtrim(rtrim(number_format($waterRate, 2), '0'), '.')
+                    rtrim(rtrim(number_format($waterRate, 2), '0'), '.'),
+                    $currency,
+                    number_format($usageAmount, 2),
+                    $appliedFixed > 0.009
+                        ? sprintf(' + %s %s standing charge', $currency, number_format($appliedFixed, 2))
+                        : ''
                 ));
                 $waterInvoiceId = $invId;
             }

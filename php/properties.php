@@ -181,6 +181,11 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div><label class="form-label">Water Rate (per Unit)</label><input type="number" step="0.01" name="water_rate" required class="form-input" placeholder="e.g. 150"></div>
+                <div>
+                    <label class="form-label">Water Fixed Charge</label>
+                    <input type="number" step="0.01" min="0" name="water_fixed_charge" class="form-input" placeholder="e.g. 200" value="0">
+                    <p class="text-[10px] mt-1 px-1" style="color:var(--text-subtle)">Standing charge added to every water bill, on top of consumption.</p>
+                </div>
                 <div><label class="form-label">Garbage Fee (Monthly)</label><input type="number" step="0.01" name="garbage_fee" required class="form-input" placeholder="e.g. 500"></div>
             </div>
             <div><label class="form-label">Description</label><textarea name="description" rows="3" class="form-input"></textarea></div>
@@ -230,6 +235,11 @@ include __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div><label class="form-label">Water Rate (per Unit)</label><input type="number" step="0.01" name="water_rate" id="edit_prop_water_rate" required class="form-input"></div>
+                <div>
+                    <label class="form-label">Water Fixed Charge</label>
+                    <input type="number" step="0.01" min="0" name="water_fixed_charge" id="edit_prop_water_fixed" class="form-input">
+                    <p class="text-[10px] mt-1 px-1" style="color:var(--text-subtle)">Standing charge added to every water bill, on top of consumption.</p>
+                </div>
                 <div><label class="form-label">Garbage Fee (Monthly)</label><input type="number" step="0.01" name="garbage_fee" id="edit_prop_garbage_fee" required class="form-input"></div>
             </div>
             <div>
@@ -272,6 +282,7 @@ function openEditPropertyModal(prop) {
     document.getElementById('edit_prop_landlord').value = prop.landlord_id || '';
     document.getElementById('edit_prop_area').value = prop.area;
     document.getElementById('edit_prop_water_rate').value = prop.water_rate || 0;
+    document.getElementById('edit_prop_water_fixed').value = prop.water_fixed_charge || 0;
     document.getElementById('edit_prop_garbage_fee').value = prop.garbage_fee || 0;
     document.getElementById('edit_prop_status').value = prop.status;
     document.getElementById('edit_prop_description').value = prop.description;

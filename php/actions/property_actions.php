@@ -21,7 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $landlord_id = $_POST['landlord_id'] ?? null;
         $area = $_POST['area'] ?? 0;
         $water_rate = $_POST['water_rate'] ?? 0;
+        $water_fixed_charge = max(0, (float)($_POST['water_fixed_charge'] ?? 0));
         $garbage_fee = $_POST['garbage_fee'] ?? 0;
+        $water_fixed_charge = max(0, (float)($_POST['water_fixed_charge'] ?? 0));
         
         // Handle Image Uploads
         $imageUrls = [];
@@ -53,8 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = generateUUID();
         
         try {
-            $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code, water_rate, garbage_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code, $water_rate, $garbage_fee]);
+            $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code, water_rate, water_fixed_charge, garbage_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code, $water_rate, $water_fixed_charge, $garbage_fee]);
             
             header("Location: ../properties.php?success=created");
             exit();
@@ -64,11 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ");
                     $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_rate` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `property_code` ");
-                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate` ");
+                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_fixed_charge` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate` ");
+                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_fixed_charge` ");
                     
                     // Retry
-                    $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code, water_rate, garbage_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code, $water_rate, $garbage_fee]);
+                    $stmt = $pdo->prepare("INSERT INTO properties (id, landlord_id, title, location, description, price, property_type, status, images, amenities, area, property_code, water_rate, water_fixed_charge, garbage_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$id, $landlord_id, $title, $location, $description, $price, $property_type, $status, $images, $amenities, $area, $property_code, $water_rate, $water_fixed_charge, $garbage_fee]);
                     header("Location: ../properties.php?success=created");
                     exit();
                 } catch (PDOException $retryError) {
@@ -90,7 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $landlord_id = $_POST['landlord_id'] ?? null;
         $area = $_POST['area'] ?? 0;
         $water_rate = $_POST['water_rate'] ?? 0;
+        $water_fixed_charge = max(0, (float)($_POST['water_fixed_charge'] ?? 0));
         $garbage_fee = $_POST['garbage_fee'] ?? 0;
+        $water_fixed_charge = max(0, (float)($_POST['water_fixed_charge'] ?? 0));
 
         // Fetch existing images
         $stmt = $pdo->prepare("SELECT images FROM properties WHERE id = ?");
@@ -117,8 +122,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $images = json_encode($imageUrls);
 
         try {
-            $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, garbage_fee=? WHERE id=?");
-            $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $garbage_fee, $id]);
+            $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, water_fixed_charge=?, garbage_fee=? WHERE id=?");
+            $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $water_fixed_charge, $garbage_fee, $id]);
             $redir = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : '../properties.php?success=updated';
             header("Location: $redir");
             exit();
@@ -126,10 +131,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($e->getCode() == '42S22') {
                 $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `property_code` VARCHAR(50) NULL AFTER `area` ");
                 $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_rate` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `property_code` ");
-                $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate` ");
+                $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_fixed_charge` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate` ");
+                    $pdo->exec("ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_fixed_charge` ");
 
-                $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, garbage_fee=? WHERE id=?");
-                $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $garbage_fee, $id]);
+                $stmt = $pdo->prepare("UPDATE properties SET landlord_id=?, title=?, location=?, description=?, property_type=?, status=?, images=?, area=?, property_code=?, water_rate=?, water_fixed_charge=?, garbage_fee=? WHERE id=?");
+                $stmt->execute([$landlord_id, $title, $location, $description, $property_type, $status, $images, $area, $property_code, $water_rate, $water_fixed_charge, $garbage_fee, $id]);
                 $redir = !empty($_POST['_redirect']) ? '../' . $_POST['_redirect'] : '../properties.php?success=updated';
                 header("Location: $redir");
                 exit();

@@ -157,6 +157,7 @@ $migrations = [
         ('management_fee_rate', '10')",
     // Add garbage_fee to properties table
     "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `garbage_fee` DECIMAL(15,2) NOT NULL DEFAULT 0",
+    "ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `water_fixed_charge` DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER `water_rate`",
     // Ensure invoices.status supports Overdue (in case column was created before this value was added)
     "ALTER TABLE `invoices` MODIFY COLUMN `status` ENUM('Unpaid','Paid','Partial','Overdue','Cancelled') NOT NULL DEFAULT 'Unpaid'",
     // Add status to users table
