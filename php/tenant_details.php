@@ -63,6 +63,7 @@ require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
 require_once __DIR__ . '/includes/bank_accounts.php';
 require_once __DIR__ . '/includes/payment_alloc.php';
+require_once __DIR__ . '/includes/statement.php';
 ensureCorrectionSchema($pdo);
 ensureBankAccountSchema($pdo);
 ensurePaymentAllocSchema($pdo);
@@ -832,98 +833,168 @@ include __DIR__ . '/includes/sidebar.php';
         <?php endif; ?>
     </div>
 
+    <!-- ═══════════════════ STATEMENT ═══════════════════ -->
     <div id="content-statement" class="tab-content <?php echo $activeTab !== 'statement' ? 'hidden' : ''; ?>">
         <?php
-        $stmtPeriod   = $_GET['stmt_period'] ?? 'all';
-        $validPeriods = ['month', '3m', 'ytd', 'all'];
-        if (!in_array($stmtPeriod, $validPeriods)) $stmtPeriod = 'all';
-        $periodMap  = ['month' => 'This Month', '3m' => 'Last 3 Months', 'ytd' => 'Year to Date', 'all' => 'All Time'];
-        $stmtTxArr  = array_values(array_filter($transactions, function($tx) use ($stmtPeriod) {
-            $txTime = strtotime($tx['transaction_date'] ?? $tx['created_at'] ?? 'now');
-            if ($stmtPeriod === 'month') return $txTime >= strtotime(date('Y-m-01'));
-            if ($stmtPeriod === '3m')    return $txTime >= strtotime('-3 months');
-            if ($stmtPeriod === 'ytd')   return $txTime >= strtotime(date('Y-01-01'));
-            return true;
-        }));
-        $stmtPaid   = array_sum(array_column(array_filter($stmtTxArr, fn($t) => ($t['status'] ?? '') === 'Paid'), 'amount'));
-        $stmtCount  = count($stmtTxArr);
+        $stmtPeriod = $_GET['stmt_period'] ?? 'all';
+        if (!in_array($stmtPeriod, ['all', 'this_month', 'last_month', 'last_3m', 'this_year'], true)) $stmtPeriod = 'all';
+        [$stmtFrom, $stmtTo, $stmtLabel] = statementPeriod($stmtPeriod);
+
+        $ledger = statementLedger($pdo, $tenantId, $stmtFrom, $stmtTo);
+        $ageing = statementAgeing($pdo, $tenantId);
         ?>
 
-        <!-- Period filter -->
-        <div class="flex gap-2 flex-wrap mb-6">
-        <?php foreach ($periodMap as $pk => $pl): ?>
-            <a href="?id=<?php echo urlencode($tenantId); ?>&tab=statement&stmt_period=<?php echo $pk; ?>"
-               class="px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all
-                   <?php echo $stmtPeriod === $pk ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'; ?>">
-                <?php echo $pl; ?>
+        <!-- Period + print -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div class="flex gap-2 flex-wrap">
+            <?php foreach ([
+                'all'        => 'All time',
+                'this_month' => 'This month',
+                'last_month' => 'Last month',
+                'last_3m'    => 'Last 3 months',
+                'this_year'  => 'This year',
+            ] as $pk => $pl): ?>
+                <a href="?id=<?php echo urlencode($tenantId); ?>&tab=statement&stmt_period=<?php echo $pk; ?>"
+                   class="px-3 py-1.5 rounded-lg text-[11.5px] font-medium transition-colors"
+                   style="<?php echo $stmtPeriod === $pk
+                        ? 'background:var(--text);color:var(--surface);'
+                        : 'background:var(--surface-hover);color:var(--text-muted);'; ?>">
+                    <?php echo $pl; ?>
+                </a>
+            <?php endforeach; ?>
+            </div>
+            <a href="view_statement.php?tenant_id=<?php echo urlencode($tenantId); ?>&period=<?php echo urlencode($stmtPeriod === 'all' ? 'all' : $stmtPeriod); ?>&print=1"
+               target="_blank" class="btn-primary">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+                Print statement
             </a>
-        <?php endforeach; ?>
         </div>
 
-        <!-- Summary KPIs -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-            <div class="glass-card p-5 bg-green-50 dark:bg-green-900/20">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Paid</p>
-                <h3 class="text-2xl font-black text-green-500"><?php echo $currency; ?> <?php echo number_format($stmtPaid); ?></h3>
-            </div>
-            <div class="glass-card p-5">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Transactions</p>
-                <h3 class="text-2xl font-black text-slate-900 dark:text-white"><?php echo $stmtCount; ?></h3>
-            </div>
-            <div class="glass-card p-5 bg-red-50 dark:bg-red-900/20">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Outstanding</p>
-                <h3 class="text-2xl font-black text-red-500"><?php echo $currency; ?> <?php echo number_format($invoiceSummary['outstanding']); ?></h3>
-            </div>
-        </div>
-
-        <!-- Transactions table -->
-        <div class="glass-card overflow-hidden">
-            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <!-- Where the account stands -->
+        <div class="glass-card p-5 mb-4">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                    <h3 class="font-black text-slate-900 dark:text-white">Payment Transactions — <?php echo $periodMap[$stmtPeriod]; ?></h3>
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5"><?php echo $stmtCount; ?> transaction<?php echo $stmtCount !== 1 ? 's' : ''; ?></p>
+                    <p class="kpi-label">Brought forward</p>
+                    <p class="kpi-value mt-0.5 tabular"><?php echo $currency; ?> <?php echo number_format($ledger['opening'], 2); ?></p>
+                    <p class="text-[10.5px]" style="color:var(--text-subtle)"><?php echo $stmtFrom ? 'as at ' . date('d M Y', strtotime($stmtFrom)) : 'start of records'; ?></p>
+                </div>
+                <div>
+                    <p class="kpi-label">Charged</p>
+                    <p class="kpi-value mt-0.5 tabular"><?php echo $currency; ?> <?php echo number_format($ledger['charged'], 2); ?></p>
+                    <p class="text-[10.5px]" style="color:var(--text-subtle)"><?php echo htmlspecialchars($stmtLabel); ?></p>
+                </div>
+                <div>
+                    <p class="kpi-label">Paid</p>
+                    <p class="kpi-value mt-0.5 tabular" style="color:var(--positive)"><?php echo $currency; ?> <?php echo number_format($ledger['paid'], 2); ?></p>
+                    <p class="text-[10.5px]" style="color:var(--text-subtle)"><?php echo htmlspecialchars($stmtLabel); ?></p>
+                </div>
+                <div>
+                    <p class="kpi-label">Balance now</p>
+                    <p class="kpi-value mt-0.5 tabular" style="color:<?php echo $ledger['closing'] > 0.009 ? 'var(--danger)' : 'var(--positive)'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($ledger['closing'], 2); ?>
+                    </p>
+                    <p class="text-[10.5px]" style="color:var(--text-subtle)"><?php echo $ledger['closing'] > 0.009 ? 'owing' : 'settled'; ?></p>
                 </div>
             </div>
-            <?php if (empty($stmtTxArr)): ?>
-            <div class="empty-state py-16">
-                <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                <p class="font-bold text-slate-400 text-sm mt-3">No payment transactions for this period.</p>
+        </div>
+
+        <?php if ($ageing['total'] > 0.009): ?>
+        <div class="glass-card p-5 mb-4">
+            <p class="section-label mb-3">How long this balance has been owed</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <?php foreach (['current', 'd30', 'd60', 'd90'] as $bk): ?>
+                <div>
+                    <p class="text-[11.5px]" style="color:var(--text-muted)"><?php echo htmlspecialchars(ageingLabel($bk)); ?></p>
+                    <p class="text-[15px] font-semibold tabular mt-0.5"
+                       style="color:<?php echo ($bk !== 'current' && $ageing[$bk] > 0.009) ? 'var(--danger)' : 'var(--text)'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($ageing[$bk], 2); ?>
+                    </p>
+                </div>
+                <?php endforeach; ?>
             </div>
-            <?php else: ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- The ledger -->
+        <div class="glass-card overflow-hidden">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                <h3 class="text-[13px] font-semibold" style="color:var(--text)">Statement of account &mdash; <?php echo htmlspecialchars($stmtLabel); ?></h3>
+                <p class="text-[11px]" style="color:var(--text-subtle)">Charges and payments in date order, with the running balance.</p>
+            </div>
+
             <div class="overflow-x-auto">
-                <table class="w-full text-left data-table">
-                    <thead><tr class="bg-slate-50 dark:bg-slate-800/30">
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Reference</th>
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
-                        <th class="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Status</th>
-                    </tr></thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                    <?php foreach ($stmtTxArr as $tx): ?>
-                    <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
-                        <td class="px-5 py-3 text-xs text-slate-600 dark:text-slate-400"><?php echo date('M d, Y', strtotime($tx['transaction_date'] ?? $tx['created_at'] ?? 'now')); ?></td>
-                        <td class="px-5 py-3 text-xs font-bold text-slate-700 dark:text-slate-300"><?php echo htmlspecialchars($tx['transaction_type'] ?? 'Payment'); ?></td>
-                        <td class="px-5 py-3 text-xs text-slate-500 font-mono hidden md:table-cell"><?php echo htmlspecialchars($tx['reference_code'] ?? '—'); ?></td>
-                        <td class="px-5 py-3 text-sm font-black text-slate-900 dark:text-white"><?php echo $currency; ?> <?php echo number_format((float)$tx['amount']); ?></td>
-                        <td class="px-5 py-3 text-right">
-                            <span class="px-2.5 py-1 rounded-full text-[9px] font-black uppercase border
-                                <?php echo ($tx['status'] ?? '') === 'Paid' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'; ?>">
-                                <?php echo htmlspecialchars($tx['status'] ?? 'Recorded'); ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th class="text-right">Charged</th>
+                            <th class="text-right">Paid</th>
+                            <th class="text-right">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if ($stmtFrom): ?>
+                        <tr style="background:var(--surface-sunk);">
+                            <td class="whitespace-nowrap"><?php echo date('d M Y', strtotime($stmtFrom)); ?></td>
+                            <td style="color:var(--text-muted)">Balance brought forward</td>
+                            <td class="text-right" style="color:var(--text-subtle)">&mdash;</td>
+                            <td class="text-right" style="color:var(--text-subtle)">&mdash;</td>
+                            <td class="text-right font-medium tabular" style="color:<?php echo $ledger['opening'] > 0.009 ? 'var(--danger)' : 'var(--text)'; ?>">
+                                <?php echo number_format($ledger['opening'], 2); ?>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+
+                        <?php if (empty($ledger['rows'])): ?>
+                        <tr><td colspan="5" class="text-center py-10" style="color:var(--text-muted)">
+                            Nothing charged or received in this period.
+                        </td></tr>
+                        <?php else: ?>
+                        <?php foreach ($ledger['rows'] as $row):
+                            $isCharge = $row['kind'] === 'charge';
+                            $isOvd    = $isCharge && ($row['status'] ?? '') === 'Overdue';
+                        ?>
+                        <tr>
+                            <td class="whitespace-nowrap"><?php echo date('d M Y', strtotime((string)$row['date'])); ?></td>
+                            <td>
+                                <span style="color:var(--text)"><?php echo htmlspecialchars((string)$row['title']); ?></span>
+                                <span class="badge <?php echo $isCharge ? ($isOvd ? 'badge-red' : 'badge-orange') : 'badge-green'; ?> ml-1.5">
+                                    <?php echo $isCharge ? ($isOvd ? 'Overdue' : 'Invoice') : 'Payment'; ?>
+                                </span>
+                                <?php if (!empty($row['detail'])): ?>
+                                <p class="text-[10.5px] mt-0.5" style="color:var(--text-subtle)"><?php echo htmlspecialchars((string)$row['detail']); ?></p>
+                                <?php endif; ?>
+                                <?php if (!empty($row['reference'])): ?>
+                                <p class="text-[10.5px]" style="color:var(--text-subtle)">Ref <?php echo htmlspecialchars((string)$row['reference']); ?></p>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-right tabular"><?php echo $row['debit'] > 0 ? number_format($row['debit'], 2) : '<span style="color:var(--text-subtle)">&mdash;</span>'; ?></td>
+                            <td class="text-right tabular" style="color:var(--positive)"><?php echo $row['credit'] > 0 ? number_format($row['credit'], 2) : '<span style="color:var(--text-subtle)">&mdash;</span>'; ?></td>
+                            <td class="text-right font-medium tabular" style="color:<?php echo $row['balance'] > 0.009 ? 'var(--danger)' : 'var(--text)'; ?>">
+                                <?php echo number_format($row['balance'], 2); ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
                     </tbody>
+                    <tfoot>
+                        <tr style="background:var(--surface-sunk);">
+                            <td colspan="2" class="font-medium" style="color:var(--text)">
+                                <?php echo $stmtFrom ? 'Movement this period' : 'Total'; ?>
+                            </td>
+                            <td class="text-right font-medium tabular"><?php echo number_format($ledger['charged'], 2); ?></td>
+                            <td class="text-right font-medium tabular" style="color:var(--positive)"><?php echo number_format($ledger['paid'], 2); ?></td>
+                            <td class="text-right font-semibold tabular" style="color:<?php echo $ledger['closing'] > 0.009 ? 'var(--danger)' : 'var(--positive)'; ?>">
+                                <?php echo number_format($ledger['closing'], 2); ?>
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
-            <?php endif; ?>
         </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════
-         TAB: MAINTENANCE
-    ══════════════════════════════════════════════════════ -->
     <div id="content-maintenance" class="tab-content <?php echo $activeTab !== 'maintenance' ? 'hidden' : ''; ?>">
         <div class="glass-card overflow-hidden">
             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">

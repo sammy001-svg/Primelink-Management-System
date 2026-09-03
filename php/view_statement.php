@@ -10,6 +10,7 @@
 require_once __DIR__ . '/includes/auth.php';
 requireLogin();
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/statement.php';
 
 $user      = getCurrentUser($pdo);
 $role      = $_SESSION['role'] ?? 'tenant';
@@ -95,43 +96,22 @@ $periodLabels = [
 $periodLabel = $periodLabels[$period] ?? 'All Time';
 
 // --- Build ledger ---
-$ledger = [];
+// The shared module carries a brought-forward balance into a filtered period,
+// so the running balance is right even when earlier rows are out of range.
+$statement = statementLedger($pdo, $tenantId, $dateFrom, $dateTo);
+$ageing    = statementAgeing($pdo, $tenantId);
 
-$invDateWhere = $dateFrom ? 'AND DATE(created_at) BETWEEN ? AND ?' : '';
-$invParams    = [$tenantId];
-if ($dateFrom) { $invParams[] = $dateFrom; $invParams[] = $dateTo; }
+$openingBal = $statement['opening'];
 
-$invStmt = $pdo->prepare("
-    SELECT id, invoice_type as title, amount, due_date, created_at as date, status, 'Invoice' as type
-    FROM invoices WHERE tenant_id = ? $invDateWhere ORDER BY created_at
-");
-$invStmt->execute($invParams);
-while ($row = $invStmt->fetch()) {
-    $row['debit']  = (float)$row['amount'];
-    $row['credit'] = 0;
-    $ledger[] = $row;
-}
+// Shape kept as the existing markup expects it
+$ledger = array_map(fn($r) => $r + [
+    'type'  => $r['kind'] === 'charge' ? 'Invoice' : 'Payment',
+    'title' => $r['title'],
+], $statement['rows']);
 
-$txDateWhere = $dateFrom ? 'AND DATE(transaction_date) BETWEEN ? AND ?' : '';
-$txParams    = [$tenantId];
-if ($dateFrom) { $txParams[] = $dateFrom; $txParams[] = $dateTo; }
-
-$txStmt = $pdo->prepare("
-    SELECT id, transaction_type as title, amount, transaction_date as date, 'Payment' as type, payment_method, 'Paid' as status
-    FROM transactions WHERE tenant_id = ? AND status = 'Paid' $txDateWhere ORDER BY transaction_date
-");
-$txStmt->execute($txParams);
-while ($row = $txStmt->fetch()) {
-    $row['debit']  = 0;
-    $row['credit'] = (float)$row['amount'];
-    $ledger[] = $row;
-}
-
-usort($ledger, fn($a, $b) => strtotime($a['date']) - strtotime($b['date']));
-
-$totalDebit   = array_sum(array_column($ledger, 'debit'));
-$totalCredit  = array_sum(array_column($ledger, 'credit'));
-$balance      = $totalDebit - $totalCredit;
+$totalDebit   = $statement['charged'];
+$totalCredit  = $statement['paid'];
+$balance      = $statement['closing'];
 $overdueCount = count(array_filter($ledger, fn($i) => $i['type'] === 'Invoice' && ($i['status'] ?? '') === 'Overdue'));
 
 
@@ -313,8 +293,18 @@ if ($printMode) {
                 <?php if (empty($ledger)): ?>
                 <tr><td colspan="6" style="padding:18px;text-align:center;color:#94a3b8;font-style:italic;">No transactions found for this period.</td></tr>
                 <?php else: ?>
+                <?php if ($dateFrom): ?>
+                <tr style="background:#f8fafc;">
+                    <td class="date-cell"><?php echo date('d M Y', strtotime($dateFrom)); ?></td>
+                    <td colspan="2"><span class="desc-main">Balance brought forward</span></td>
+                    <td class="r">—</td>
+                    <td class="r">—</td>
+                    <td class="r fw-b <?php echo $openingBal > 0 ? 'c-red' : 'c-green'; ?>"><?php echo number_format($openingBal, 2); ?></td>
+                </tr>
+                <?php endif; ?>
                 <?php
-                $runBal = 0;
+                // Continue from what was already owed, not from zero
+                $runBal = $openingBal;
                 foreach ($ledger as $item):
                     $runBal += ($item['debit'] - $item['credit']);
                     $isOvd  = ($item['type'] === 'Invoice' && ($item['status'] ?? '') === 'Overdue');
@@ -348,13 +338,35 @@ if ($printMode) {
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="3">TOTAL</td>
+                    <td colspan="3"><?php echo $dateFrom ? 'MOVEMENT THIS PERIOD' : 'TOTAL'; ?></td>
                     <td class="r"><?php echo number_format($totalDebit, 2); ?></td>
                     <td class="r c-green"><?php echo number_format($totalCredit, 2); ?></td>
                     <td class="r fw-b <?php echo $balance > 0 ? 'c-red' : 'c-green'; ?>" style="font-size:11pt;"><?php echo number_format($balance, 2); ?></td>
                 </tr>
             </tfoot>
         </table>
+
+        <?php if ($ageing['total'] > 0.009): ?>
+        <table class="ledger" style="margin-top:16px;">
+            <thead>
+                <tr>
+                    <th colspan="4">How long this balance has been owed</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <?php foreach (['current','d30','d60','d90'] as $bk): ?>
+                    <td style="text-align:center;">
+                        <span class="desc-sub"><?php echo htmlspecialchars(ageingLabel($bk)); ?></span>
+                        <span class="desc-main <?php echo ($bk !== 'current' && $ageing[$bk] > 0) ? 'c-red' : ''; ?>">
+                            <?php echo number_format($ageing[$bk], 2); ?>
+                        </span>
+                    </td>
+                    <?php endforeach; ?>
+                </tr>
+            </tbody>
+        </table>
+        <?php endif; ?>
 
         <?php if ($invoiceFooter): ?>
         <div class="doc-note"><?php echo htmlspecialchars($invoiceFooter); ?></div>
@@ -468,6 +480,23 @@ include __DIR__ . '/includes/sidebar.php';
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Paid</p>
             <p class="text-lg font-black text-accent-green"><?php echo $currency; ?> <?php echo number_format($totalCredit); ?></p>
         </div>
+        <?php if ($ageing['total'] > 0.009): ?>
+        <div class="glass-card p-5 mb-4">
+            <p class="section-label mb-3">How long this balance has been owed</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <?php foreach (['current','d30','d60','d90'] as $bk): ?>
+                <div>
+                    <p class="text-[11.5px]" style="color:var(--text-muted)"><?php echo htmlspecialchars(ageingLabel($bk)); ?></p>
+                    <p class="text-[15px] font-semibold tabular mt-0.5"
+                       style="color:<?php echo ($bk !== 'current' && $ageing[$bk] > 0.009) ? 'var(--danger)' : 'var(--text)'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($ageing[$bk], 2); ?>
+                    </p>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="glass-card p-6 border-l-4 <?php echo $balance > 0 ? 'border-red-500' : 'border-accent-green'; ?>">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Balance Due</p>
             <p class="text-lg font-black <?php echo $balance > 0 ? 'text-red-500' : 'text-accent-green'; ?>"><?php echo $currency; ?> <?php echo number_format($balance); ?></p>
@@ -493,7 +522,8 @@ include __DIR__ . '/includes/sidebar.php';
                     <tr><td colspan="6" class="p-16 text-center text-slate-400 italic">No records found for this period.</td></tr>
                     <?php else: ?>
                     <?php
-                    $runBal = 0;
+                    // Same brought-forward balance as the printed copy
+                    $runBal = $openingBal;
                     foreach ($ledger as $item):
                         $runBal += ($item['debit'] - $item['credit']);
                         $isOvd   = ($item['type'] === 'Invoice' && ($item['status'] ?? '') === 'Overdue');
