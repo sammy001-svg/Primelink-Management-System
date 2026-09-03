@@ -4,9 +4,15 @@ requireRole(['admin', 'staff']);
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/bank_accounts.php';
 require_once __DIR__ . '/includes/payment_alloc.php';
+require_once __DIR__ . '/includes/billing_run.php';
 
 ensureBankAccountSchema($pdo);
 ensurePaymentAllocSchema($pdo);
+ensureBillingRunSchema($pdo);
+
+// Properties available to walk, for the invoice launcher
+$runProperties = billableProperties($pdo);
+$runPeriod     = date('Y-m');
 
 $pageTitle  = "Tenant Payments & Invoices";
 $user       = getCurrentUser($pdo);
@@ -93,7 +99,8 @@ include __DIR__ . '/includes/sidebar.php';
                 <input type="text" name="search" value="<?php echo htmlspecialchars((string)$searchTerm); ?>" placeholder="Search name, ID or type..." class="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-accent-green/20 outline-none transition-all">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </form>
-            <button onclick="openModal('newInvoiceModal')" class="px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-all">
+            <button onclick="openModal('newInvoiceModal')" class="btn-ghost">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 Generate Invoice
             </button>
             <button onclick="openModal('recordPaymentModal')" class="btn-primary">
@@ -630,47 +637,111 @@ function onPayTenantChange(id) {
         <button onclick="closeModal('newInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-        <h2 class="text-2xl font-black mb-4">Generate Professional Invoice</h2>
-        <div class="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl mb-6 border border-blue-100 dark:border-blue-800/30">
-            <p class="text-[10px] text-blue-600 dark:text-blue-400 font-bold leading-relaxed">
-                <span class="uppercase">Automated Billing Active:</span> Rent and Garbage fees are automatically billed to all active tenants on the 1st of every month. Use this form primarily for <strong>Water</strong> bills and special items.
-            </p>
+        <h2 class="text-lg font-semibold mb-1" style="color:var(--text)">Generate Invoices</h2>
+        <p class="text-[12.5px] mb-5" style="color:var(--text-muted)">
+            Bill a whole property unit by unit, or raise a single charge for one tenant.
+        </p>
+
+        <!-- ── Billing run: the normal way to invoice ──────────────── -->
+        <p class="section-label mb-2">Billing run</p>
+        <?php if (!$runProperties): ?>
+        <div class="rounded-xl px-4 py-5 text-center" style="border:1px solid var(--border);">
+            <p class="text-[12.5px]" style="color:var(--text-muted)">No property has active tenants to bill yet.</p>
         </div>
-        <form action="actions/financial_actions.php" method="POST" class="space-y-6">
-            <input type="hidden" name="action" value="generate_invoice">
-            <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Select Tenant</label>
-                <select name="tenant_id" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                    <option value="">Select Tenant...</option>
-                    <?php foreach ($tenants as $t): ?>
-                        <option value="<?php echo $t['id']; ?>"><?php echo htmlspecialchars((string)$t['full_name']); ?> (<?php echo htmlspecialchars((string)$t['unit_number']); ?>)</option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="grid grid-cols-2 gap-6">
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Invoice Amount (KSh)</label>
-                    <input type="number" name="amount" required class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
+        <?php else: ?>
+        <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+            <?php foreach ($runProperties as $rp):
+                $rprog = billingRunProgress($pdo, (string)$rp['id'], $runPeriod);
+                $rpct  = $rprog['total'] ? round($rprog['billed'] / $rprog['total'] * 100) : 0;
+                $rdone = $rprog['remaining'] === 0;
+            ?>
+            <a href="billing_run.php?property_id=<?php echo urlencode((string)$rp['id']); ?>&i=0"
+               class="flex items-center gap-3 px-4 py-3 transition-colors"
+               style="border-bottom:1px solid var(--border);"
+               onmouseover="this.style.background='var(--surface-hover)'"
+               onmouseout="this.style.background='transparent'">
+                <div class="flex-1 min-w-0">
+                    <p class="text-[13px] font-medium truncate" style="color:var(--text)"><?php echo htmlspecialchars((string)$rp['title']); ?></p>
+                    <p class="text-[11px] truncate" style="color:var(--text-subtle)">
+                        <?php echo htmlspecialchars((string)$rp['location']); ?>
+                        &middot; water <?php echo $currency; ?> <?php echo number_format((float)$rp['water_rate'], 2); ?>/unit
+                        &middot; garbage <?php echo $currency; ?> <?php echo number_format((float)$rp['garbage_fee'], 2); ?>
+                    </p>
+                    <div class="progress mt-1.5" style="max-width:180px;">
+                        <div class="progress-fill" style="width:<?php echo $rpct; ?>%"></div>
+                    </div>
                 </div>
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Invoice Type</label>
-                    <select name="invoice_type" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-                        <option selected>Water</option>
-                        <option>Rent</option>
-                        <option>Garbage</option>
-                        <option>Service Charge</option>
-                        <option>Penalty</option>
-                        <option>Other</option>
+                <div class="text-right shrink-0">
+                    <span class="badge <?php echo $rdone ? 'badge-green' : 'badge-orange'; ?>">
+                        <?php echo $rprog['billed']; ?>/<?php echo $rprog['total']; ?> billed
+                    </span>
+                    <p class="text-[10.5px] mt-1" style="color:var(--text-subtle)">
+                        <?php echo $rdone ? 'Done for ' . date('M') : $rprog['remaining'] . ' to go'; ?>
+                    </p>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0" style="color:var(--text-subtle)"><path d="m9 18 6-6-6-6"/></svg>
+            </a>
+            <?php endforeach; ?>
+        </div>
+        <p class="text-[11px] mt-2 px-1" style="color:var(--text-subtle)">
+            Each tenant's arrears and last water reading are shown as you go, and charges are raised as one combined invoice.
+        </p>
+        <?php endif; ?>
+
+        <!-- ── One-off charge ─────────────────────────────────────── -->
+        <div class="mt-5 pt-4" style="border-top:1px solid var(--border);">
+            <button type="button" onclick="toggleSingleInvoice()" id="singleInvToggle"
+                    class="flex items-center gap-2 text-[12.5px] font-medium" style="color:var(--text-muted)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="singleInvCaret" style="transition:transform .15s"><path d="m9 18 6-6-6-6"/></svg>
+                Raise a single charge for one tenant instead
+            </button>
+
+            <form action="actions/financial_actions.php" method="POST" class="space-y-4 mt-4 hidden" id="singleInvForm">
+                <input type="hidden" name="action" value="generate_invoice">
+                <div class="space-y-1.5">
+                    <label class="text-[12px] font-medium" style="color:var(--text-muted)">Tenant</label>
+                    <select name="tenant_id" required class="form-input">
+                        <option value="">Select tenant…</option>
+                        <?php foreach ($tenants as $t): ?>
+                            <option value="<?php echo $t['id']; ?>"><?php echo htmlspecialchars((string)$t['full_name']); ?> (<?php echo htmlspecialchars((string)$t['unit_number']); ?>)</option>
+                        <?php endforeach; ?>
                     </select>
                 </div>
-            </div>
-            <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Payment Due Date</label>
-                <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+7 days')); ?>" class="w-full px-5 py-4 bg-slate-100 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-accent-green/20 transition-all outline-none">
-            </div>
-            <button type="submit" class="btn-primary w-full justify-center py-4">Generate & Send Invoice</button>
-        </form>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[12px] font-medium" style="color:var(--text-muted)">Amount (<?php echo htmlspecialchars($currency); ?>)</label>
+                        <input type="number" name="amount" step="0.01" min="0" required class="form-input text-right tabular">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[12px] font-medium" style="color:var(--text-muted)">Charge</label>
+                        <select name="invoice_type" class="form-input">
+                            <option>Penalty</option>
+                            <option>Water</option>
+                            <option>Rent</option>
+                            <option>Garbage</option>
+                            <option>Service Charge</option>
+                            <option>Deposit</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[12px] font-medium" style="color:var(--text-muted)">Due date</label>
+                    <input type="date" name="due_date" value="<?php echo date('Y-m-d', strtotime('+' . max(1, (int)getSetting($pdo, 'invoice_due_days', '7')) . ' days')); ?>" class="form-input">
+                </div>
+                <button type="submit" class="btn-primary w-full justify-center" style="padding:10px;">Raise invoice</button>
+            </form>
+        </div>
     </div>
 </div>
+
+<script>
+function toggleSingleInvoice() {
+    var form  = document.getElementById('singleInvForm');
+    var caret = document.getElementById('singleInvCaret');
+    var open  = form.classList.toggle('hidden') === false;
+    caret.style.transform = open ? 'rotate(90deg)' : '';
+}
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

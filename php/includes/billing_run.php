@@ -241,18 +241,45 @@ function billedChargesThisPeriod(PDO $pdo, string $tenantId, string $period): ar
  * How far a run has got: how many tenants on the property already have
  * invoices for the period.
  *
+ * Answered in one aggregate rather than a query per tenant — this is rendered
+ * for every property in the invoice launcher, so an N+1 here is felt on a page
+ * that is not even about billing.
+ *
  * @return array{billed:int, total:int, remaining:int}
  */
 function billingRunProgress(PDO $pdo, string $propertyId, string $period): array {
-    $tenants = billingRunTenants($pdo, $propertyId);
-    $billed  = 0;
-    foreach ($tenants as $t) {
-        if (billedChargesThisPeriod($pdo, (string)$t['tenant_id'], $period)) $billed++;
+    [$from, $until] = periodBounds($period);
+
+    $types  = BILLING_RUN_CHARGES;
+    $slots  = implode(',', array_fill(0, count($types), '?'));
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(DISTINCT l.tenant_id) AS total,
+                   COUNT(DISTINCT CASE WHEN i.id IS NOT NULL THEN l.tenant_id END) AS billed
+            FROM leases l
+            JOIN units   u ON l.unit_id   = u.id
+            JOIN tenants t ON l.tenant_id = t.id
+            LEFT JOIN invoices i
+                   ON i.tenant_id = l.tenant_id
+                  AND i.created_at >= ? AND i.created_at < ?
+                  AND i.status <> 'Cancelled'
+                  AND i.invoice_type IN ({$slots})
+            WHERE u.property_id = ? AND l.status = 'Active' AND t.status = 'Active'
+        ");
+        $stmt->execute(array_merge([$from, $until], $types, [$propertyId]));
+        $row = $stmt->fetch() ?: ['total' => 0, 'billed' => 0];
+
+        $total  = (int)$row['total'];
+        $billed = (int)$row['billed'];
+    } catch (PDOException $e) {
+        $total = $billed = 0;
     }
+
     return [
         'billed'    => $billed,
-        'total'     => count($tenants),
-        'remaining' => max(0, count($tenants) - $billed),
+        'total'     => $total,
+        'remaining' => max(0, $total - $billed),
     ];
 }
 
