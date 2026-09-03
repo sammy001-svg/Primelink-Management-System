@@ -62,8 +62,10 @@ foreach ([
 require_once __DIR__ . '/includes/corrections.php';
 require_once __DIR__ . '/includes/tenant_notify.php';
 require_once __DIR__ . '/includes/bank_accounts.php';
+require_once __DIR__ . '/includes/payment_alloc.php';
 ensureCorrectionSchema($pdo);
 ensureBankAccountSchema($pdo);
+ensurePaymentAllocSchema($pdo);
 
 // ── Invoices ─────────────────────────────────────────────────────
 $stmt = $pdo->prepare("
@@ -137,9 +139,16 @@ for ($i = 5; $i >= 0; $i--) {
     $trendValues[] = $_trendRaw[date('Y-m', strtotime("-$i months"))] ?? 0;
 }
 
+// ── Receipts: payments grouped so a split payment reads as one document ──
+$receipts           = tenantReceipts($pdo, $tenantId);
+$receiptPaid        = tenantPaidTotal($pdo, $tenantId);
+$receiptOutstanding = tenantOutstandingTotal($pdo, $tenantId);
+$bankLookupTd       = [];
+foreach (getBankAccounts($pdo, false) as $_b) { $bankLookupTd[$_b['id']] = $_b; }
+
 // ── Active tab ────────────────────────────────────────────────────
 $activeTab = $_GET['tab'] ?? 'overview';
-$validTabs = ['overview', 'leases', 'invoices', 'statement', 'maintenance', 'documents', 'profile', 'security'];
+$validTabs = ['overview', 'leases', 'invoices', 'receipts', 'statement', 'maintenance', 'documents', 'profile', 'security'];
 if (!in_array($activeTab, $validTabs)) $activeTab = 'overview';
 
 $isActive = ($tenant['status'] ?? 'Active') === 'Active';
@@ -218,6 +227,8 @@ include __DIR__ . '/includes/sidebar.php';
                               '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>'],
             'invoices'    => ['Invoices' . ($invoiceSummary['overdue'] > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded text-[8px]">' . $invoiceSummary['overdue'] . '</span>' : ''),
                               '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'],
+            'receipts'    => ['Receipts' . (count($receipts) > 0 ? ' <span class="ml-1 px-1.5 py-0.5 bg-slate-400 dark:bg-slate-700 text-white dark:text-slate-300 rounded text-[8px]">' . count($receipts) . '</span>' : ''),
+                              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>'],
             'statement'   => ['Statement',    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'],
             'maintenance' => ['Maintenance' . (!empty($maintenanceRequests) ? ' <span class="ml-1 px-1.5 py-0.5 bg-slate-400 dark:bg-slate-700 text-white dark:text-slate-300 rounded text-[8px]">' . count($maintenanceRequests) . '</span>' : ''),
                               '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'],
@@ -726,6 +737,101 @@ include __DIR__ . '/includes/sidebar.php';
     <!-- ══════════════════════════════════════════════════════
          TAB: STATEMENT
     ══════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════ RECEIPTS ═══════════════════ -->
+    <div id="content-receipts" class="tab-content <?php echo $activeTab !== 'receipts' ? 'hidden' : ''; ?>">
+        <div class="glass-card p-5 mb-4">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div>
+                    <p class="kpi-label">Receipts issued</p>
+                    <p class="kpi-value mt-0.5"><?php echo count($receipts); ?></p>
+                </div>
+                <div>
+                    <p class="kpi-label">Total received</p>
+                    <p class="kpi-value mt-0.5" style="color:var(--positive)"><?php echo $currency; ?> <?php echo number_format($receiptPaid, 2); ?></p>
+                </div>
+                <div>
+                    <p class="kpi-label">Balance outstanding</p>
+                    <p class="kpi-value mt-0.5" style="color:<?php echo $receiptOutstanding > 0 ? 'var(--danger)' : 'var(--positive)'; ?>">
+                        <?php echo $currency; ?> <?php echo number_format($receiptOutstanding, 2); ?>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <?php if (empty($receipts)): ?>
+        <div class="glass-card py-16 text-center">
+            <p class="text-sm" style="color:var(--text-muted)">No payments recorded for this tenant yet.</p>
+        </div>
+        <?php else: ?>
+        <div class="glass-card overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Receipt</th>
+                            <th>Date</th>
+                            <th>Paid for</th>
+                            <th class="text-right">Amount</th>
+                            <th>Method</th>
+                            <th class="text-right">Print</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($receipts as $rc):
+                        $rcNo   = docNumber(DOC_RECEIPT, $rc['id'], (int)$rc['revision_no']);
+                        $bank   = $bankLookupTd[$rc['bank_account_id']] ?? null;
+                        $isPaid = ($rc['status'] ?? '') === 'Paid';
+                    ?>
+                    <tr>
+                        <td>
+                            <p class="text-[12.5px] font-medium" style="color:var(--text)"><?php echo htmlspecialchars($rcNo); ?></p>
+                            <?php if ((int)$rc['revision_no'] > 0): ?>
+                            <div class="mt-1"><?php echo correctedBadge((int)$rc['revision_no']); ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($rc['reference'])): ?>
+                            <p class="text-[10.5px]" style="color:var(--text-subtle)">Ref <?php echo htmlspecialchars((string)$rc['reference']); ?></p>
+                            <?php endif; ?>
+                        </td>
+                        <td class="whitespace-nowrap"><?php echo date('d M Y', strtotime((string)$rc['date'])); ?></td>
+                        <td>
+                            <?php foreach ($rc['lines'] as $ln): ?>
+                            <div class="text-[12px]" style="color:var(--text-muted)">
+                                <?php echo htmlspecialchars((string)$ln['type']); ?>
+                                <span class="tabular" style="color:var(--text)"><?php echo $currency; ?> <?php echo number_format((float)$ln['amount'], 2); ?></span>
+                            </div>
+                            <?php endforeach; ?>
+                        </td>
+                        <td class="text-right">
+                            <span class="text-[13px] font-medium tabular" style="color:var(--text)">
+                                <?php echo $currency; ?> <?php echo number_format((float)$rc['total'], 2); ?>
+                            </span>
+                            <?php if (!$isPaid): ?>
+                            <div class="mt-1"><span class="badge badge-orange"><?php echo htmlspecialchars((string)$rc['status']); ?></span></div>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <p class="text-[12px]" style="color:var(--text-muted)"><?php echo htmlspecialchars((string)$rc['method'] ?: '—'); ?></p>
+                            <?php if ($bank): ?>
+                            <div class="mt-1"><?php echo bankAccountBadge($bank); ?></div>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-right whitespace-nowrap">
+                            <a href="view_receipt.php?id=<?php echo urlencode((string)$rc['id']); ?>" target="_blank"
+                               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium uppercase tracking-wide transition-all"
+                               style="background:var(--surface-hover);color:var(--text-muted);">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+                                Print
+                            </a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+
     <div id="content-statement" class="tab-content <?php echo $activeTab !== 'statement' ? 'hidden' : ''; ?>">
         <?php
         $stmtPeriod   = $_GET['stmt_period'] ?? 'all';

@@ -69,6 +69,7 @@ $revision    = (int)($txn['revision_no'] ?? 0);
 $bankAccount = getBankAccount($pdo, $txn['bank_account_id'] ?? null);
 $allocLines  = paymentGroupLines($pdo, $txn['payment_group'] ?? null);
 $allocTotal  = paymentGroupTotal($allocLines);
+$balanceOwing = tenantOutstandingTotal($pdo, $txn['tenant_id'] ?? null);
 $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
 ?>
 <!DOCTYPE html>
@@ -182,6 +183,13 @@ $docNo    = docNumber(DOC_RECEIPT, $txn['id'], $revision);
                 <div class="text-right">
                     <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Amount Paid</p>
                     <h2 class="text-4xl font-black text-slate-900">KSh <?php echo number_format($allocLines ? $allocTotal : (float)$txn['amount'], 2); ?></h2>
+                    <p class="text-[10px] text-slate-400 mt-2">
+                        Balance outstanding:
+                        <span class="font-semibold" style="color:<?php echo $balanceOwing > 0 ? '#b91c1c' : '#15803d'; ?>">
+                            KSh <?php echo number_format($balanceOwing, 2); ?>
+                        </span>
+                        <span class="block">as at <?php echo date('d M Y'); ?></span>
+                    </p>
                 </div>
             </div>
 

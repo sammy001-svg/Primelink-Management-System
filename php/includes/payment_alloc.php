@@ -228,3 +228,99 @@ function summariseAllocation(array $lines, string $currency = 'KSh'): string {
     }
     return implode(' · ', $parts);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RECEIPTS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * A tenant's payments as receipts, newest first.
+ *
+ * Postings that share a payment_group are one receipt with several lines, so a
+ * tenant who paid rent, water and garbage together sees one document rather
+ * than three. Ungrouped postings stand alone.
+ *
+ * @return array<int, array> each: id, date, method, reference, total,
+ *                           lines[], group_id, bank_account_id, status
+ */
+function tenantReceipts(PDO $pdo, string $tenantId, int $limit = 200): array {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id, amount, transaction_type, status, payment_method,
+                   reference_number, reference_code, description,
+                   transaction_date, payment_group, bank_account_id,
+                   revision_no, created_at
+            FROM transactions
+            WHERE tenant_id = ?
+            ORDER BY transaction_date DESC, created_at DESC
+            LIMIT {$limit}
+        ");
+        $stmt->execute([$tenantId]);
+        $rows = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        return [];
+    }
+
+    $receipts = [];
+    $byGroup  = [];
+
+    foreach ($rows as $r) {
+        $line = [
+            'type'   => (string)($r['transaction_type'] ?? 'Payment'),
+            'amount' => (float)$r['amount'],
+        ];
+
+        $group = trim((string)($r['payment_group'] ?? ''));
+
+        if ($group !== '' && isset($byGroup[$group])) {
+            // Another line on a receipt we have already started
+            $idx = $byGroup[$group];
+            $receipts[$idx]['lines'][] = $line;
+            $receipts[$idx]['total']   = round($receipts[$idx]['total'] + $line['amount'], 2);
+            continue;
+        }
+
+        $receipt = [
+            'id'              => (string)$r['id'],
+            'group_id'        => $group ?: null,
+            'date'            => (string)($r['transaction_date'] ?: $r['created_at']),
+            'method'          => (string)($r['payment_method'] ?? ''),
+            'reference'       => (string)($r['reference_number'] ?: ($r['reference_code'] ?? '')),
+            'description'     => (string)($r['description'] ?? ''),
+            'status'          => (string)($r['status'] ?? ''),
+            'bank_account_id' => (string)($r['bank_account_id'] ?? ''),
+            'revision_no'     => (int)($r['revision_no'] ?? 0),
+            'total'           => round((float)$r['amount'], 2),
+            'lines'           => [$line],
+        ];
+
+        $receipts[] = $receipt;
+        if ($group !== '') $byGroup[$group] = count($receipts) - 1;
+    }
+
+    return $receipts;
+}
+
+/**
+ * What a tenant still owes across every unsettled invoice.
+ * Printed on a receipt so the tenant leaves knowing where they stand.
+ */
+function tenantOutstandingTotal(PDO $pdo, ?string $tenantId): float {
+    if (!$tenantId) return 0.0;
+    $total = 0.0;
+    foreach (outstandingByTenant($pdo, $tenantId)[$tenantId] ?? [] as $line) {
+        $total += (float)$line['balance'];
+    }
+    return round($total, 2);
+}
+
+/** Total actually received from a tenant (confirmed payments only). */
+function tenantPaidTotal(PDO $pdo, string $tenantId): float {
+    try {
+        $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE tenant_id = ? AND status = 'Paid'");
+        $stmt->execute([$tenantId]);
+        return round((float)$stmt->fetchColumn(), 2);
+    } catch (PDOException $e) {
+        return 0.0;
+    }
+}

@@ -47,6 +47,9 @@ $bankAccount = getBankAccount($pdo, $payment['bank_account_id'] ?? null);
 $allocLines = paymentGroupLines($pdo, $payment['payment_group'] ?? null);
 $allocTotal = paymentGroupTotal($allocLines);
 
+// What the tenant still owes, so they leave knowing where they stand
+$balanceOwing = tenantOutstandingTotal($pdo, $payment['tenant_id'] ?? null);
+
 $flashSuccess = $_GET['success'] ?? '';
 $flashError   = $_GET['error']   ?? '';
 $flashInfo    = $_GET['info']    ?? '';
@@ -192,6 +195,22 @@ $currency    = getSetting($pdo, 'currency_symbol', 'KSh');
             <h2 class="text-4xl font-black"><?php echo $currency; ?> <?php echo number_format($allocLines ? $allocTotal : (float)$payment['amount'], 2); ?></h2>
             <?php if ($allocLines): ?>
             <p class="text-[10px] opacity-60 mt-2">Covering <?php echo count($allocLines); ?> charges &mdash; see breakdown above</p>
+            <?php endif; ?>
+        </div>
+
+        <!-- Where the account stands after this payment -->
+        <div class="mt-4 rounded-2xl overflow-hidden relative z-[2]" style="border:1px solid #e4e7ec;">
+            <div class="flex items-center justify-between px-5 py-3" style="background:#f8fafc;">
+                <div>
+                    <p class="text-[11px] font-semibold text-slate-600">Total balance outstanding</p>
+                    <p class="text-[10px] text-slate-400">Across all unpaid invoices as at <?php echo date('d M Y'); ?></p>
+                </div>
+                <p class="text-lg font-semibold tabular" style="color:<?php echo $balanceOwing > 0 ? '#b91c1c' : '#15803d'; ?>">
+                    <?php echo $currency; ?> <?php echo number_format($balanceOwing, 2); ?>
+                </p>
+            </div>
+            <?php if ($balanceOwing <= 0.009): ?>
+            <p class="px-5 py-2 text-[11px] text-slate-500" style="border-top:1px solid #f1f5f9;">Account settled in full &mdash; thank you.</p>
             <?php endif; ?>
         </div>
 
