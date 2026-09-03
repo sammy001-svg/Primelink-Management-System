@@ -1,9 +1,11 @@
 <?php
 /**
- * Billing Run Actions
+ * Billing Run API
  * Primelink Management System
  *
- * Bills one tenant, then advances the run to the next unit on the property.
+ * Drives the billing run inside the Generate Invoices dialog. Everything is
+ * JSON so the dialog never has to close: pick a property, walk the tenants,
+ * bill each one, all without a page load.
  */
 
 require_once __DIR__ . '/../includes/auth.php';
@@ -19,45 +21,54 @@ require_once __DIR__ . '/../includes/tenant_notify.php';
 ensureCorrectionSchema($pdo);
 ensureBillingRunSchema($pdo);
 
-$currency = getSetting($pdo, 'currency_symbol', 'KSh');
-$action   = $_POST['action'] ?? '';
+header('Content-Type: application/json');
 
-/** Back to the run, positioned on a given tenant index. */
-function runBack(string $propertyId, int $index, array $extra = []): void {
-    $q = ['property_id' => $propertyId, 'i' => max(0, $index)] + $extra;
-    header('Location: ../billing_run.php?' . http_build_query($q));
+$currency = getSetting($pdo, 'currency_symbol', 'KSh');
+$action   = $_REQUEST['action'] ?? '';
+
+function jsonOut(array $payload, int $status = 200): void {
+    http_response_code($status);
+    echo json_encode($payload);
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ../billing_run.php');
-    exit;
+/* ═══════════════════════════════════════════════════════════════════════
+   LOAD A RUN
+   ═══════════════════════════════════════════════════════════════════════ */
+if ($action === 'run') {
+    $propertyId = trim($_GET['property_id'] ?? '');
+    if (!$propertyId) jsonOut(['ok' => false, 'error' => 'No property given.'], 400);
+
+    $payload = billingRunPayload($pdo, $propertyId, date('Y-m'));
+    if (!($payload['ok'] ?? false)) jsonOut($payload, 404);
+
+    $payload['currency'] = $currency;
+    $payload['due_date'] = date('Y-m-d', strtotime('+' . max(1, (int)getSetting($pdo, 'invoice_due_days', '7')) . ' days'));
+    jsonOut($payload);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
    BILL ONE TENANT
    ═══════════════════════════════════════════════════════════════════════ */
-if ($action === 'bill_tenant') {
-    requirePermission($pdo, 'invoices', 'create');
-
-    $propertyId = trim($_POST['property_id'] ?? '');
-    $tenantId   = trim($_POST['tenant_id']   ?? '');
-    $leaseId    = trim($_POST['lease_id']    ?? '') ?: null;
-    $unitId     = trim($_POST['unit_id']     ?? '') ?: null;
-    $index      = (int)($_POST['index']      ?? 0);
-    $dueDate    = trim($_POST['due_date']    ?? '') ?: date('Y-m-d', strtotime('+7 days'));
-    $note       = trim($_POST['description'] ?? '');
-    $notifyMail = !empty($_POST['notify_email']);
-    $notifySms  = !empty($_POST['notify_sms']);
-
-    if (!$propertyId || !$tenantId) {
-        runBack($propertyId, $index, ['error' => 'Missing tenant or property.']);
+if ($action === 'bill') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        jsonOut(['ok' => false, 'error' => 'Billing must be posted.'], 405);
     }
+    if (!canDo($pdo, 'invoices', 'create')) {
+        jsonOut(['ok' => false, 'error' => 'You do not have permission to raise invoices.'], 403);
+    }
+
+    $tenantId = trim($_POST['tenant_id'] ?? '');
+    $leaseId  = trim($_POST['lease_id']  ?? '') ?: null;
+    $unitId   = trim($_POST['unit_id']   ?? '') ?: null;
+    $dueDate  = trim($_POST['due_date']  ?? '') ?: date('Y-m-d', strtotime('+7 days'));
+    $note     = trim($_POST['description'] ?? '');
+
+    if (!$tenantId) jsonOut(['ok' => false, 'error' => 'No tenant given.'], 400);
 
     $rent    = round((float)($_POST['charge_rent']    ?? 0), 2);
     $garbage = round((float)($_POST['charge_garbage'] ?? 0), 2);
 
-    // Water is entered either as meter readings or as a flat amount
     $waterMode = ($_POST['water_mode'] ?? 'meter') === 'amount' ? 'amount' : 'meter';
     $prevRead  = round((float)($_POST['water_previous'] ?? 0), 2);
     $currRead  = round((float)($_POST['water_current']  ?? 0), 2);
@@ -67,27 +78,25 @@ if ($action === 'bill_tenant') {
         $water = round((float)($_POST['charge_water'] ?? 0), 2);
         $consumption = 0.0;
     } else {
-        $calc  = waterCharge($prevRead, $currRead, $waterRate);
+        $calc = waterCharge($prevRead, $currRead, $waterRate);
         $water = $calc['amount'];
         $consumption = $calc['consumption'];
     }
 
     foreach (['Rent' => $rent, 'Water' => $water, 'Garbage' => $garbage] as $label => $amt) {
-        if ($amt < 0) runBack($propertyId, $index, ['error' => $label . ' cannot be negative.']);
+        if ($amt < 0) jsonOut(['ok' => false, 'error' => $label . ' cannot be negative.'], 422);
     }
 
     $charges = array_filter(
         ['Rent' => $rent, 'Water' => $water, 'Garbage' => $garbage],
         fn($a) => $a > 0.009
     );
-
     if (!$charges) {
-        runBack($propertyId, $index, ['error' => 'Nothing to bill — every charge was zero.']);
+        jsonOut(['ok' => false, 'error' => 'Nothing to bill — every charge was zero.'], 422);
     }
 
-    $batchId  = generateUUID();
-    $total    = round(array_sum($charges), 2);
-    $firstInv = null;
+    $batchId = generateUUID();
+    $total   = round(array_sum($charges), 2);
 
     try {
         $pdo->beginTransaction();
@@ -100,8 +109,7 @@ if ($action === 'bill_tenant') {
 
         $waterInvoiceId = null;
         foreach ($charges as $type => $amount) {
-            $invId    = generateUUID();
-            $firstInv = $firstInv ?: $invId;
+            $invId = generateUUID();
 
             $lineNote = $note;
             if ($type === 'Water' && $waterMode === 'meter') {
@@ -123,7 +131,6 @@ if ($action === 'bill_tenant') {
             ]);
         }
 
-        // Keep the reading so next month's consumption can be measured from it
         if ($waterMode === 'meter' && isset($charges['Water'])) {
             $pdo->prepare("
                 INSERT INTO meter_readings
@@ -140,12 +147,12 @@ if ($action === 'bill_tenant') {
         $pdo->commit();
     } catch (PDOException $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        runBack($propertyId, $index, ['error' => 'Could not raise the invoice: ' . $e->getMessage()]);
+        jsonOut(['ok' => false, 'error' => 'Could not raise the invoice: ' . $e->getMessage()], 500);
     }
 
     // ── Tell the tenant ───────────────────────────────────────────────
     $noticeSummary = '';
-    if ($notifyMail || $notifySms) {
+    if (!empty($_POST['notify_email']) || !empty($_POST['notify_sms'])) {
         $tRow = $pdo->prepare("
             SELECT t.id, t.full_name, t.email, t.phone, t.user_id, u.unit_number
             FROM tenants t
@@ -154,24 +161,22 @@ if ($action === 'bill_tenant') {
             WHERE t.id = ? LIMIT 1
         ");
         $tRow->execute([$tenantId]);
-        $tenant = $tRow->fetch();
-
-        if ($tenant) {
+        if ($tenant = $tRow->fetch()) {
             $items = [];
             foreach ($charges as $type => $amount) {
                 $items[] = ['invoice_type' => $type, 'amount' => $amount];
             }
-            $notice = buildBundleNotice($pdo, $tenant, [
-                'batch_id'    => $batchId,
-                'items'       => $items,
-                'total'       => $total,
-                'due_date'    => $dueDate,
-                'description' => $note,
-                'unit_number' => $tenant['unit_number'] ?? '',
-            ]);
             $res = dispatchTenantNotice(
-                $pdo, $tenant, $notice,
-                ['email' => $notifyMail, 'sms' => $notifySms],
+                $pdo, $tenant,
+                buildBundleNotice($pdo, $tenant, [
+                    'batch_id'    => $batchId,
+                    'items'       => $items,
+                    'total'       => $total,
+                    'due_date'    => $dueDate,
+                    'description' => $note,
+                    'unit_number' => $tenant['unit_number'] ?? '',
+                ]),
+                ['email' => !empty($_POST['notify_email']), 'sms' => !empty($_POST['notify_sms'])],
                 'billing_run'
             );
             $noticeSummary = summariseNotices([$res]);
@@ -187,20 +192,13 @@ if ($action === 'bill_tenant') {
         . ' | Due ' . $dueDate
         . ($noticeSummary ? ' | Notice: ' . $noticeSummary : ''));
 
-    runBack($propertyId, $index + 1, [
-        'billed' => $total,
-        'batch'  => $batchId,
-    ] + ($noticeSummary ? ['notice' => $noticeSummary] : []));
+    jsonOut([
+        'ok'       => true,
+        'total'    => $total,
+        'batch_id' => $batchId,
+        'charges'  => $charges,
+        'notice'   => $noticeSummary,
+    ]);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   SKIP — move on without billing
-   ═══════════════════════════════════════════════════════════════════════ */
-if ($action === 'skip_tenant') {
-    $propertyId = trim($_POST['property_id'] ?? '');
-    $index      = (int)($_POST['index'] ?? 0);
-    runBack($propertyId, $index + 1, ['skipped' => 1]);
-}
-
-header('Location: ../billing_run.php');
-exit;
+jsonOut(['ok' => false, 'error' => 'Unknown action.'], 400);

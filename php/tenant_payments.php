@@ -695,6 +695,7 @@ function onPayTenantChange(id) {
         <button onclick="closeModal('newInvoiceModal')" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 transition-colors">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
+        <div id="runLauncher">
         <h2 class="text-lg font-semibold mb-1" style="color:var(--text)">Generate Invoices</h2>
         <p class="text-[12.5px] mb-5" style="color:var(--text-muted)">
             Bill a whole property unit by unit, or raise a single charge for one tenant.
@@ -713,9 +714,9 @@ function onPayTenantChange(id) {
                 $rpct  = $rprog['total'] ? round($rprog['billed'] / $rprog['total'] * 100) : 0;
                 $rdone = $rprog['remaining'] === 0;
             ?>
-            <a href="billing_run.php?property_id=<?php echo urlencode((string)$rp['id']); ?>&i=0"
-               class="flex items-center gap-3 px-4 py-3 transition-colors"
-               style="border-bottom:1px solid var(--border);"
+            <button type="button" onclick="runStart('<?php echo htmlspecialchars((string)$rp['id'], ENT_QUOTES); ?>')"
+               class="w-full text-left flex items-center gap-3 px-4 py-3 transition-colors"
+               style="border-bottom:1px solid var(--border);background:transparent;border-left:none;border-right:none;border-top:none;cursor:pointer;"
                onmouseover="this.style.background='var(--surface-hover)'"
                onmouseout="this.style.background='transparent'">
                 <div class="flex-1 min-w-0">
@@ -738,7 +739,7 @@ function onPayTenantChange(id) {
                     </p>
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0" style="color:var(--text-subtle)"><path d="m9 18 6-6-6-6"/></svg>
-            </a>
+            </button>
             <?php endforeach; ?>
         </div>
         <p class="text-[11px] mt-2 px-1" style="color:var(--text-subtle)">
@@ -790,10 +791,356 @@ function onPayTenantChange(id) {
                 <button type="submit" class="btn-primary w-full justify-center" style="padding:10px;">Raise invoice</button>
             </form>
         </div>
+        </div><!-- /runLauncher -->
+
+        <!-- ── The run itself, rendered in place ─────────────────── -->
+        <div id="runStage" class="hidden"></div>
     </div>
 </div>
 
 <script>
+/* ══════════════════════════════════════════════════════════════════════
+   BILLING RUN — inside the dialog
+   Walking a block is one continuous task, so it happens here rather than
+   on a separate page. The dialog stays open from the first unit to the last.
+   ══════════════════════════════════════════════════════════════════════ */
+(function () {
+  var stage    = document.getElementById('runStage');
+  var launcher = document.getElementById('runLauncher');
+  if (!stage) return;
+
+  var run = null;    // { property, tenants[], due_date, currency }
+  var at  = 0;       // index of the tenant on screen
+  var billedTotal = 0, billedCount = 0;
+
+  function esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function money(v) {
+    return (run ? run.currency : 'KSh') + ' ' + (parseFloat(v) || 0)
+      .toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function num(v) { return parseFloat(v) || 0; }
+
+  function show(html) {
+    launcher.classList.add('hidden');
+    stage.classList.remove('hidden');
+    stage.innerHTML = html;
+  }
+
+  window.runExit = function () {
+    stage.classList.add('hidden');
+    stage.innerHTML = '';
+    launcher.classList.remove('hidden');
+    // Progress badges are now stale; refresh them next time the page loads
+    if (billedCount > 0) window.__runDirty = true;
+  };
+
+  window.runStart = function (propertyId) {
+    show('<div class="py-10 text-center text-[12.5px]" style="color:var(--text-muted)">Loading tenants…</div>');
+
+    fetch('actions/billing_run_api.php?action=run&property_id=' + encodeURIComponent(propertyId))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { show(errorCard(data.error || 'Could not load that property.')); return; }
+        run = data; at = 0; billedTotal = 0; billedCount = 0;
+        render();
+      })
+      .catch(function () { show(errorCard('Could not reach the server.')); });
+  };
+
+  function errorCard(msg) {
+    return '<div class="py-8 text-center">' +
+             '<p class="text-[13px] mb-4" style="color:var(--danger)">' + esc(msg) + '</p>' +
+             '<button type="button" class="btn-ghost" onclick="runExit()">Back to properties</button>' +
+           '</div>';
+  }
+
+  function render() {
+    if (!run) return;
+    if (at >= run.tenants.length) { renderDone(); return; }
+
+    var t    = run.tenants[at];
+    var a    = t.arrears || {};
+    var pct  = Math.round((at / run.tenants.length) * 100);
+    var rate = run.property.water_rate;
+
+    var already = (t.already && t.already.length)
+      ? '<p class="text-[11.5px] mt-3 pt-3" style="border-top:1px solid var(--border);color:var(--warning)">' +
+          'Already invoiced this month for <strong>' + esc(t.already.join(', ')) + '</strong>. ' +
+          'Billing again raises a second invoice.</p>'
+      : '';
+
+    show(
+      // ── Header ──
+      '<div class="flex items-start justify-between gap-3 mb-1">' +
+        '<div class="min-w-0">' +
+          '<h2 class="text-lg font-semibold" style="color:var(--text)">' + esc(run.property.title) + '</h2>' +
+          '<p class="text-[12px]" style="color:var(--text-muted)">' +
+            'water ' + money(rate) + '/unit · garbage ' + money(run.property.garbage_fee) +
+          '</p>' +
+        '</div>' +
+        '<button type="button" class="btn-ghost shrink-0" style="padding:4px 10px;font-size:11.5px;" onclick="runExit()">Close run</button>' +
+      '</div>' +
+
+      '<div class="flex items-center gap-3 mb-4">' +
+        '<div class="progress flex-1"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<span class="text-[11.5px] shrink-0" style="color:var(--text-muted)">Tenant ' + (at + 1) + ' of ' + run.tenants.length + '</span>' +
+      '</div>' +
+
+      // ── Who ──
+      '<div class="rounded-xl px-4 py-3 mb-3" style="border:1px solid var(--border);">' +
+        '<div class="flex items-start justify-between gap-3 flex-wrap">' +
+          '<div class="min-w-0">' +
+            '<p class="text-[14px] font-semibold truncate" style="color:var(--text)">' + esc(t.name) + '</p>' +
+            '<p class="text-[11.5px]" style="color:var(--text-muted)">Unit ' + esc(t.unit_number) +
+              (t.water_meter ? ' · meter ' + esc(t.water_meter) : '') +
+              (t.phone ? ' · ' + esc(t.phone) : '') + '</p>' +
+          '</div>' +
+          '<div class="text-right shrink-0">' +
+            '<p class="text-[10.5px]" style="color:var(--text-subtle)">Owed before this bill</p>' +
+            '<p class="text-[15px] font-semibold tabular" style="color:' +
+              (num(a.total) > 0 ? 'var(--danger)' : 'var(--positive)') + '">' + money(a.total) + '</p>' +
+          '</div>' +
+        '</div>' + already +
+      '</div>' +
+
+      // ── Charges ──
+      '<div class="rounded-xl overflow-hidden mb-3" style="border:1px solid var(--border);">' +
+        '<div class="grid items-center gap-2 px-4 py-2" style="grid-template-columns:1fr 110px 130px;background:var(--surface-sunk);border-bottom:1px solid var(--border);">' +
+          '<span class="text-[11px]" style="color:var(--text-muted)">Charge</span>' +
+          '<span class="text-[11px] text-right" style="color:var(--text-muted)">Previous</span>' +
+          '<span class="text-[11px] text-right" style="color:var(--text-muted)">This month</span>' +
+        '</div>' +
+
+        chargeRow('Rent', a.Rent, 'runRent', t.monthly_rent,
+                  'Lease ' + money(t.monthly_rent)) +
+
+        // Water, with the meter underneath
+        '<div class="px-4 py-2.5" style="border-bottom:1px solid var(--border);">' +
+          '<div class="grid items-center gap-2" style="grid-template-columns:1fr 110px 130px;">' +
+            '<div><p class="text-[12.5px] font-medium" style="color:var(--text)">Water</p>' +
+              '<p class="text-[10.5px]" style="color:var(--text-subtle)">' + money(rate) + ' per unit</p></div>' +
+            prevCell(a.Water) +
+            '<input type="number" id="runWater" step="0.01" min="0" value="0.00" class="form-input text-right tabular" style="padding:5px 8px;font-size:12.5px;" oninput="runRecalc()">' +
+          '</div>' +
+          '<div class="grid gap-2 mt-2.5 pt-2.5" style="grid-template-columns:1fr 1fr 1fr;border-top:1px dashed var(--border);">' +
+            '<div><label class="text-[10.5px] block mb-1" style="color:var(--text-subtle)">Previous reading</label>' +
+              '<input type="number" id="runPrev" class="form-input tabular" readonly value="' + num(t.last_reading) + '" style="padding:5px 8px;font-size:12.5px;background:var(--surface-sunk);"></div>' +
+            '<div><label class="text-[10.5px] block mb-1" style="color:var(--text-subtle)">Current reading</label>' +
+              '<input type="number" id="runCurr" step="0.01" min="0" class="form-input tabular" placeholder="Reading" style="padding:5px 8px;font-size:12.5px;" oninput="runFromMeter()"></div>' +
+            '<div><label class="text-[10.5px] block mb-1" style="color:var(--text-subtle)">Units used</label>' +
+              '<input type="text" id="runUsed" class="form-input tabular" readonly value="—" style="padding:5px 8px;font-size:12.5px;background:var(--surface-sunk);"></div>' +
+          '</div>' +
+          '<p class="text-[11px] mt-2 hidden" id="runWaterWarn" style="color:var(--warning)"></p>' +
+          '<label class="flex items-center gap-2 mt-2 cursor-pointer select-none">' +
+            '<input type="checkbox" id="runFlat" onchange="runWaterMode(this.checked)" style="width:13px;height:13px;accent-color:var(--accent-green);cursor:pointer;">' +
+            '<span class="text-[11px]" style="color:var(--text-muted)">No meter — enter the amount directly</span>' +
+          '</label>' +
+        '</div>' +
+
+        chargeRow('Garbage', a.Garbage, 'runGarbage', run.property.garbage_fee,
+                  'Property fee ' + money(run.property.garbage_fee)) +
+
+        (num(a.Other) > 0
+          ? '<div class="grid items-center gap-2 px-4 py-2.5" style="grid-template-columns:1fr 110px 130px;border-bottom:1px solid var(--border);">' +
+              '<div><p class="text-[12.5px] font-medium" style="color:var(--text)">Other charges</p>' +
+                '<p class="text-[10.5px]" style="color:var(--text-subtle)">Not billed in this run</p></div>' +
+              prevCell(a.Other) +
+              '<p class="text-right text-[12.5px]" style="color:var(--text-subtle)">—</p>' +
+            '</div>'
+          : '') +
+
+        '<div class="grid items-center gap-2 px-4 py-2.5" style="grid-template-columns:1fr 110px 130px;background:var(--surface-sunk);">' +
+          '<span class="text-[12px] font-medium" style="color:var(--text)">Total</span>' +
+          '<span class="text-right text-[12px] tabular" style="color:var(--text-muted)">' + money(a.total) + '</span>' +
+          '<span class="text-right text-[14px] font-semibold tabular" id="runTotal" style="color:var(--text)">' + money(0) + '</span>' +
+        '</div>' +
+        '<div class="px-4 py-2 text-right" style="border-top:1px solid var(--border);">' +
+          '<span class="text-[11px]" style="color:var(--text-muted)">Owing after this bill</span>' +
+          '<span class="ml-2 text-[13px] font-semibold tabular" id="runAfter" style="color:var(--danger)"></span>' +
+        '</div>' +
+      '</div>' +
+
+      // ── Options ──
+      '<div class="grid grid-cols-2 gap-3 mb-3">' +
+        '<div><label class="text-[11.5px] block mb-1" style="color:var(--text-muted)">Due date</label>' +
+          '<input type="date" id="runDue" class="form-input" style="padding:6px 9px;font-size:12.5px;" value="' + esc(run.due_date) + '"></div>' +
+        '<div><label class="text-[11.5px] block mb-1" style="color:var(--text-muted)">Note (optional)</label>' +
+          '<input type="text" id="runNote" class="form-input" style="padding:6px 9px;font-size:12.5px;" placeholder="e.g. this month\'s charges"></div>' +
+      '</div>' +
+      '<label class="flex items-center gap-2 mb-1 cursor-pointer select-none">' +
+        '<input type="checkbox" id="runNotifyEmail" checked style="width:14px;height:14px;accent-color:var(--accent-green);cursor:pointer;">' +
+        '<span class="text-[12px]" style="color:var(--text-muted)">Email the invoice' + (t.email ? ' to ' + esc(t.email) : ' (no address on file)') + '</span>' +
+      '</label>' +
+      '<label class="flex items-center gap-2 mb-4 cursor-pointer select-none">' +
+        '<input type="checkbox" id="runNotifySms" checked style="width:14px;height:14px;accent-color:var(--accent-green);cursor:pointer;">' +
+        '<span class="text-[12px]" style="color:var(--text-muted)">Text the tenant' + (t.phone ? ' on ' + esc(t.phone) : ' (no number on file)') + '</span>' +
+      '</label>' +
+
+      '<p class="text-[12px] mb-3 hidden" id="runError" style="color:var(--danger)"></p>' +
+
+      // ── Move on ──
+      '<div class="flex items-center justify-between gap-2 flex-wrap">' +
+        '<div class="flex gap-2">' +
+          (at > 0 ? '<button type="button" class="btn-ghost" onclick="runGo(-1)">← Previous</button>' : '') +
+          '<button type="button" class="btn-ghost" onclick="runGo(1)">Skip</button>' +
+        '</div>' +
+        '<button type="button" class="btn-primary" id="runBillBtn" onclick="runBill()">' +
+          'Bill ' + esc(String(t.name).split(' ')[0]) +
+          (at + 1 < run.tenants.length ? ' &amp; next →' : ' &amp; finish') +
+        '</button>' +
+      '</div>'
+    );
+
+    runRecalc();
+  }
+
+  function prevCell(v) {
+    return '<p class="text-right text-[12.5px] tabular" style="color:' +
+           (num(v) > 0 ? 'var(--danger)' : 'var(--text-subtle)') + '">' +
+           (num(v) > 0 ? money(v) : '—') + '</p>';
+  }
+
+  function chargeRow(label, prev, inputId, value, hint) {
+    return '<div class="grid items-center gap-2 px-4 py-2.5" style="grid-template-columns:1fr 110px 130px;border-bottom:1px solid var(--border);">' +
+             '<div><p class="text-[12.5px] font-medium" style="color:var(--text)">' + esc(label) + '</p>' +
+               '<p class="text-[10.5px]" style="color:var(--text-subtle)">' + esc(hint) + '</p></div>' +
+             prevCell(prev) +
+             '<input type="number" id="' + inputId + '" step="0.01" min="0" value="' + num(value).toFixed(2) + '" ' +
+                    'class="form-input text-right tabular" style="padding:5px 8px;font-size:12.5px;" oninput="runRecalc()">' +
+           '</div>';
+  }
+
+  window.runRecalc = function () {
+    var t = run.tenants[at];
+    var total = num(el('runRent').value) + num(el('runWater').value) + num(el('runGarbage').value);
+    el('runTotal').textContent = money(total);
+    var after = num((t.arrears || {}).total) + total;
+    el('runAfter').textContent = money(after);
+    return total;
+  };
+
+  function el(id) { return document.getElementById(id); }
+
+  window.runFromMeter = function () {
+    if (el('runFlat').checked) return;
+    var prev = num(el('runPrev').value);
+    var curr = el('runCurr').value;
+    var warn = el('runWaterWarn');
+
+    if (curr === '') {
+      el('runUsed').value = '—';
+      el('runWater').value = '0.00';
+      warn.classList.add('hidden');
+      runRecalc();
+      return;
+    }
+
+    var c = num(curr), used;
+    if (c < prev) {
+      // Meter replaced or rolled over — never bill a negative
+      used = c;
+      warn.textContent = 'Reading is below the previous one (' + prev + '). Charging the reading itself — check the meter.';
+      warn.classList.remove('hidden');
+    } else {
+      used = c - prev;
+      warn.classList.add('hidden');
+    }
+
+    el('runUsed').value  = used.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+    el('runWater').value = (used * run.property.water_rate).toFixed(2);
+    runRecalc();
+  };
+
+  window.runWaterMode = function (flat) {
+    el('runCurr').disabled = flat;
+    if (flat) {
+      el('runUsed').value = '—';
+      el('runWaterWarn').classList.add('hidden');
+    } else {
+      runFromMeter();
+    }
+  };
+
+  window.runGo = function (step) {
+    at = Math.max(0, at + step);
+    render();
+  };
+
+  window.runBill = function () {
+    var t   = run.tenants[at];
+    var btn = el('runBillBtn');
+    var err = el('runError');
+    err.classList.add('hidden');
+
+    var body = new URLSearchParams();
+    body.set('action', 'bill');
+    body.set('tenant_id', t.tenant_id);
+    body.set('lease_id',  t.lease_id);
+    body.set('unit_id',   t.unit_id);
+    body.set('due_date',  el('runDue').value);
+    body.set('description', el('runNote').value);
+    body.set('charge_rent',    el('runRent').value || '0');
+    body.set('charge_garbage', el('runGarbage').value || '0');
+    body.set('charge_water',   el('runWater').value || '0');
+    body.set('water_mode',     el('runFlat').checked ? 'amount' : 'meter');
+    body.set('water_previous', el('runPrev').value || '0');
+    body.set('water_current',  el('runCurr').value || '0');
+    body.set('water_rate',     run.property.water_rate);
+    if (el('runNotifyEmail').checked) body.set('notify_email', '1');
+    if (el('runNotifySms').checked)   body.set('notify_sms', '1');
+
+    btn.disabled = true;
+    btn.textContent = 'Billing…';
+
+    fetch('actions/billing_run_api.php', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          err.textContent = data.error || 'Could not raise the invoice.';
+          err.classList.remove('hidden');
+          btn.disabled = false;
+          btn.innerHTML = 'Try again';
+          return;
+        }
+        billedTotal += num(data.total);
+        billedCount += 1;
+        // Nothing is owed twice: reflect what was just raised
+        t.already = Object.keys(data.charges || {});
+        at += 1;
+        render();
+      })
+      .catch(function () {
+        err.textContent = 'Could not reach the server. The invoice was not raised.';
+        err.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = 'Try again';
+      });
+  };
+
+  function renderDone() {
+    show(
+      '<div class="py-8 text-center">' +
+        '<div class="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3" style="background:var(--accent-green-light);color:var(--accent-green)">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' +
+        '</div>' +
+        '<h2 class="text-[15px] font-semibold" style="color:var(--text)">Run finished</h2>' +
+        '<p class="text-[12.5px] mt-1" style="color:var(--text-muted)">' +
+          'You reached the last unit on ' + esc(run.property.title) + '. ' +
+          billedCount + ' tenant' + (billedCount === 1 ? '' : 's') + ' billed, ' + money(billedTotal) + ' invoiced.' +
+        '</p>' +
+        '<div class="flex gap-2 justify-center mt-5 flex-wrap">' +
+          '<button type="button" class="btn-ghost" onclick="runExit()">Another property</button>' +
+          '<button type="button" class="btn-primary" onclick="location.reload()">Done</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+})();
+
 function toggleSingleInvoice() {
     var form  = document.getElementById('singleInvForm');
     var caret = document.getElementById('singleInvCaret');

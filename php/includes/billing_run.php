@@ -309,3 +309,168 @@ function waterCharge(float $previous, float $current, float $rate): array {
         'warning'     => null,
     ];
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BATCH LOOKUPS
+   The run is loaded in one go for the whole property, so the per-tenant
+   helpers above would mean a query each. These answer for everyone at once.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Arrears split by charge type for many tenants at once.
+ *
+ * @param array<int,string> $tenantIds
+ * @return array<string, array> tenant id => same shape as tenantArrearsByType()
+ */
+function arrearsForTenants(PDO $pdo, array $tenantIds): array {
+    $blank = ['Rent' => 0.0, 'Water' => 0.0, 'Garbage' => 0.0, 'Other' => 0.0, 'total' => 0.0];
+    $out = [];
+    foreach ($tenantIds as $id) $out[$id] = $blank;
+
+    if (!$tenantIds) return $out;
+
+    $slots = implode(',', array_fill(0, count($tenantIds), '?'));
+    try {
+        $stmt = $pdo->prepare("
+            SELECT i.tenant_id, i.invoice_type, i.amount,
+                   COALESCE(SUM(CASE WHEN t.status = 'Paid' THEN t.amount END), 0) AS paid
+            FROM invoices i
+            LEFT JOIN transactions t ON t.invoice_id = i.id
+            WHERE i.tenant_id IN ({$slots}) AND i.status NOT IN ('Paid', 'Cancelled')
+            GROUP BY i.id, i.tenant_id, i.invoice_type, i.amount
+        ");
+        $stmt->execute(array_values($tenantIds));
+
+        foreach ($stmt->fetchAll() as $r) {
+            $balance = round((float)$r['amount'] - (float)$r['paid'], 2);
+            if ($balance <= 0.009) continue;
+
+            $tid  = (string)$r['tenant_id'];
+            $type = (string)$r['invoice_type'];
+            $key  = in_array($type, BILLING_RUN_CHARGES, true) ? $type : 'Other';
+
+            if (!isset($out[$tid])) $out[$tid] = $blank;
+            $out[$tid][$key]    = round($out[$tid][$key] + $balance, 2);
+            $out[$tid]['total'] = round($out[$tid]['total'] + $balance, 2);
+        }
+    } catch (PDOException $e) {
+        // Nothing outstanding that we can see
+    }
+    return $out;
+}
+
+/**
+ * The latest reading for many units at once.
+ *
+ * @param array<int,string> $unitIds
+ * @return array<string, float> unit id => last reading (0 when never read)
+ */
+function lastReadingsForUnits(PDO $pdo, array $unitIds, string $meterType = 'Water'): array {
+    $out = [];
+    foreach ($unitIds as $id) $out[$id] = 0.0;
+    if (!$unitIds) return $out;
+
+    $slots = implode(',', array_fill(0, count($unitIds), '?'));
+    try {
+        // Latest row per unit: order the lot, then keep the first seen
+        $stmt = $pdo->prepare("
+            SELECT unit_id, current_reading
+            FROM meter_readings
+            WHERE unit_id IN ({$slots}) AND meter_type = ?
+            ORDER BY reading_date DESC, created_at DESC
+        ");
+        $stmt->execute(array_merge(array_values($unitIds), [$meterType]));
+
+        $seen = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $uid = (string)$r['unit_id'];
+            if (isset($seen[$uid])) continue;
+            $seen[$uid] = true;
+            $out[$uid] = (float)$r['current_reading'];
+        }
+    } catch (PDOException $e) {}
+    return $out;
+}
+
+/**
+ * Which of this run's charges each tenant already has for the period.
+ *
+ * @param array<int,string> $tenantIds
+ * @return array<string, array<int,string>> tenant id => list of charge types
+ */
+function billedChargesForTenants(PDO $pdo, array $tenantIds, string $period): array {
+    $out = [];
+    foreach ($tenantIds as $id) $out[$id] = [];
+    if (!$tenantIds) return $out;
+
+    [$from, $until] = periodBounds($period);
+    $tSlots = implode(',', array_fill(0, count($tenantIds), '?'));
+    $cSlots = implode(',', array_fill(0, count(BILLING_RUN_CHARGES), '?'));
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT tenant_id, invoice_type
+            FROM invoices
+            WHERE tenant_id IN ({$tSlots})
+              AND invoice_type IN ({$cSlots})
+              AND created_at >= ? AND created_at < ?
+              AND status <> 'Cancelled'
+        ");
+        $stmt->execute(array_merge(
+            array_values($tenantIds), BILLING_RUN_CHARGES, [$from, $until]
+        ));
+        foreach ($stmt->fetchAll() as $r) {
+            $out[(string)$r['tenant_id']][] = (string)$r['invoice_type'];
+        }
+    } catch (PDOException $e) {}
+    return $out;
+}
+
+/**
+ * Everything the in-modal run needs for one property, in a single payload.
+ */
+function billingRunPayload(PDO $pdo, string $propertyId, string $period): array {
+    $property = billingProperty($pdo, $propertyId);
+    if (!$property) return ['ok' => false, 'error' => 'Property not found.'];
+
+    $tenants   = billingRunTenants($pdo, $propertyId);
+    $tenantIds = array_map(fn($t) => (string)$t['tenant_id'], $tenants);
+    $unitIds   = array_values(array_filter(array_map(fn($t) => (string)$t['unit_id'], $tenants)));
+
+    $arrears  = arrearsForTenants($pdo, $tenantIds);
+    $readings = lastReadingsForUnits($pdo, $unitIds);
+    $billed   = billedChargesForTenants($pdo, $tenantIds, $period);
+
+    $rows = [];
+    foreach ($tenants as $t) {
+        $tid = (string)$t['tenant_id'];
+        $uid = (string)$t['unit_id'];
+        $rows[] = [
+            'tenant_id'    => $tid,
+            'lease_id'     => (string)$t['lease_id'],
+            'unit_id'      => $uid,
+            'name'         => (string)$t['full_name'],
+            'unit_number'  => (string)$t['unit_number'],
+            'water_meter'  => (string)($t['water_meter'] ?? ''),
+            'phone'        => (string)($t['phone'] ?? ''),
+            'email'        => (string)($t['email'] ?? ''),
+            'monthly_rent' => (float)($t['monthly_rent'] ?? 0),
+            'arrears'      => $arrears[$tid]  ?? [],
+            'last_reading' => $readings[$uid] ?? 0.0,
+            'already'      => $billed[$tid]   ?? [],
+        ];
+    }
+
+    return [
+        'ok'       => true,
+        'property' => [
+            'id'          => (string)$property['id'],
+            'title'       => (string)$property['title'],
+            'location'    => (string)$property['location'],
+            'water_rate'  => (float)$property['water_rate'],
+            'garbage_fee' => (float)$property['garbage_fee'],
+        ],
+        'tenants' => $rows,
+        'period'  => $period,
+    ];
+}

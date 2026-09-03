@@ -93,7 +93,6 @@ const PERM_PAGE_MAP = [
     'sms_log.php'           => 'invoices',
     'bank_accounts.php'     => 'bank_accounts',
     'bulk_invoices.php'     => 'bulk_invoices',
-    'billing_run.php'       => 'bulk_invoices',
     'late_penalties.php'    => 'late_penalties',
     'landlord_payouts.php'  => 'payouts',
     'expenses.php'          => 'expenses',
